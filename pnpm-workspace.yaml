@@ -1,0 +1,15 @@
+# pnpm 11 reads its settings from this file (not .npmrc).
+# Dependency build scripts are blocked unless listed here.
+allowBuilds:
+  # sharp ships prebuilt @img/sharp-* binaries; no install script needed.
+  sharp: false
+  unrs-resolver: false
+  # esbuild (via drizzle-kit, tsx, vite) needs its postinstall to fetch the platform binary.
+  esbuild: true
+
+# pnpm 11 refuses versions published less than 24 h ago. Next.js security patches
+# must be installable the same day, so they are exempt.
+minimumReleaseAgeExclude:
+  - next
+  - "@next/*"
+  - eslint-config-next

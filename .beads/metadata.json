@@ -1,0 +1,7 @@
+{
+  "database": "dolt",
+  "backend": "dolt",
+  "dolt_mode": "embedded",
+  "dolt_database": "wardrobe",
+  "project_id": "35b0159d-eba8-4614-a60c-b38db152aa28"
+}

@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
+  <!-- Source art for every app icon. After editing, run `pnpm icons` to regenerate the PNGs. -->
+  <rect width="512" height="512" rx="112" fill="#0a0a0a"/>
+  <!-- Coat hanger: a question-mark hook above a triangular body. The 44-unit stroke stays about 1.4px wide at 16px, so the favicon still reads. -->
+  <g fill="none" stroke="#fafafa" stroke-width="44" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M212 182a44 44 0 1 1 44 44v28"/>
+    <path d="M256 254L88 374H424Z"/>
+  </g>
+</svg>

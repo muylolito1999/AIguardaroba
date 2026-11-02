@@ -1,0 +1,8 @@
+# Keep LF everywhere (the app builds and runs on Linux on Vercel); the
+# Windows dev machine's global core.autocrlf would otherwise convert files.
+* text=auto eol=lf
+
+*.png binary
+*.jpg binary
+*.webp binary
+*.ico binary
