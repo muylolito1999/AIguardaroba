@@ -15,12 +15,17 @@ const SRC = path.join(ROOT, "src");
 const SOURCE_FILE = /\.(?:[cm]?[jt]sx?)$/;
 
 // Module ids (as `@/…` paths) a client bundle must not contain. Prefix match.
+// @/lib/ai/cost is caught through its import of models.
 const CLIENT_FORBIDDEN = [
   "@/env",
   "@/lib/db",
   "@/lib/ai/models",
   "@/lib/ai/client",
   "@/lib/ai/call",
+  "@/lib/ai/log",
+  "@/lib/ai/budget",
+  "@/lib/images/blob",
+  "@/lib/images/server-pipeline",
   "@/lib/auth",
   "@/server",
 ];
@@ -35,21 +40,43 @@ const SERVER_ONLY_FILES = [
   "src/env.ts",
   "src/lib/db/client.ts",
   "src/lib/db/index.ts",
-  "src/lib/ai/client.ts",
-  "src/lib/ai/call.ts",
-  "src/lib/ai/log.ts",
-  "src/lib/ai/budget.ts",
+  "src/lib/images/blob.ts",
+  "src/lib/images/server-pipeline.ts",
 ];
 // Every non-test module in these directories, except 'use server' modules
 // (the client only ever gets references to their exports) and the exemptions.
-const SERVER_ONLY_DIRS = ["src/lib/auth", "src/server"];
+const SERVER_ONLY_DIRS = ["src/lib/auth", "src/lib/ai", "src/server"];
 const SERVER_ONLY_EXEMPT = [
   // Shared with proxy.ts, scripts and the Playwright specs, where `server-only`
   // throws because they run outside Next's react-server condition.
   "src/lib/auth/token.ts",
   // Pure and safe in any bundle.
   "src/lib/auth/safe-redirect.ts",
+  // Pure AI modules: no I/O and no secrets. models.ts and cost.ts read the
+  // pricing table (and models.ts process.env), so CLIENT_FORBIDDEN keeps them
+  // out of client bundles; the Playwright usage spec and the scripts load them
+  // outside the react-server condition.
+  "src/lib/ai/models.ts",
+  "src/lib/ai/cost.ts",
+  "src/lib/ai/json-schema.ts",
+  "src/lib/ai/retry.ts",
+  // Shared with client code: the review form reads the tag limits.
+  "src/lib/ai/tagging/prompt.ts",
+  "src/lib/ai/tagging/schema.ts",
 ];
+
+// Browser-only modules: they decode images with canvas and load wasm or LGPL
+// and AGPL code, none of which belongs in a server bundle.
+const BROWSER_ONLY = [
+  "@/lib/images/client-pipeline",
+  "@/lib/images/bg-removal",
+  "heic-to",
+  "@imgly/background-removal",
+  "onnxruntime-web",
+];
+// Server code (route handlers live under src/app/api) that must never import them.
+const SERVER_CODE_DIRS = ["src/server", "src/lib/ai", "src/lib/auth", "src/app/api"];
+const SERVER_CODE_FILES = ["src/lib/images/blob.ts", "src/lib/images/server-pipeline.ts"];
 
 // D-013: proxy lets forged Next-Action requests through, so every exported
 // async service function checks the session itself. The exceptions run before
@@ -59,6 +86,9 @@ const SESSION_CHECKS = ["requireSession", "verifySession"];
 const SESSIONLESS_SERVICE_FUNCTIONS: Record<string, readonly string[]> = {
   // The password check that creates the session.
   "src/server/services/login.ts": ["attemptLogin"],
+  // Cron, authenticated by CRON_SECRET: the daily Vercel cron has no session
+  // cookie. The session-checked variant for the review page is pollTaggingBatches.
+  "src/server/services/batches.ts": ["runBatchPoll"],
 };
 const TEST_FILE = /\.test\.[cm]?[jt]sx?$/;
 
@@ -308,6 +338,13 @@ describe("source analysis", () => {
     ["@/lib/db/enums", false],
     ["@/lib/ai/models", true],
     ["@/lib/ai/cost", false],
+    ["@/lib/ai/budget", true],
+    ["@/lib/ai/log", true],
+    ["@/lib/ai/tagging/schema", false],
+    ["@/lib/images/blob", true],
+    ["@/lib/images/server-pipeline", true],
+    ["@/lib/images/client-pipeline", false],
+    ["@/lib/items/contracts", false],
     ["@/server/services/items", true],
     ["@/server/actions/items", false],
     ["@/server/actions", false],
@@ -403,6 +440,14 @@ describe("client/server boundaries", () => {
       "src/server/http.ts",
       "src/server/actions/_wrap.ts",
       "src/server/services/login.ts",
+      "src/lib/ai/client.ts",
+      "src/lib/ai/call.ts",
+      "src/lib/ai/log.ts",
+      "src/lib/ai/budget.ts",
+      "src/lib/images/blob.ts",
+      "src/lib/images/server-pipeline.ts",
+      "src/server/items/dto.ts",
+      "src/server/services/tag-item.ts",
     ]) {
       expect(checked).toContain(expected);
     }
@@ -410,6 +455,25 @@ describe("client/server boundaries", () => {
 
     const missing = serverFiles.filter((file) => !analyzeFile(file).startsWithServerOnly).map(relative);
     expect(missing).toEqual([]);
+  });
+
+  it("keeps browser-only image modules out of server code", () => {
+    const serverFiles = [
+      ...SERVER_CODE_DIRS.flatMap((dir) => walk(path.join(ROOT, dir))),
+      ...SERVER_CODE_FILES.map((rel) => path.join(ROOT, rel)),
+    ].filter((file) => !TEST_FILE.test(file));
+    expect(serverFiles.map((file) => toPosix(path.relative(ROOT, file)))).toContain(
+      "src/app/api/items/register/route.ts",
+    );
+    const violations = serverFiles.flatMap((file) =>
+      analyzeFile(file)
+        .valueImports.filter((specifier) => {
+          const id = toModuleId(specifier, file, SRC) ?? specifier;
+          return matchesPrefix(id, BROWSER_ONLY);
+        })
+        .map((specifier) => `${toPosix(path.relative(ROOT, file))} -> ${specifier}`),
+    );
+    expect(violations).toEqual([]);
   });
 
   it("checks the session in every exported async service function (D-013)", () => {

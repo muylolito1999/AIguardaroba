@@ -12,13 +12,15 @@ import { err } from "@/lib/result";
 // forged.
 //
 // Public paths are decided by config.matcher alone. It is D-013's matcher with
-// two changes:
+// three changes:
 // - /login is matched, so a visitor who is already signed in is sent on to the
 //   app instead of seeing the form. decideAuth always lets a signed-out visitor
 //   through to /login, so it stays public and the static page needs no session
 //   read of its own.
 // - robots.txt is excluded, so crawlers get the file (or a 404) rather than a
 //   redirect to /login.
+// - vendor/bg-removal/ is excluded: it holds only the open-source runtime of
+//   background removal (D-081), static files that need no session check.
 
 export type AuthInput = {
   pathname: string;
@@ -108,6 +110,6 @@ export async function proxy(request: NextRequest): Promise<Response> {
 
 export const config = {
   matcher: [
-    "/((?!_next/static|_next/image|favicon\\.ico$|icon\\.svg$|apple-icon\\.png$|icons/|manifest\\.webmanifest$|sw\\.js$|robots\\.txt$|offline$|api/blob/upload$|api/cron/).*)",
+    "/((?!_next/static|_next/image|favicon\\.ico$|icon\\.svg$|apple-icon\\.png$|icons/|manifest\\.webmanifest$|sw\\.js$|robots\\.txt$|offline$|vendor/bg-removal/|api/blob/upload$|api/cron/).*)",
   ],
 };

@@ -104,7 +104,7 @@ Each entry records one decision and the reason for it. "Deviates from spec" comp
 - Why: The SDK's `zodOutputFormat` drops `enum` and `const`, so enums would only be hints. `messages.parse` throws and loses the `usage` and `stop_reason` needed for logging and retries.
 
 ### D-019 A single, deadline-aware retry loop
-- Date: 2026-11-01 · Status: accepted · Deviates from spec: no
+- Date: 2026-11-01 · Status: accepted; outcomes and error mapping refined by D-062 · Deviates from spec: no
 - Decision: The SDK runs with `maxRetries: 0`; `callStructured()` is the only retry loop, with at most 3 attempts. It retries 408, 409, 429, 5xx and 529, connection and mid-stream errors, invalid JSON or schema output, and `max_tokens` (once, with the cap doubled). Refusals and other 4xx are final. It honours `retry-after-ms` and `retry-after`, otherwise uses full jitter capped at 8 s, and fails fast with `RATE_LIMITED` when a wait would pass the route deadline.
 - Why: Layering our loop on the SDK's would allow up to 9 attempts, and the SDK's uncapped `retry-after` could overrun the 300 s function limit.
 
@@ -114,8 +114,8 @@ Each entry records one decision and the reason for it. "Deviates from spec" comp
 - Why: Failed attempts cost money too, and a projection makes the hard stop meaningful for bulk runs. Concurrent in-flight calls can still overshoot by a few cents.
 
 ### D-021 Extended pricing table
-- Date: 2026-11-01 · Status: accepted · Deviates from spec: yes
-- Decision: `PRICING_PER_MTOK` keeps the spec's values and adds cache read (Haiku 0.1x; Sonnet 5.5 and Opus 5.5 0.05x), cache write (5 minutes 1.25x, 1 hour 2x) and batch (0.5x). Haiku 5.5's long tier applies when input plus cache tokens exceed 100,000, and then the whole request pays long rates. Model overrides use `||` and must be priced models, otherwise a configuration error is raised before any call.
+- Date: 2026-11-01 · Status: accepted; corrected 2026-11-02 (Sonnet 5.5 cache reads are 0.1x, not 0.05x) · Deviates from spec: yes
+- Decision: `PRICING_PER_MTOK` keeps the spec's values and adds cache read (Haiku 5.5 and Sonnet 5.5 0.1x, Sonnet's $0.20 per MTok; only Opus 5.5 0.05x, also $0.20 per MTok), cache write (5 minutes 1.25x, 1 hour 2x) and batch (0.5x). Haiku 5.5's long tier applies when input plus cache tokens exceed 100,000, and then the whole request pays long rates. Model overrides use `||` and must be priced models, otherwise a configuration error is raised before any call.
 - Why: Cache and batch tokens must be costed for the budget to hold, and an empty env string must fall back to the default model.
 
 ### D-022 No sampling parameters, no refusal fallback, no "reasoning" keys
@@ -124,12 +124,12 @@ Each entry records one decision and the reason for it. "Deviates from spec" comp
 - Why: API version 2026-10-21 rejects sampling parameters. The owner's rules forbid silent fallbacks. Keys named like reasoning risk `reasoning_extraction` refusals.
 
 ### D-023 Tagging with Haiku 5.5 at low effort and a cached prompt
-- Date: 2026-11-01 · Status: accepted · Deviates from spec: no
+- Date: 2026-11-01 · Status: accepted; request shapes in D-065 · Deviates from spec: no
 - Decision: Haiku 5.5, effort `low`, `max_tokens` 4096, non-streaming. A static system prompt of about 1.3–1.6K tokens with `cache_control`, versioned `tag-v1`, with the image block before the text. The client tags 4 items at a time with per-item Retry. The tag cache key is `image_hash`; Re-tag forces a new call and keeps `user_edited_fields`.
 - Why: Cheap, fast tagging that follows the spec. Caching makes the repeated prompt about 10x cheaper, and a test pins the prompt hash so any edit forces a version bump.
 
 ### D-024 Batch mode with a synchronous dry run
-- Date: 2026-11-01 · Status: accepted · Deviates from spec: no
+- Date: 2026-11-01 · Status: accepted; processing refined by D-068, pricing and creation by D-084, claiming and deadlines by D-089 and D-090 · Deviates from spec: no
 - Decision: Above 20 items, the app offers Message Batches (50% cheaper, image as a URL source, 1-hour cache TTL). Batches are polled on page visits and by a daily cron, and results are processed idempotently by `custom_id`. Before `batches.create`, the first item is tagged synchronously with exactly the batch parameters; if that fails, no batch is created.
 - Why: Batch parameters are only validated after the whole batch ends. Hobby crons run at most once a day.
 
@@ -183,7 +183,7 @@ Each entry records one decision and the reason for it. "Deviates from spec" comp
 - Why: The spec's sizes and cache key. Pre-upload dedupe saves Blob operations and API calls, and plain images use no Image Optimization quota.
 
 ### D-034 Background removal with `@imgly/background-removal`
-- Date: 2026-11-01 · Status: accepted · Deviates from spec: no
+- Date: 2026-11-01 · Status: accepted; spike passed, setup in D-077, runtime served by the app per D-081 · Deviates from spec: no
 - Decision: `@imgly/background-removal` 1.7.0 with `onnxruntime-web` 1.21.0 pinned exactly, loaded lazily on the client only, models from the IMG.LY CDN, `device: 'cpu'` only, and no COOP/COEP headers, so it runs single-threaded. It starts with a time-boxed compatibility spike in a visible browser; if it does not bundle or run on Next.js 16 with Turbopack, work stops and the owner is asked (no silent library swap).
 - Why: The owner accepted the AGPL-3.0 licence for this private single-user app (see README). COOP/COEP would break loading images from Blob.
 
@@ -303,7 +303,7 @@ Each entry records one decision and the reason for it. "Deviates from spec" comp
 - Why: Showing the login form to someone already signed in is a dead end, and API clients need a status they can act on rather than an HTML redirect. The proxy stays an optimistic filter; the security boundary is the DAL.
 
 ### D-056 E2E runs on an isolated database with throwaway credentials
-- Date: 2026-11-02 · Status: accepted · Deviates from spec: no
+- Date: 2026-11-02 · Status: accepted; every other app variable blanked by D-102 · Deviates from spec: no
 - Decision: `playwright.config.ts` starts the server with its own environment: `DATABASE_URL` and `DATABASE_URL_UNPOOLED` point at the Docker `wardrobe_e2e` database, `APP_PASSWORD_HASH` is the base64 bcrypt hash (cost 4) of the fixed, non-secret `E2E_PASSWORD` in `e2e/constants.ts`, and `SESSION_SECRET` is 48 random characters generated at each run. Process variables override `.env.local`, so no env file is needed and a developer's real values are never used. `e2e/global-setup.ts` applies the migrations, truncates every public table (migration history excluded) and runs the same seeder as `pnpm db:seed`; it builds its own `pg` pool because `src/lib/db/client.ts` imports `server-only`. If the database is unreachable it fails with a hint to run `docker compose up -d db`.
 - Why: Runs must be repeatable and must never touch the development database or a real password. Truncating `login_attempts` keeps the rate limit from carrying over between runs, and a fresh secret invalidates any session left from an earlier run.
 
@@ -326,3 +326,246 @@ Each entry records one decision and the reason for it. "Deviates from spec" comp
 - Date: 2026-11-02 · Status: accepted · Deviates from spec: no
 - Decision: The session token is issued once at login for a fixed 30 days and is not renewed on use; `maxTokenAge` bounds its age by `iat` as well, so no token outlives 30 days and changing `SESSION_SECRET` signs out every device. The cookie is `__Host-wardrobe_session` with `path=/`, no Domain, httpOnly, Secure and SameSite=Lax; logout overwrites it with `maxAge` 0. Changing the password does not end existing sessions; rotating `SESSION_SECRET` does, and the README says to do both after a suspected compromise. The rate-limit client is the first `x-forwarded-for` entry, then `x-real-ip`, otherwise one shared `unknown` bucket. An IPv6 address counts as its /64 network and an IPv4-mapped IPv6 address as the IPv4 address before hashing. The per-client limit is only trustworthy behind a proxy that overwrites `x-forwarded-for`, such as Vercel: Next 16.4.3 sets the header from the socket only when it is absent, so a self-hosted `next start` lets each client pick its own key. More than 200 failed logins in an hour across all clients only logs a warning (D-014). The login and logout actions are the only ones that run without a session. Mutating Route Handlers also refuse a missing or foreign `Origin` with 403.
 - Why: A single owner gains little from sliding sessions, and a fixed lifetime keeps the token check stateless. On Vercel the platform overwrites `x-forwarded-for`, so its first entry is the client. One host routinely holds a whole IPv6 /64 and could otherwise get 5 guesses per address. The `__Host-` prefix makes browsers refuse a session cookie set by a sibling subdomain or with a Domain attribute, so it cannot be shadowed (cookie tossing); Chromium accepts it on `http://localhost`, so local builds and e2e runs need no change. The Origin check guards cookie-authenticated routes against cross-site requests, which SameSite=Lax alone does not fully cover.
+
+## Added in Phase 3
+
+### D-060 One set of item contracts for Claude's output and the owner's edits
+- Date: 2026-11-02 · Status: accepted · Deviates from spec: no
+- Decision: `src/lib/items/contracts.ts` (client-safe) defines the field limits and one validator per editable tag field; the strict tagging schema and the patch schema both use them. Text is trimmed; colour names and materials are 1–40 characters; colour names are unique ignoring case. `colors` and `color_hex` are parallel lists, so a patch must carry both with the same length. The item-card loaders treat a malformed id as NOT_FOUND (routes as VALIDATION) without querying.
+- Why: Claude's tags and the owner's edits then pass the same rules, and the form and server cannot drift apart. Passing a malformed uuid to Postgres fails with a syntax error, which would surface as a 500.
+
+### D-061 Tagging wire schema and its conversion
+- Date: 2026-11-02 · Status: accepted · Deviates from spec: no
+- Decision: The wire schema has no optional keys and exactly three nullable unions (`breathable`, `fit`, `brand_guess`); its length limits are written into the field descriptions, and the strict schema enforces them after `JSON.parse`. Warmth is `z.literal([1, 2, 3, 4, 5])`, which converts to an integer enum. The converter reads zod's input side, inlines refs, rejects cycles, allow-lists keywords (anything unknown throws), turns `oneOf` into `anyOf`, drops `format`, `default`, `uniqueItems` and the other limits, and throws above 16 unions or on any optional key. The result is memoised and frozen per schema.
+- Why: A union of literals would count toward the 16-union limit. Refusing unknown constructs is safer than loosening them silently. Identical bytes on every request keep the prompt cache prefix stable.
+
+### D-062 Retry outcomes and error mapping (refines D-019)
+- Date: 2026-11-02 · Status: accepted · Deviates from spec: no
+- Decision: When the server's `retry-after` would pass the deadline the call ends with AI_UNAVAILABLE (with `details.retryAfterSeconds`), and when even the backoff leaves too little time with AI_TIMEOUT; D-019's RATE_LIMITED is not used for Claude calls. An attempt starts only with at least 2 s left. 401, 403 and 404 (and the same mid-stream errors) are CONFIG; 400, 402, 413 and 422 are AI_UNAVAILABLE and final; 408 is retried as AI_TIMEOUT; 409, 429, 5xx and 529 are retried as AI_UNAVAILABLE; `x-should-retry` is obeyed both ways. Invalid output is retried at once, `max_tokens` once with the cap doubled up to the ceiling (tagging 4096 to 8192), and refusals are final with `stop_details` in the error. `ai_calls.error_code` holds a short label (`http_529`, `stream_overloaded_error`, `connection`, `deadline`, `invalid_output` and so on).
+- Why: The caller can tell a temporary outage from a deadline, and RATE_LIMITED stays the login limit's code. A 401 or 404 means a wrong key or model, which retrying cannot fix. Short labels keep the usage page and log queries readable.
+
+### D-063 Cost estimate and budget arithmetic
+- Date: 2026-11-02 · Status: accepted; the dry run's price refined by D-084 · Deviates from spec: no
+- Decision: The tagging estimate assumes a 1024 × 1024 image (1,369 tokens), 400 tokens of format overhead, 700 output tokens and a system prompt of characters ÷ 3.5 × 1.3 (1,984 tokens); the first call of a run writes the cache and later calls read it. About $0.055 per 100 items synchronously and $0.028 batched. Cache writes not covered by the per-TTL breakdown are priced as 5-minute writes. The budget compares whole micro-dollars and stops when spend reaches the budget, even for a zero estimate. A batch is checked as the dry run at normal rates plus the rest at batch rates; `ai_batches.estimated_cost_usd` holds only the batch part, because the dry run is logged at once, and it counts as pending until the batch is marked processed.
+- Why: The spec's estimator with its tokenizer factor, made explicit so `ai:smoke` can compare it with measured cost. Counting the dry run twice, or a processed batch both as pending and as logged spend, would block work early.
+
+### D-064 AI settings without the key; the client only when needed
+- Date: 2026-11-02 · Status: accepted · Deviates from spec: no
+- Decision: `aiSettingsEnv()` returns the models, effort, budget and credit without reading `ANTHROPIC_API_KEY`; its errors are reported under the `ai` group, and `env:check` is unchanged. The Anthropic client is created only when a call is sent: a cached tag and a poll with no open batch never touch it.
+- Why: The add, review and usage pages must render, and say what is missing, before the key exists (and in e2e, which has no key).
+
+### D-065 Tagging request shapes
+- Date: 2026-11-02 · Status: accepted · Deviates from spec: no
+- Decision: Tagging one item reads the processed WebP (10 s timeout, no redirects, at most 5 MiB) and sends it as base64 with the 5-minute cache, under a 50 s deadline inside the route's `maxDuration` of 60. The batch dry run and the batch requests are built by one function with a URL image and the 1-hour cache, so they differ only in the URL; a test checks this. The tag route does not pass the request's abort signal on. tag-v1 category boundaries: blazers and fleece pullovers are tops, zip-up outdoor fleeces and softshells outerwear, socks, tights and underwear base layers, wallets and umbrellas accessories, swimwear and sleepwear other.
+- Why: A dry run is only meaningful if it sends what the batch sends. A paid-for answer should be stored even if the browser leaves.
+
+### D-066 Tagging failures and items in a batch
+- Date: 2026-11-02 · Status: accepted; the open question resolved by D-093 · Deviates from spec: no
+- Decision: A budget block sends nothing and writes no `tagging_error`. Any later failure writes one (the AppError message cut to 300 characters, or a generic text for CONFIG and INTERNAL) and leaves the status unchanged. Tagging an item that waits in a batch is a CONFLICT unless forced; a forced re-tag clears the batch link, and the later batch result is skipped but still logged as spend. Open question for the owner (resolved by D-093, "Fill in by hand"): an item Claude refuses stays pending and cannot be confirmed even with every tag filled in by hand; Re-tag is the only way out today.
+- Why: The owner sees why each item has no tags, configuration details stay on the server (D-053), and the same item is not paid for twice by accident.
+
+### D-067 Tracking the owner's edits
+- Date: 2026-11-02 · Status: accepted · Deviates from spec: no
+- Decision: `computeUserEditedFields` compares a patch with Claude's stored output: text exactly (case included), `""` and null alike for `fit` and `brand`, `materials` and `seasons` as sets, `colors` in order. An edit to either colour list marks both. Marks are sticky (setting a field back to Claude's value keeps the mark), only tag fields are tracked, and on an item with no tagging output every tag field in a patch counts as edited. A re-tag keeps edited values (null included for `breathable`, `fit` and `brand`); colours are kept as a pair only while both lists still have the same length; a required field that is somehow empty takes Claude's value so the tagged CHECK holds.
+- Why: Re-tag must never undo the owner's corrections, and the parallel colour lists must stay consistent.
+
+### D-068 Applying batch results exactly once
+- Date: 2026-11-02 · Status: accepted; when the row is inserted replaced by D-089, how poll failures are returned by D-092 · Deviates from spec: no
+- Decision: Batches take 21 to 1,000 items that are pending, untagged, in no batch and have a processed photo; joining clears an old `tagging_error`. The `ai_batches` row is inserted after `batches.create`; if that insert fails, the Anthropic batch id is logged for recovery. A poll reads all results first, then applies the whole batch in one transaction that locks its row and ends with a guarded update to `processed`. Succeeded results are always logged at batch rates (`item_id` null if the item was deleted), errored ones as zero-cost error rows with `batch_<type>`, expired and canceled ones not at all (not billed). Items without a result get a `tagging_error`. An unpriced batch model fails the poll with CONFIG and leaves the batch unprocessed, so its estimate keeps counting. `canceling` is mirrored; `ended` is never stored. Results are stamped with the prompt version current at poll time. One failing batch does not stop the others, but the first failure is returned afterwards.
+- Why: The daily cron and page visits can overlap, and cron delivery can repeat; spend must be logged once and never lost.
+
+### D-069 The cron route
+- Date: 2026-11-02 · Status: accepted · Deviates from spec: no
+- Decision: `GET /api/cron/poll-batches`, `maxDuration` 300, daily at 04:00 UTC in `vercel.json`. It reads the Authorization header first and compares it with `Bearer <CRON_SECRET>` in constant time after hashing both with sha256. Missing or wrong: 401; `CRON_SECRET` unset: a generic 500. It is the only session-free service entry (`runBatchPoll`, listed with its reason in the boundary test); the review page uses the session-checked `pollTaggingBatches`.
+- Why: Vercel Cron carries no session cookie. Hashing first also hides the secret's length, and reading the header first keeps the handler out of prerendering.
+
+### D-070 Confirming items
+- Date: 2026-11-02 · Status: accepted · Deviates from spec: no
+- Decision: Only tagged or confirmed items with a complete tag set (the database CHECK fields plus a name and a colour) can be confirmed; otherwise VALIDATION. Bulk confirm changes only items that are still tagged, at most 500 per call, and returns the count; the list asks for a reload when fewer were confirmed than sent. Edits are allowed on pending items and survive tagging.
+- Why: The wardrobe and the relocation analysis rely on complete tags; a stale list must not confirm items that changed elsewhere.
+
+### D-071 Direct Blob uploads with our own token request
+- Date: 2026-11-02 · Status: accepted · Deviates from spec: no
+- Decision: The browser POSTs the `blob.generate-client-token` event to `/api/blob/upload` itself and then calls `put()` from `@vercel/blob/client` with the token, instead of `upload()`; the add flow and background removal share this in `src/lib/images/blob-upload-client.ts`. The route answers success in handleUpload's own shape and failures in the app's Result shape. Tokens last 10 minutes, add a random suffix, never overwrite and carry a one-year cache; the pathname must equal the contract's exactly; originals are JPEG, PNG or WebP up to 10 MiB, cut-outs PNG up to 15 MiB. A known source hash is a 409 DUPLICATE with the existing item id, and a cut-out for a missing item a 404.
+- Why: `upload()` reports every refusal as "Failed to retrieve the client token", which hid DUPLICATE, CONFIG and an ended session from the page.
+
+### D-072 Registering an upload
+- Date: 2026-11-02 · Status: accepted · Deviates from spec: no
+- Decision: Register validates the blob with `head()` before fetching or deleting anything: https only, no query or fragment, the URL `head()` returns must equal the input, and the pathname must match. It fetches only that URL, with redirects refused, a 20 s timeout and the 10 MiB cap, and the byte count must equal the `head()` size. sharp accepts JPEG, PNG and WebP up to 50 MP, checked from the header before decoding. An undecodable original is deleted; a read or database failure keeps it so the register can be retried (a database failure deletes the derived images). A lost unique-constraint race is settled by item id first: the same id returns that item, a different one is a duplicate. A missing `app_settings` row is CONFIG, with no fallback location. Blob token and store errors are CONFIG; other Blob failures UPSTREAM. `originalFilename` is accepted but not stored.
+- Why: A crafted request must not be able to make the server fetch arbitrary URLs or delete another blob, a short read must never delete a good original, and retries must be idempotent.
+
+### D-073 Browser pipeline details
+- Date: 2026-11-02 · Status: accepted · Deviates from spec: no
+- Decision: HEIC sniffing excludes AVIF (which also lists `mif1`, but browsers decode it themselves). HEIC is converted to JPEG at q0.92 before the final q0.85 encode. The canvas is filled with white before JPEG encoding. The original filename is cut to 255 characters. Without `crypto.subtle` (plain HTTP on a LAN address) the page says to open the app over HTTPS.
+- Why: Transparent PNGs would otherwise turn black, and hashing needs a secure context.
+
+### D-074 Add flow behaviour
+- Date: 2026-11-02 · Status: accepted; the page refresh after tagging replaced by D-096 · Deviates from spec: no
+- Decision: Per photo: prepare, in-list duplicate check, batched source-hash check (lookups within 50 ms grouped, up to 500 per request), upload, register; three photos at a time and four tagging calls at a time from the start of a run. The item id is generated in the browser once per photo, so Retry resumes idempotently from the failed step. Toasts have one id per step and error code. The CONFIG hints describe the setting ("the Blob store's read-write token", "the Anthropic API key") rather than naming the variable. The page receives the per-item cost rates from the server and rounds estimates to cents ("< $0.01"); the usage page shows sub-cent amounts. A tagging run or a started batch refreshes the page so the remaining budget is current.
+- Why: Starting with four parallel calls can write the prompt cache up to four times instead of once, which costs well under a cent per run and keeps the first results fast. Keeping server variable names out of client code means the build check for leaked secrets finds none of the app's own strings. `src/lib/ai/cost.ts` imports the pricing table, which client code must not load.
+
+### D-075 Review screen behaviour
+- Date: 2026-11-02 · Status: accepted · Deviates from spec: no
+- Decision: The page loads the newest 200 waiting items, renders cards ten at a time and says when more are waiting. A patch is the difference from the item's current values, not react-hook-form's dirty flags. Enter in a text field saves rather than confirms; Confirm reads "Save and confirm" when there are edits. Fields below 0.6 confidence show "Check this: Claude was N% sure" with an amber ring until edited (the materials score also covers the material guess, the colours score the hex values). "Confirm all untouched" skips edited, unsaved and untagged items. Confirming moves focus to the next card's heading. Photos are plain `<img>` inside `<picture>`; the warmth slider is built from Base UI parts so the thumb can be named and speak the rubric. Selects are 44 px tall and the switches have a 46 px hit area, with their labels toggling them.
+- Why: Saving can be undone and confirming moves the item on. The visual check found the select triggers at 32 px, because the shadcn trigger sets its height under `data-[size=default]`.
+
+### D-076 Usage page figures
+- Date: 2026-11-02 · Status: accepted · Deviates from spec: no
+- Decision: Months are UTC calendar months, as in the budget check, and times are shown in UTC. The cache hit ratio is cache reads ÷ (uncached input + cache reads + cache writes). Recent calls list failed attempts too. Blob advanced operations are estimated from stored image rows: an original 1, processed and thumbnail 1 each, a background removal 2.
+- Why: One window for spend and budget avoids two different "this month" figures. Vercel does not expose the Blob counter to the app, so the page says it is an estimate.
+
+### D-077 Background removal setup (follows D-034)
+- Date: 2026-11-02 · Status: accepted; where the files come from replaced by D-081 · Deviates from spec: no
+- Decision: Model `isnet_quint8`, `device: 'cpu'`, PNG output, single-threaded, no COOP/COEP and no GPU path; files from IMG.LY's default CDN path for 1.7.0 (now: runtime from the app, model from the CDN, D-081). The confirmation names the first download (about 53 MB, now 57 MB); accepting is remembered in `localStorage` (`wardrobe.bgRemoval.downloadAccepted`), declining is not. Runs are queued one at a time and one fixed progress callback forwards to the active run. The uploaded PNG is temporary and always deleted once validated; the server requires an alpha channel, stores a 1024 px WebP, keeps one cut-out per item (row locked, previous blob deleted) and leaves `items.updated_at` unchanged.
+- Why: The compatibility spike measured the small model at about 7 s warm with the same alpha as the default model at 11 s and 84 MB. The library memoises its session together with the first caller's progress callback. Not touching `updated_at` keeps an open review form from hitting a conflict.
+
+### D-078 Session-gated page content renders at request time only
+- Date: 2026-11-02 · Status: accepted · Deviates from spec: no
+- Decision: `verifySession()` calls `connection()` before reading the cookie, so with Partial Prefetching the cookie-dependent part of a page is not rendered during a link prefetch; the static shell still prefetches.
+- Why: The first e2e run logged "encountered the unstable value `new Date()` while prerendering" for `/add`, `/add/review` and `/settings/usage`: the prefetch rendered the Suspense children, and the token check compares its expiry with the current time. The reads behind the check (budget, items, the batch poll on the review page) must not run on a prefetch either.
+
+### D-079 Boundary test covers the Phase 3 modules
+- Date: 2026-11-02 · Status: accepted · Deviates from spec: no
+- Decision: Every module under `src/lib/ai` must start with `import "server-only"` except the pure `models`, `cost`, `json-schema`, `retry`, `tagging/prompt` and `tagging/schema`, each listed with a reason; so must `src/lib/images/blob.ts` and `server-pipeline.ts`. Client code may not reach `@/lib/ai/log`, `@/lib/ai/budget`, `@/lib/images/blob` or `@/lib/images/server-pipeline`. Server code (`src/server`, `src/lib/ai`, `src/lib/auth`, `src/app/api` and the two server image modules) may not import the browser-only `client-pipeline`, `bg-removal`, `heic-to`, `@imgly/background-removal` or `onnxruntime-web`.
+- Why: Next only enforces the split at build time and only for modules that import `server-only`; a new AI module now fails the test until it is classified.
+
+### D-080 Function durations
+- Date: 2026-11-02 · Status: accepted · Deviates from spec: no
+- Decision: The tag, register and nobg routes set `maxDuration` 60 (tagging stops calling Claude at 50 s); the cron route sets 300. Pages set none, so their Server Actions (including `startTaggingBatch`, which runs the dry run) get the platform default of 300 s under Fluid compute.
+- Why: Explicit limits where the code's own deadline depends on them; a page-level 60 could cut a batch start short.
+
+## Added in the Phase 3 review fixes
+
+### D-081 The background-removal runtime is served by the app (refines D-034 and D-077)
+- Date: 2026-11-02 · Status: accepted; cache headers narrowed by D-101 · Deviates from spec: no
+- Decision: `onnxruntime-web` 1.21.0's `ort-wasm-simd-threaded.wasm` and `.mjs` are copied into `public/vendor/bg-removal/imgly-1.7.0-ort-1.21.0/` by `pnpm vendor:bg-removal`, which `pnpm build` and `pnpm dev` run first. The copy checks the installed versions and each file's pinned sha256 and size and fails the build on any difference; the folder is git-ignored. A `resources.json` written next to them lists only the CPU path's three entries: the two runtime files by relative name and the `isnet_quint8` model chunks by absolute URL on IMG.LY's CDN (`@imgly/background-removal-data` 1.7.0, each chunk named by its sha256). `publicPath` is set per run from `location.origin`, never left at the library's default. The files are excluded from the proxy and served with `Cache-Control: public, max-age=31536000, immutable`. The confirmation now names 57 MB, the uncompressed total.
+- Why: The library wraps the runtime's `.mjs` glue in a `blob:` URL that onnxruntime imports, so that file runs as script in the app's origin. Loaded from the CDN, a change to that path could have used the owner's session to read every item, tag with `force` until the budget is spent, or replace cut-outs; the only check was a byte size taken from the same CDN. The runtime now comes from a lockfile-pinned package with hashes checked at build, and it matches the onnxruntime JavaScript bundled with the app, which the CDN copy did not byte for byte. The model is data, about 44 MB, and stays on the CDN so it is neither committed nor deployed: a changed model can spoil the mask but cannot run script, and the library still checks every chunk's size against the app's own `resources.json`. A visible-browser run on 2026-11-02 fetched the runtime from the app and the model from the CDN and produced a 1024 × 1280 PNG with real alpha in 8 s.
+
+### D-082 Leaving the add page while work is running
+- Date: 2026-11-02 · Status: accepted; what leaving does corrected by D-098 · Deviates from spec: no
+- Decision: While any upload is in progress or any tagging call is queued or running, `/add` asks before it is left: `beforeunload` for a reload, a tab close or an address-bar navigation, and a capture-phase click listener on `window` that holds back any same-origin link (the Review link, the sidebar, the tab bar) and opens a dialog ("Leave this page?" with what would be lost; "Stay here" or "Leave anyway"). The browser's Back button is not covered.
+- Why: Leaving unmounts the flow, which aborts uploads and drops queued calls; the photos had to be picked again and an upload aborted after `put()` left an orphaned original. Next's client navigation fires no `beforeunload`, so links need their own guard. Back is a `popstate` the app router handles itself and cannot be cancelled cleanly.
+
+### D-083 Tagging from the review page
+- Date: 2026-11-02 · Status: accepted; refined by D-094 and D-096 · Deviates from spec: no
+- Decision: The review list has a "Tag N waiting items ≈ $X" control for every loaded item that is pending and in no batch (failed ones included), with the model, the remaining budget, four calls at a time and the same stop on BUDGET_EXCEEDED as the add page; above 20 items it offers the batch. After a batch starts, the batched cards show "In batch" and the dry-run item's card is read back with a plain tag request, which the server answers from the stored tags without a call. The page reads the model, rates and budget through `getTaggingSetup`, shared with `/add`; a CONFIG error there disables only these controls, with the reason. A card waiting in a batch offers "Tag now instead", which sends `force` after a confirmation that the batch result is still billed; the server's CONFLICT message names that button. Cards and the bulk run share one set of busy item ids, so neither sends a second call for the same item.
+- Why: Only the add page could tag in bulk, and only for its own session's queue; items left from a reload, a lifted budget block or an expired batch could only be tagged one card at a time, without the spec's cost quote. Batch items had no way out while polling failed.
+
+### D-084 Batch pricing, and retrying batch creation (refines D-024 and D-063)
+- Date: 2026-11-02 · Status: accepted; deadlines and timeouts added by D-090 · Deviates from spec: no
+- Decision: The dry run is priced everywhere as one item at standard rates writing the 1-hour cache (2x instead of 1.25x): in the batch button's quote (`dryRunUsd` plus n − 1 items at batch rates), in `startTaggingBatch`'s budget check and in `tagItem`'s own check when `batchShape` is set. `batches.create` is retried up to three attempts only after a 429, a 529 or `x-should-retry: true` (never after `x-should-retry: false`, a connection error or a timeout), waiting for `retry-after` or the jittered backoff, and only while the wait stays within 60 s. A failure after the dry run carries `taggedItemId`, and both pages then show that item as tagged and leave it out of the next attempt. A started batch shows its dry-run item as tagged and the toast says "1 item was tagged right away; N in the batch".
+- Why: The button showed less than the server reserved, so a run near the budget could pass the page's check and then be refused. A rejected 429 or 529 creates no batch, so retrying cannot bill twice; a lost answer might have created one. Without the detail, the next attempt sent an item that was already tagged and failed with CONFLICT.
+
+### D-085 Batch polls have request timeouts
+- Date: 2026-11-02 · Status: accepted · Deviates from spec: no
+- Decision: `BatchPollDeps.requestTimeoutMs` bounds each Batches API request: the SDK `timeout` for `retrieve` and `results`, and an abort signal for reading the results body, which the SDK timeout does not cover. The review page's poll uses 10 s, the cron 60 s. A timeout is AI_TIMEOUT and leaves the batch unprocessed; on the review page it becomes the existing "Batch results not checked" notice.
+- Why: The review page polls while it renders; with the SDK's 10-minute default a slow API held the page until the 300 s function limit.
+
+### D-086 An error boundary for the app's pages
+- Date: 2026-11-02 · Status: accepted · Deviates from spec: no
+- Decision: `src/app/(app)/error.tsx` renders inside the (app) layout, so the sidebar and tab bar stay. It shows the safe message from `toErrorPayload`, the error's digest for the server log, "Try again" (`retry()`, which refetches the segment) and links to Settings and AI usage.
+- Why: A database outage, an invalid setting or a failed item read replaced the whole app with Next's generic error screen, with no navigation and no retry.
+
+### D-087 Hex colours are lowercased, not refused
+- Date: 2026-11-02 · Status: accepted · Deviates from spec: no
+- Decision: The strict `color_hex` entries are trimmed and lowercased before the `#rrggbb` check, in Claude's output and in the owner's patches alike. Short forms such as `#fff` are still refused.
+- Why: The wire schema cannot carry a pattern, so an uppercase reply failed as invalid output and cost up to three paid attempts for a usable value.
+
+### D-088 Upload progress stops when the upload settles; toasts clear the tagging bar
+- Date: 2026-11-02 · Status: accepted; toast placement replaced by D-100 · Deviates from spec: no
+- Decision: `progressUntilSettled` drops progress events that arrive after `put()` resolved or rejected, for originals and cut-outs. While the add page's tagging bar is shown it sets `--toast-lift` on the document to its measured height plus 16 px, and the toast viewport adds that to its bottom offset at every width.
+- Why: `put()` throttles progress with a trailing call, which could arrive after the upload finished and put a saving or ready photo back to "Uploading 100%"; the new headed e2e test with a fast fake register found it, with the photo stuck there. The toasts and the sticky bar shared the bottom edge, so an error toast covered "Start tagging" and the batch button.
+
+## Added in the Phase 3 second review
+
+### D-089 Batch starts claim their items first (replaces part of D-068)
+- Date: 2026-11-02 · Status: accepted · Deviates from spec: no
+- Decision: Before any paid call, one transaction locks the requested item rows (`ORDER BY id FOR UPDATE`, the dry-run item included), checks them again with the same rules and messages as before, inserts the `ai_batches` row with `anthropic_batch_id` = `claim:<uuid>` and the batch-only estimate, and links the batched items; if any item changed in the meantime, the start fails with CONFLICT and rolls back. The dry-run item is not linked. If the dry run or `batches.create` fails, the claim row is deleted (guarded by the `claim:` prefix; a failed delete is logged) and the foreign key unlinks the items. On success one transaction writes the real batch id and clears the linked items' `tagging_error`. Polls skip claim rows and delete those older than 15 minutes, with a log line. There is no schema change: the placeholder id avoids a migration. This replaces D-068's "the `ai_batches` row is inserted after `batches.create`".
+- Why: Two overlapping starts both paid for a dry run and a whole batch. Now the second one fails before anything is spent, and while a start runs, its reservation already counts in the budget.
+
+### D-090 A batch start fits inside the action's 300 s (refines D-084)
+- Date: 2026-11-02 · Status: accepted · Deviates from spec: no
+- Decision: `startTaggingBatch` has a 270 s deadline. Each `batches.create` attempt gets a request timeout of min(60 s, time left); no attempt starts with less than 5 s left (AI_TIMEOUT, "There was not enough time left to create the batch. Try again."), and a retry wait must end both within D-084's 60 s window and 5 s before the deadline. Timeouts are not retried: they release the claim and return AI_TIMEOUT with `taggedItemId`. A timeout, a connection error or a 5xx logs that a batch may exist at Anthropic without a known id; a 4xx and the app's own pre-attempt timeout, which sent nothing, do not.
+- Why: With the SDK's 10-minute default, a stalled create was killed by the platform before any error handling ran, so the page lost which item the dry run had tagged.
+
+### D-091 Choosing and reporting the dry-run item
+- Date: 2026-11-02 · Status: accepted · Deviates from spec: no
+- Decision: The dry run uses the first item, in the page's order, with no stored `tagging_error`, or the first item when every one failed before. A failed dry run names its item (`DRY_RUN_ITEM_DETAIL`, read with `dryRunItemIdFrom()`); /add then marks only that row as failed, with Retry, and leaves it out of the next batch attempt, while the other items go back to idle; /add/review marks only that card as failed, with Retry, and keeps it among the waiting items, so a later batch includes it (the server never picks it as the dry run while another item has no stored error). A BUDGET_EXCEEDED stop marks no card, because a budget stop stores no error (D-066).
+- Why: An item whose dry run had failed was chosen first again on every attempt, so one photo Claude refuses blocked the whole batch, and the add page showed every row as failed.
+
+### D-092 Batch polls return partial results (replaces part of D-068)
+- Date: 2026-11-02 · Status: accepted · Deviates from spec: no
+- Decision: `runBatchPoll` returns the counts for the batches it processed plus `errors`, one safe payload per failed batch (each logged), and throws only when reading the open batches or creating the client fails. The cron answers 200 when there are no errors; otherwise it answers with the first error's status and `{ ok: false, error, data }`, so the cron log shows a failure and the counts are kept. The review page shows "Applied N finished batch results" and the "Batch results not checked" notice together; the notice lists distinct messages, so its "N batches could not be checked" counts messages, not batches. This replaces D-068's "the first failure is returned afterwards".
+- Why: One failing batch hid the results that had been applied from the others.
+
+### D-093 Pending items can be tagged by hand (resolves D-066's open question)
+- Date: 2026-11-02 · Status: accepted; decided under the owner's "pause only if blocked" run scope, so the owner can veto it · Deviates from spec: no
+- Decision: Every pending item on `/add/review` that is in no batch offers "Fill in by hand". It opens the review form in a manual mode: no hints and no Re-tag; Save, Save and confirm, and Cancel; focus starts on the name. Values the card already has are prefilled; category, formality and condition start unset ("Choose…"), warmth at 3, the switches off and breathable unknown. The form requires a name, category, at least one colour, warmth, formality, condition and at least one season before anything is sent. `tagItemByHand` checks the same on the server (VALIDATION with `details.missing`), stores the item as tagged (Save) or confirmed (Save and confirm), leaves `ai_raw`, `ai_model` and `ai_confidence` null, clears `tagging_error`, and adds every tag field with a value (`false` counts) to `user_edited_fields`, keeping earlier marks. An item in a batch, or one that already has tags or Claude's output, gets CONFLICT and does not show the button. While the form is open the item counts as busy, so bulk tagging and batches skip it. Tagging counts a hand-tagged item as tagged, so it is sent to Claude only with Re-tag, which keeps the owner's values (D-067).
+- Why: An item Claude refuses had no way out, and the owner can now catalogue items without AI spend. The form's defaults (warmth 3, switches off) are saved as the owner's values too, so a later Re-tag keeps them.
+
+### D-094 A stale "Tag now instead" does not pay twice (refines D-083)
+- Date: 2026-11-02 · Status: accepted · Deviates from spec: no
+- Decision: "Tag now instead" sends `{ force: true, batchId }` with the card's batch id; `TagBodySchema` accepts an optional uuid `batchId`. When the item is no longer linked to that batch and already has tags (Claude's or the owner's), the tag route returns those tags without a budget check or an API call. With a matching batch id, or for an item the batch failed to tag, it tags as before.
+- Why: A card rendered before the batch result was applied would otherwise pay for a second tagging of an item that already had its tags.
+
+### D-095 The review list re-syncs with newer server props
+- Date: 2026-11-02 · Status: accepted; refined by D-103 · Deviates from spec: no
+- Decision: With Cache Components, Next keeps up to three visited routes in a hidden `<Activity>`, so a return to `/add/review` hands the same `ReviewList` new props. The list merges them with `mergeServerItems`: the server's order, the local card kept for dirty or busy items, new ids added, and unlisted ids dropped unless busy (a busy card stays after the card it followed). Dirty marks for departed ids are dropped and the bulk problem line is cleared. A clean tag form resets to a newer card; a dirty one keeps its edits. `ReviewTagging` takes a newer `setup` prop and re-derives the budget block from it. Runs started from an older render change only the fields they own (`onItemPatch`), so newer state such as a finished cut-out survives. A rejected action call (a network failure) shows "Not saved" or "Not confirmed" with the network message and always clears the busy state; bulk confirm does the same.
+- Why: After confirming everything and adding more photos, the revisited page still showed the old list, and a failed call left a form disabled for good. A key per render or `bfcacheId` would have thrown away unsaved edits.
+
+### D-096 The budget is re-read through a route, not a page refresh (replaces D-074's refresh)
+- Date: 2026-11-02 · Status: accepted · Deviates from spec: no
+- Decision: `GET /api/ai/tagging-setup` (session-checked; CONFIG answered as a 500 with the safe message) returns the model, rates and month's budget. `/add` re-reads it when a tag run settles and after every batch attempt; `/add/review` after a bulk run and after every batch attempt. A failed batch start counts too, because the dry run may already have been paid for. A failed read silently keeps the last numbers, and only the latest read applies. On `/add` a re-read updates the numbers but never sets or lifts the budget block; a new server `setup` prop (a new render) re-derives it. On `/add/review` the block after a run is that run's BUDGET_EXCEEDED answer if there was one, otherwise it is derived from the fresh numbers.
+- Why: `router.refresh()` re-ran the page's server reads (on the review page also the batch poll and every list read), and a failure there replaced the page with `error.tsx`, which cancelled uploads on `/add` and lost unsaved edits on `/add/review`.
+
+### D-097 A tagging CONFIG error on /add disables only tagging
+- Date: 2026-11-02 · Status: accepted · Deviates from spec: no
+- Decision: `getTaggingSetupResult` turns a CONFIG error from the model or budget settings into an Err with the safe message (logged on the server); `/add` and `/add/review` both use it. `/add` then shows a "Tagging is unavailable" alert and a reduced bar with only "Review N items"; Retry tagging is disabled and the flow enqueues no tag calls, while the pickers, uploads and registration keep working. Tagging comes back with the next server render (a reload or a return to `/add`), because the route re-read only runs after tagging.
+- Why: An invalid budget or model setting replaced the whole add page with the error page although only tagging depends on it. This mirrors the review page (D-083).
+
+### D-098 Hiding /add counts as leaving it (corrects D-082)
+- Date: 2026-11-02 · Status: accepted; refined by D-104 · Deviates from spec: no
+- Decision: D-082's "leaving unmounts the flow" is wrong under Cache Components: Next keeps `/add` in a hidden `<Activity>`, where effect cleanups run but state survives. The flow now treats a hide as leaving: a `useLayoutEffect` cleanup aborts uploads, revokes previews, clears both queues (`p-limit` with `rejectOnClear`, so queued work settles), the jobs and the hash owners, and empties the list with a new `reset` action. The budget block is kept. A return starts with an empty list, and leaving again does not ask.
+- Why: The hidden page kept rows whose uploads had been aborted and queued calls that never settled, so a return showed rows that would never finish and the leave guard kept counting work that no longer existed.
+
+### D-099 Add-queue details: duplicates, focus and the leave warning
+- Date: 2026-11-02 · Status: accepted; refined by D-105 and D-106 · Deviates from spec: no
+- Decision: Removing an entry re-checks the copies marked "Already in this list" because of it; they go back to waiting and run again. Focus is kept: after Remove it moves to the next row's Remove button, else the previous row's, else the "Photos" heading, else "Choose photos"; after Retry, only if focus was lost, to the same row's Remove button. Start tagging and the batch button stay focusable while disabled (`aria-disabled`), and if the batch offer disappears while it has focus, focus moves to the bar's summary line. While a batch is starting, the leave dialog says leaving does not stop the batch start and that the review page shows the items once it has started, instead of telling the owner to tag those items from the review page.
+- Why: A duplicate stayed blocked after its original was removed, keyboard and screen-reader users lost their place after each action, and the old leave text pointed to a step that did not apply.
+
+### D-100 Toasts follow the tagging bar's measured position (replaces D-088's toast placement)
+- Date: 2026-11-02 · Status: accepted · Deviates from spec: no
+- Decision: While the add page's tagging bar is in view, `useToastClearance` sets `--toast-bar-top` on the document to the distance from the viewport bottom to the bar's top edge plus a gap, and removes it when the bar is out of view. It recomputes on a ResizeObserver (the bar and its parent), window resize and passive scroll. The toast viewport's bottom offset is the larger of its usual offset and that value, so toasts sit above the bar whether it is stuck to the bottom or higher up on a short page.
+- Why: D-088 lifted toasts by the bar's height, which only works while the bar is stuck to the bottom; on a short list a toast could still cover it.
+
+### D-101 Only the hash-pinned runtime files are cached forever (refines D-081)
+- Date: 2026-11-02 · Status: accepted · Deviates from spec: no
+- Decision: Under `/vendor/bg-removal/<dir>/` only `ort-wasm-simd-threaded.wasm` and `ort-wasm-simd-threaded.mjs` get `public, max-age=31536000, immutable`, one literal rule each; `resources.json` gets `no-cache`; no rule covers the whole folder. `PINNED_VERSIONS` lives in `src/lib/images/bg-removal-assets.ts`, and both `BG_REMOVAL_ASSET_PATH` and `MODEL_CDN_BASE` are built from it, so a version upgrade, which the build step requires, always moves the immutable files to a new URL. Tests tie the path, the CDN base and the header rules (matched with Next's own route matcher) to the pins and to `ORT_FILES`.
+- Why: `resources.json` is generated from `MODEL_CDN_BASE`, `MODEL_CHUNKS` and `ORT_FILES`, which can change while the folder name stays the same; an immutable manifest would stay stale in browsers for a year, and a reload would not fix it. Revalidating a 4 KB file costs almost nothing.
+
+### D-102 The e2e server starts with every app variable blank (refines D-056)
+- Date: 2026-11-02 · Status: accepted · Deviates from spec: no
+- Decision: `test/app-env-vars.ts` lists every variable the app reads plus `E2E_TAG`. `vitest.config.mts` blanks all of them; `playwright.config.ts` sets all but `E2E_TAG` to `""` in `webServer.env` before its own four overrides. `@next/env` only fills keys that are undefined, and `src/env.ts` treats a blank value as unset. A spec that needs real credentials (the planned `E2E_TAG` smoke spec) must pass them in explicitly.
+- Why: A real `ANTHROPIC_API_KEY` or `BLOB_READ_WRITE_TOKEN` in `.env.local` would have reached the e2e server, and the specs, which assume neither exists, would then make paid Claude calls and upload to the production Blob store.
+
+## Added in the Phase 3 third review
+
+### D-103 The review list keeps on-screen work through merges and late results (refines D-095)
+- Date: 2026-11-02 · Status: accepted · Deviates from spec: no
+- Decision: (a) A merge of a newer server list grows the shown page so every card that was on screen stays mounted (new items arrive above it); unsaved form values and an open hand-tagging form survive a revisit. (b) When the page capped its list (`totalCount` larger than the items listed), a dirty card the server no longer lists is kept and placed after every server item, since newer uploads pushed it out of the newest-200 window rather than someone confirming it; uncapped, a dirty unlisted card is still treated as confirmed elsewhere and dropped. A dirty card that was in fact confirmed elsewhere then stays until its own Save or Confirm answers. (c) Removing confirmed items is a functional state update on the latest list, so tagging results, batch marks, revisit merges and other confirms that arrive while a confirm request runs are kept. (d) Focus moves after a request settles (Tag now, Confirm, Show more) only when focus was lost (`<body>`, null or a removed element), is still inside the card that changed, or is still on the element that asked for the move; it is never taken from a field the owner moved to meanwhile, the same rule as on `/add` (D-099). (e) The tagging section returns focus to the list summary when it disappears while holding focus (a run tagged every waiting item, a batch started). While a run or a batch start is going, the batch offer stays mounted and busy, and both tagging buttons keep the size they started with instead of the waiting count, whose items are busy (no more "Tag 0 items").
+- Why: A revisit that added items above the page unmounted the last cards and lost their edits; a capped list dropped a dirty card that had only left the window; a confirm that finished late overwrote changes made meanwhile from the list it started with; focus was taken from a field the owner was typing in; and focus fell to `<body>` when the tagging section left.
+
+### D-104 The /add leave dialog closes when the page is hidden (refines D-098)
+- Date: 2026-11-02 · Status: accepted · Deviates from spec: no
+- Decision: `useLeaveGuard` clears `pendingHref` in a `useLayoutEffect` cleanup, which runs when Next (cacheComponents) hides the page in an `<Activity>`; this is the cleanup reset from Next's `preserving-ui-state.md` guide. `pendingHref` is deliberately not cleared when the guard turns inactive, so the dialog stays open while the owner reads it after uploads finish.
+- Why: Browser Back or a swipe, which the guard does not intercept (D-082), left the page with the dialog open. On return it showed "Everything has finished, so nothing will be lost." and "Leave anyway" followed the old link.
+
+### D-105 Buttons that stay focusable while disabled look disabled
+- Date: 2026-11-02 · Status: accepted · Deviates from spec: no
+- Decision: The shared `Button` styles `aria-disabled="true"` like the native `disabled` state: `aria-disabled:opacity-50` and `aria-disabled:pointer-events-none`, next to the existing `disabled:` pair. Base UI's `focusableWhenDisabled` sets only `aria-disabled` on a native button, never `disabled`, so the old classes never matched.
+- Why: Found in the third review's visible-browser check. Every button kept focusable while disabled (Start tagging, the batch buttons, Tag N items, Confirm all untouched, the form's Save and Confirm, login and logout while pending) looked fully enabled.
+
+### D-106 Focus moves after list changes run in layout effects (refines D-099)
+- Date: 2026-11-02 · Status: accepted · Deviates from spec: no
+- Decision: The effects that move focus after Remove or Retry on `/add` and after Confirm or Show more on `/add/review` are `useLayoutEffect`, not `useEffect`. The click handler (or the state updater) sets a pending focus target; a passive effect still pending from an earlier background commit, such as an upload that just failed, runs when the click's update starts rendering, used that target up while the clicked button still had focus, and focus then fell to `<body>` once the button left. Layout effects never stay pending across events.
+- Why: The unit test for focus after Retry failed about once in ten runs under parallel load; instrumented, focus went to `<body>` and never moved. With layout effects, 60 runs in parallel passed. The same pattern was on the review page.

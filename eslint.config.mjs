@@ -18,6 +18,8 @@ const eslintConfig = defineConfig([
     "coverage/**",
     "drizzle/**",
     ".beads/**",
+    // Third-party runtime copied in before every build (scripts/vendor-bg-removal.ts).
+    "public/vendor/**",
   ]),
 ]);
 

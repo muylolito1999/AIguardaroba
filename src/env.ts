@@ -118,29 +118,40 @@ const parseBlob = fromSchema(
   }),
 );
 
-const aiBaseSchema = z.object({
-  ANTHROPIC_API_KEY: envVar(requiredString()),
+// The AI settings without the key. Pages that show the budget or the model
+// (usage, add) must work before ANTHROPIC_API_KEY is configured.
+const aiSettingsShape = {
   CLAUDE_ANALYSIS_EFFORT: envVar(
     z.enum(["low", "medium", "high"], { error: "must be low, medium or high" }).default("medium"),
   ),
   MONTHLY_AI_BUDGET_USD: envVar(positiveNumber(20)),
   AI_CREDIT_USD: envVar(positiveNumber(100)),
-});
+};
 
-const parseAiBase = fromSchema(aiBaseSchema);
+const aiSettingsBaseSchema = z.object(aiSettingsShape);
+const aiBaseSchema = z.object({ ANTHROPIC_API_KEY: envVar(requiredString()), ...aiSettingsShape });
 
+export type AiSettingsEnv = z.output<typeof aiSettingsBaseSchema> & { models: ResolvedModels };
 export type AiEnv = z.output<typeof aiBaseSchema> & { models: ResolvedModels };
 
-function parseAi(source: EnvSource): ParseOutcome<AiEnv> {
-  const base = parseAiBase(source);
-  const models = safeResolveModels(source);
-  if (base.ok && models.ok) return { ok: true, value: { ...base.value, models: models.models } };
-  return {
-    ok: false,
-    variables: [...(base.ok ? [] : base.variables), ...(models.ok ? [] : models.variables)],
-    problems: [...(base.ok ? [] : base.problems), ...(models.ok ? [] : models.problems)],
+/** Adds the resolved models to a parsed base, reporting base and model problems together. */
+function withModels<T>(parseBase: (source: EnvSource) => ParseOutcome<T>) {
+  return (source: EnvSource): ParseOutcome<T & { models: ResolvedModels }> => {
+    const base = parseBase(source);
+    const models = safeResolveModels(source);
+    if (base.ok && models.ok) return { ok: true, value: { ...base.value, models: models.models } };
+    return {
+      ok: false,
+      variables: [...(base.ok ? [] : base.variables), ...(models.ok ? [] : models.variables)],
+      problems: [...(base.ok ? [] : base.problems), ...(models.ok ? [] : models.problems)],
+    };
   };
 }
+
+const parseAi: (source: EnvSource) => ParseOutcome<AiEnv> = withModels(fromSchema(aiBaseSchema));
+const parseAiSettings: (source: EnvSource) => ParseOutcome<AiSettingsEnv> = withModels(
+  fromSchema(aiSettingsBaseSchema),
+);
 
 const parseCron = fromSchema(
   z.object({
@@ -205,6 +216,9 @@ export function createEnv(source: EnvSource = process.env) {
     passwordEnv: memoized("password", PARSERS.password, source),
     blobEnv: memoized("blob", PARSERS.blob, source),
     aiEnv: memoized("ai", PARSERS.ai, source),
+    // A subset of the ai group (errors name that group), not a group of its
+    // own: `pnpm env:check` already reports these variables under ai.
+    aiSettingsEnv: memoized("ai", parseAiSettings, source),
     cronEnv: memoized("cron", PARSERS.cron, source),
     flagsEnv: memoized("flags", PARSERS.flags, source),
   };
@@ -231,5 +245,7 @@ export const sessionEnv = env.sessionEnv;
 export const passwordEnv = env.passwordEnv;
 export const blobEnv = env.blobEnv;
 export const aiEnv = env.aiEnv;
+/** Models, effort and budget without requiring ANTHROPIC_API_KEY. */
+export const aiSettingsEnv = env.aiSettingsEnv;
 export const cronEnv = env.cronEnv;
 export const flagsEnv = env.flagsEnv;

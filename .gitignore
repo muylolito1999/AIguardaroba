@@ -21,6 +21,9 @@
 /.next/
 /out/
 
+# generated before every build and dev start (scripts/vendor-bg-removal.ts)
+/public/vendor/bg-removal/
+
 # production
 /build
 

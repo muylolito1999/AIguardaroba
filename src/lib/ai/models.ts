@@ -47,8 +47,9 @@ export const PRICING_PER_MTOK = {
     cacheReadMultiplier: 0.1,
     ...CACHE_AND_BATCH,
   },
-  // Sonnet and Opus cache reads cost 0.05x, not the usual 0.1x.
-  "claude-sonnet-5-5": { in: 2, out: 10, cacheReadMultiplier: 0.05, ...CACHE_AND_BATCH },
+  // Cache reads cost the usual 0.1x ($0.20 per MTok)...
+  "claude-sonnet-5-5": { in: 2, out: 10, cacheReadMultiplier: 0.1, ...CACHE_AND_BATCH },
+  // ...except on Opus 5.5, the one priced model that reads at 0.05x ($0.20 per MTok).
   "claude-opus-5-5": { in: 4, out: 20, cacheReadMultiplier: 0.05, ...CACHE_AND_BATCH },
 } as const satisfies Record<PricedModelId, ModelPricing>;
 

@@ -1,37 +1,38 @@
 import type { Metadata } from "next"
-import { Camera } from "lucide-react"
+import { Suspense } from "react"
 
+import { AddFlow } from "@/components/add/add-flow"
+import { AddFlowSkeleton } from "@/components/add/add-flow-skeleton"
 import { PageHeader } from "@/components/layout/page-header"
-import {
-  Empty,
-  EmptyDescription,
-  EmptyHeader,
-  EmptyMedia,
-  EmptyTitle,
-} from "@/components/ui/empty"
+import { verifySession } from "@/lib/auth/dal"
+import { getDb } from "@/lib/db"
+import { getTaggingSetupResult } from "@/server/services/tagging-setup"
 
 export const metadata: Metadata = {
   title: "Add items",
 }
 
+// Static shell; the session, budget and model settings load in the Suspense
+// child (D-041). Nothing here needs ANTHROPIC_API_KEY or the Blob token, so the
+// page renders before either is configured and the flow reports what is missing.
+// An invalid model or budget setting (CONFIG) disables only tagging; picking,
+// uploading and registering photos keep working.
 export default function AddPage() {
   return (
     <>
       <PageHeader
         title="Add items"
-        description="Photograph clothes and let Claude tag them."
+        description="Take photos or pick them from your library. They are resized on this device and uploaded; Claude tags them when you start tagging."
       />
-      <Empty className="border">
-        <EmptyHeader>
-          <EmptyMedia variant="icon">
-            <Camera />
-          </EmptyMedia>
-          <EmptyTitle>Uploads come in Phase 3</EmptyTitle>
-          <EmptyDescription>
-            Camera and photo-library upload, automatic tagging and the review step land in Phase 3.
-          </EmptyDescription>
-        </EmptyHeader>
-      </Empty>
+      <Suspense fallback={<AddFlowSkeleton />}>
+        <AddFlowSection />
+      </Suspense>
     </>
   )
+}
+
+async function AddFlowSection() {
+  await verifySession()
+  const setup = await getTaggingSetupResult(getDb(), new Date())
+  return <AddFlow setup={setup} />
 }

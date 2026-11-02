@@ -209,6 +209,47 @@ describe("aiEnv", () => {
   });
 });
 
+describe("aiSettingsEnv", () => {
+  it("works without ANTHROPIC_API_KEY while aiEnv still requires it", () => {
+    const env = createEnv({ MONTHLY_AI_BUDGET_USD: "12.5", CLAUDE_TAGGING_MODEL: "claude-sonnet-5-5" });
+
+    expect(env.aiSettingsEnv()).toEqual({
+      CLAUDE_ANALYSIS_EFFORT: "medium",
+      MONTHLY_AI_BUDGET_USD: 12.5,
+      AI_CREDIT_USD: 100,
+      models: { tagging: "claude-sonnet-5-5", analysis: "claude-sonnet-5-5", outfits: "claude-sonnet-5-5" },
+    });
+    expect(env.aiSettingsEnv()).not.toHaveProperty("ANTHROPIC_API_KEY");
+    expect(captureError(() => env.aiEnv()).message).toContain("ANTHROPIC_API_KEY is not set");
+  });
+
+  it("applies the defaults to an empty source", () => {
+    const settings = createEnv({}).aiSettingsEnv();
+    expect(settings.MONTHLY_AI_BUDGET_USD).toBe(20);
+    expect(settings.AI_CREDIT_USD).toBe(100);
+    expect(settings.models.tagging).toBe("claude-haiku-5-5");
+  });
+
+  it("never exposes the key even when it is set", () => {
+    expect(createEnv(VALID).aiSettingsEnv()).not.toHaveProperty("ANTHROPIC_API_KEY");
+  });
+
+  it("validates its variables and reports them under the ai group without values", () => {
+    const error = captureError(() =>
+      createEnv({ MONTHLY_AI_BUDGET_USD: SECRET_MARKER, CLAUDE_OUTFIT_MODEL: SECRET_MARKER }).aiSettingsEnv(),
+    );
+    expect(error.code).toBe("CONFIG");
+    expect(error.message).toContain("(ai)");
+    expect(error.message).toContain("MONTHLY_AI_BUDGET_USD must be a positive number");
+    expect(error.details).toEqual({ group: "ai", variables: ["MONTHLY_AI_BUDGET_USD", "CLAUDE_OUTFIT_MODEL"] });
+    expect(`${error.message} ${JSON.stringify(error.details)}`).not.toContain(SECRET_MARKER);
+  });
+
+  it("is not a separate env:check group", () => {
+    expect(Object.keys(serverEnvReport({}))).not.toContain("aiSettings");
+  });
+});
+
 describe("flagsEnv", () => {
   it.each([
     ["true", true],

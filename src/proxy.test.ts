@@ -169,6 +169,8 @@ describe("config.matcher", () => {
     "/sw.js",
     "/robots.txt",
     "/offline",
+    "/vendor/bg-removal/imgly-1.7.0-ort-1.21.0/resources.json",
+    "/vendor/bg-removal/imgly-1.7.0-ort-1.21.0/ort-wasm-simd-threaded.mjs",
     "/api/blob/upload",
     "/api/cron/poll-batches",
   ])("leaves public %s alone", (url) => {
@@ -195,6 +197,8 @@ describe("config.matcher", () => {
     "/icons-custom",
     "/api/cron",
     "/api/blob/upload/extra",
+    "/vendor",
+    "/vendor/other",
   ])("runs on %s", (url) => {
     expect(matches(url)).toBe(true);
   });

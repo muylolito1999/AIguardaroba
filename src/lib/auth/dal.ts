@@ -1,6 +1,7 @@
 import "server-only";
 
 import { redirect } from "next/navigation";
+import { connection } from "next/server";
 import { cache } from "react";
 
 import { sessionEnv } from "@/env";
@@ -33,8 +34,18 @@ export const getSession = cache(async (): Promise<Session | null> => {
   return verifySessionToken(token, sessionEnv().SESSION_SECRET);
 });
 
-/** For pages and Server Components: the session, or a redirect to /login. */
+/**
+ * For pages and Server Components: the session, or a redirect to /login.
+ *
+ * It waits for a real request first (connection()). With Partial Prefetching
+ * a link prefetch renders the cookie-dependent part of the page too, but the
+ * token check compares its expiry with the current time, which a prerender may
+ * not read, and the reads that follow it (budget, items, the batch poll) must
+ * not run on a mere prefetch. So everything behind this call renders at
+ * request time only; the static shell still prefetches.
+ */
 export async function verifySession(): Promise<Session> {
+  await connection();
   const session = await getSession();
   if (session === null) redirect("/login");
   return session;

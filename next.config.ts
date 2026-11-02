@@ -30,6 +30,27 @@ const nextConfig: NextConfig = {
   async headers() {
     return [
       { source: "/(.*)", headers: securityHeaders },
+      // Background removal (scripts/vendor-bg-removal.ts, D-081). One rule per
+      // file name, so the rules never overlap and no other path in the folder
+      // gets a Cache-Control from here. The two onnxruntime files are written
+      // only when their sha256 matches the pin for the onnxruntime version that
+      // names the folder (BG_REMOVAL_ASSET_PATH), so a URL always serves the
+      // same bytes and can be cached forever.
+      {
+        source: "/vendor/bg-removal/:dir/ort-wasm-simd-threaded.wasm",
+        headers: [{ key: "Cache-Control", value: "public, max-age=31536000, immutable" }],
+      },
+      {
+        source: "/vendor/bg-removal/:dir/ort-wasm-simd-threaded.mjs",
+        headers: [{ key: "Cache-Control", value: "public, max-age=31536000, immutable" }],
+      },
+      {
+        // Generated from scripts/bg-removal-vendor.ts (model CDN, chunk list,
+        // file list), which can change while the folder name stays the same,
+        // so the browser revalidates this 4 KB file on every load.
+        source: "/vendor/bg-removal/:dir/resources.json",
+        headers: [{ key: "Cache-Control", value: "no-cache" }],
+      },
       {
         // The service worker must never be cached, or clients keep running a stale one.
         source: "/sw.js",

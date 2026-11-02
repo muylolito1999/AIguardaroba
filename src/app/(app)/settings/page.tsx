@@ -1,9 +1,12 @@
 import type { Metadata } from "next"
+import Link from "next/link"
+import { Gauge } from "lucide-react"
 
 import { LogoutButton } from "@/components/auth/logout-button"
 import { PageHeader } from "@/components/layout/page-header"
 import { IosInstallHint } from "@/components/pwa/ios-install-hint"
 import { ThemeToggle } from "@/components/theme/theme-toggle"
+import { buttonVariants } from "@/components/ui/button"
 import { Separator } from "@/components/ui/separator"
 
 export const metadata: Metadata = {
@@ -11,7 +14,6 @@ export const metadata: Metadata = {
 }
 
 const COMING_SOON = [
-  "AI usage and costs",
   "Export (JSON, CSV and photos)",
   "Climate profiles",
 ]
@@ -29,6 +31,24 @@ export default function SettingsPage() {
             </p>
           </div>
           <ThemeToggle />
+        </section>
+
+        <Separator />
+
+        <section className="flex flex-col gap-3">
+          <div className="flex flex-col gap-1">
+            <h2 className="font-heading text-base font-semibold">AI usage</h2>
+            <p className="text-sm text-muted-foreground">
+              Claude spend this month and against the prepaid credit, by purpose and model.
+            </p>
+          </div>
+          <Link
+            href="/settings/usage"
+            className={buttonVariants({ variant: "outline", size: "touch", className: "self-start" })}
+          >
+            <Gauge aria-hidden />
+            AI usage
+          </Link>
         </section>
 
         <Separator />

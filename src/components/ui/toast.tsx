@@ -23,8 +23,12 @@ function ToastViewport({ className, ...props }: ToastPrimitive.Viewport.Props) {
       data-slot="toast-viewport"
       // Below md the fixed tab bar (plus the home indicator) owns the bottom edge,
       // so toasts sit above it, matching the (app) layout's bottom padding.
+      // --toast-bar-top is set by a bar near the bottom while it is in view
+      // (the add page's TaggingBar): its top edge's distance from the viewport
+      // bottom plus a gap. Toasts then start above the bar wherever it sits,
+      // stuck to the bottom or higher up on a short page.
       className={cn(
-        "pointer-events-none fixed inset-x-4 bottom-[calc(4.5rem+env(safe-area-inset-bottom))] z-50 mx-auto w-auto max-w-sm outline-none sm:right-4 sm:left-auto sm:mx-0 sm:w-full md:bottom-4",
+        "pointer-events-none fixed inset-x-4 bottom-[max(calc(4.5rem+env(safe-area-inset-bottom)),var(--toast-bar-top,0px))] z-50 mx-auto w-auto max-w-sm outline-none sm:right-4 sm:left-auto sm:mx-0 sm:w-full md:bottom-[max(1rem,var(--toast-bar-top,0px))]",
         className
       )}
       {...props}

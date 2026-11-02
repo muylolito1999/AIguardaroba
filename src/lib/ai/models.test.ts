@@ -38,7 +38,7 @@ describe("pricing table", () => {
 
   it("uses the documented cache and batch multipliers", () => {
     expect(getPricing("claude-haiku-5-5").cacheReadMultiplier).toBe(0.1);
-    expect(getPricing("claude-sonnet-5-5").cacheReadMultiplier).toBe(0.05);
+    expect(getPricing("claude-sonnet-5-5").cacheReadMultiplier).toBe(0.1);
     expect(getPricing("claude-opus-5-5").cacheReadMultiplier).toBe(0.05);
     for (const model of PRICED_MODEL_IDS) {
       expect(getPricing(model)).toMatchObject({
