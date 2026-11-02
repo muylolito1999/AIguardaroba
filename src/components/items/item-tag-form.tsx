@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useId, useRef, useState, type BaseSyntheticEvent } from "react"
+import { useEffect, useId, useLayoutEffect, useRef, useState, type BaseSyntheticEvent } from "react"
 import { zodResolver } from "@hookform/resolvers/zod"
 import { Check, CheckCheck, Loader2, RefreshCw, Save, X } from "lucide-react"
 import {
@@ -36,6 +36,7 @@ import {
 } from "@/lib/db/enums"
 import { NETWORK_ERROR_MESSAGE } from "@/lib/images/blob-upload-client"
 import { ItemPatchSchema, TAG_LIMITS, type EditableTagField, type ItemCardDto } from "@/lib/items/contracts"
+import { noteWardrobeChangeIfOk } from "@/lib/items/wardrobe-changes"
 import { err, type AppErrorPayload, type Result } from "@/lib/result"
 import { toastError } from "@/lib/toast-result"
 import { cn } from "@/lib/utils"
@@ -112,9 +113,35 @@ export type ManualTagFormProps = FormCallbacks & {
   onItemChange: (item: ItemCardDto) => void
   /** Back to the tagging controls without saving. */
   onCancel: () => void
+  /**
+   * Shows the location and decision choices (the default). The detail page
+   * passes false: its quick toggles own both, so the form neither shows nor
+   * sends them.
+   */
+  showPlans?: boolean
 }
 
-export type ItemTagFormProps = ReviewTagFormProps | ManualTagFormProps
+/**
+ * Editing a tagged or confirmed item on its detail page (/wardrobe/[id]). The
+ * review form with three differences: Confirm is offered only while the item
+ * is still tagged (a confirmed item gets Save as its main button); decision
+ * and location are left out, because the page's quick toggles own them; and
+ * confirming keeps the item on screen, so the form adopts the confirmed item.
+ */
+export type DetailTagFormProps = Omit<FormCallbacks, "onConfirmed"> & {
+  mode: "detail"
+  item: TaggedItemCard
+  updateItemTags: UpdateItemTagsAction
+  confirmItem: ConfirmItemAction
+  /** The server's new version of the item after Save, Confirm or Re-tag. */
+  onItemChange: (item: ItemCardDto) => void
+  /** Also told when Confirm succeeds, after onItemChange. */
+  onConfirmed?: (item: ItemCardDto) => void
+  /** Injected by tests; POSTs /api/items/[id]/tag otherwise. */
+  tagRequest?: typeof requestTagging
+}
+
+export type ItemTagFormProps = ReviewTagFormProps | ManualTagFormProps | DetailTagFormProps
 
 type BusyAction = "save" | "confirm" | "retag"
 
@@ -169,9 +196,9 @@ function applyServerIssues(error: AppErrorPayload, setError: UseFormSetError<Tag
 
 /**
  * State both modes share: the form, the running request, the status line and
- * the dirty report. A newer card from the list (fresh server data after a
- * revisit, a finished cut-out) becomes the form's starting point when it
- * arrives while nothing is unsaved and no request runs.
+ * the dirty report. A newer card from the list or the item page (fresh server
+ * data after a revisit, a finished cut-out, a quick toggle) becomes the form's
+ * starting point once no request runs; fields with unsaved edits keep them.
  */
 function useTagForm<I extends ItemCardDto>(
   item: I,
@@ -188,19 +215,43 @@ function useTagForm<I extends ItemCardDto>(
     resolver: zodResolver(tagFormSchema, { error: tagFormErrorMap }),
     defaultValues: toDefaults(item),
   })
-  const { isDirty, dirtyFields } = useFormState({ control: form.control })
+  const { isDirty, dirtyFields, isValidating } = useFormState({ control: form.control })
 
   useEffect(() => {
     onDirtyChange?.(item.id, isDirty)
   }, [isDirty, item.id, onDirtyChange])
 
-  // Reacts to a new item prop only; unsaved edits and a running request keep the form as it is.
+  // A new item prop becomes the form's baseline, once no request and no field
+  // check runs (an item that arrives during one is taken when it ends). Save
+  // and Confirm send the fields that differ from the item, so the fields on
+  // screen must follow it: a field the owner has not touched takes the new
+  // value, and only the fields they edited keep their draft (with any error
+  // shown on them).
+  // Otherwise, after the item page re-read itself (D-107), a Save would send
+  // the old values of fields changed elsewhere and undo those changes.
+  // keepDirty: RHF would otherwise report the form clean while drafts remain.
+  // keepIsSubmitted, keepSubmitCount and keepTouched keep the submit state:
+  // RHF re-checks a field as it changes only after a submit, so without them
+  // an error kept from the last Save (and its aria-invalid) would stay after
+  // the owner fixed the field. Waiting for a running field check: RHF drops
+  // the result of a check that a reset overtakes, so the error kept from
+  // before that change would stay as well (D-137).
   useEffect(() => {
-    if (previousItemRef.current === item) return
+    if (previousItemRef.current === item || busy !== null || isValidating) return
     previousItemRef.current = item
-    if (busy !== null || isDirty) return
-    form.reset(toDefaults(item))
-  }, [item, busy, isDirty, form, toDefaults])
+    if (!isDirty) {
+      form.reset(toDefaults(item))
+      return
+    }
+    form.reset(toDefaults(item), {
+      keepDirtyValues: true,
+      keepDirty: true,
+      keepErrors: true,
+      keepIsSubmitted: true,
+      keepSubmitCount: true,
+      keepTouched: true,
+    })
+  }, [item, busy, isDirty, isValidating, form, toDefaults])
 
   // The fieldsets are disabled while a request runs, which drops focus from a
   // text field when Enter saved the form; put it back once they are enabled.
@@ -221,7 +272,8 @@ function useTagForm<I extends ItemCardDto>(
     setBusy(action)
     setStatus(pending)
     try {
-      return await call()
+      // A saved change (tags, confirm, re-tag) makes the wardrobe list read itself again (D-107).
+      return noteWardrobeChangeIfOk(await call())
     } catch {
       return err("UPSTREAM", NETWORK_ERROR_MESSAGE)
     } finally {
@@ -243,9 +295,25 @@ function useTagForm<I extends ItemCardDto>(
   return { form, busy, status, setStatus, isDirty, dirtyFields, run, fail, ids }
 }
 
-/** Shows either form: the review form for tagged items, the hand-tagging form for pending ones. */
+/**
+ * Shows one of the forms: the review form for tagged items, the hand-tagging
+ * form for pending ones, or the detail page's variant of the review form.
+ */
 export function ItemTagForm(props: ItemTagFormProps) {
   return props.mode === "manual" ? <ManualTagForm {...props} /> : <ReviewTagForm {...props} />
+}
+
+/** Decision and location as the item holds them; the detail page's quick toggles own both. */
+function withItemPlans(values: TagFormOutput, item: ItemCardDto): TagFormOutput {
+  return { ...values, location: item.location, decision: item.decision }
+}
+
+/** The form's values without decision and location, for a page whose quick toggles own them. */
+function withoutPlans(values: TagFormOutput): Partial<TagFormOutput> {
+  const rest: Partial<TagFormOutput> = { ...values }
+  delete rest.location
+  delete rest.decision
+  return rest
 }
 
 /**
@@ -253,9 +321,11 @@ export function ItemTagForm(props: ItemTagFormProps) {
  * that differ from the item's current values; the server records which of
  * them differ from Claude's output in user_edited_fields, and a re-tag keeps
  * those. Fields Claude was unsure about carry a visible "Check this" hint and
- * an amber ring until they are edited.
+ * an amber ring until they are edited. The detail mode differs only in the
+ * footer and the plans fields (DetailTagFormProps).
  */
 function ReviewTagForm({
+  mode,
   item,
   updateItemTags,
   confirmItem,
@@ -263,7 +333,7 @@ function ReviewTagForm({
   onConfirmed,
   onDirtyChange,
   tagRequest = requestTagging,
-}: ReviewTagFormProps) {
+}: ReviewTagFormProps | DetailTagFormProps) {
   const { form, busy, status, setStatus, isDirty, dirtyFields, run, fail, ids } = useTagForm(
     item,
     tagFormDefaults,
@@ -271,6 +341,29 @@ function ReviewTagForm({
   )
   const [retagOpen, setRetagOpen] = useState(false)
   const retagButtonRef = useRef<HTMLButtonElement>(null)
+  const saveButtonRef = useRef<HTMLButtonElement>(null)
+  const focusSaveRef = useRef(false)
+  const detail = mode === "detail"
+  // The review list removes a confirmed card; the detail page keeps it, and a
+  // confirmed item has nothing left to confirm.
+  const showConfirm = !detail || item.status === "tagged"
+
+  // The detail page stays mounted but hidden (Activity) after a navigation; a
+  // "Saved." from an earlier visit would be stale when it is shown again.
+  // Unsaved edits are kept on purpose.
+  useLayoutEffect(() => {
+    if (!detail) return
+    return () => setStatus("")
+  }, [detail, setStatus])
+
+  // Confirm disappears once the detail page's item is confirmed; Save takes
+  // focus if it was left on nothing.
+  useLayoutEffect(() => {
+    if (showConfirm || !focusSaveRef.current) return
+    focusSaveRef.current = false
+    const active = document.activeElement
+    if (active === null || active === document.body || !active.isConnected) saveButtonRef.current?.focus()
+  }, [showConfirm])
 
   const hints = lowConfidenceFields(item)
   const edited = new Set(item.userEditedFields)
@@ -296,8 +389,17 @@ function ReviewTagForm({
     if (hasTags(next)) form.reset(tagFormDefaults(next))
   }
 
+  /**
+   * In the detail mode the hidden plans fields keep the values the form
+   * started with, which a quick toggle may have changed since; the item's own
+   * values stand in for them, so a Save never undoes a toggle.
+   */
+  function current(values: TagFormOutput): TagFormOutput {
+    return detail ? withItemPlans(values, item) : values
+  }
+
   async function saveValues(values: TagFormOutput) {
-    const patch = diffPatch(tagFormBaseline(item), values)
+    const patch = diffPatch(tagFormBaseline(item), current(values))
     if (isEmptyPatch(patch)) {
       setStatus("Nothing to save: no field differs from the saved tags.")
       return
@@ -311,13 +413,17 @@ function ReviewTagForm({
   }
 
   async function confirmValues(values: TagFormOutput) {
-    const patch = diffPatch(tagFormBaseline(item), values)
+    const patch = diffPatch(tagFormBaseline(item), current(values))
     const result = await run("confirm", "Confirming…", () =>
       confirmItem(isEmptyPatch(patch) ? { id: item.id } : { id: item.id, patch })
     )
     if (!result.ok) return fail("Not confirmed", result.error)
     setStatus("Confirmed.")
-    onConfirmed(result.data)
+    if (detail) {
+      focusSaveRef.current = true
+      adopt(result.data)
+    }
+    onConfirmed?.(result.data)
   }
 
   // handleSubmit runs zod first and calls the handler only with valid values;
@@ -351,27 +457,37 @@ function ReviewTagForm({
       onSubmit={(event) => void save(event)}
       className="flex flex-col gap-6"
     >
-      <TagFormSections control={form.control} ids={ids} disabled={disabled} hintFor={hintFor} isEdited={isEdited} />
+      <TagFormSections
+        control={form.control}
+        ids={ids}
+        disabled={disabled}
+        hintFor={hintFor}
+        isEdited={isEdited}
+        showPlans={!detail}
+      />
 
       <div className="flex flex-col gap-3 border-t pt-4">
         <p role="status" className="min-h-5 text-sm text-muted-foreground">
           {status}
         </p>
         <div className="flex flex-wrap gap-2">
+          {showConfirm ? (
+            <Button
+              type="button"
+              size="touch"
+              onClick={(event) => void confirm(event)}
+              disabled={disabled}
+              focusableWhenDisabled
+              aria-busy={busy === "confirm" || undefined}
+            >
+              {busy === "confirm" ? <Loader2 aria-hidden className="animate-spin" /> : <CheckCheck aria-hidden />}
+              {isDirty ? "Save and confirm" : "Confirm"}
+            </Button>
+          ) : null}
           <Button
-            type="button"
-            size="touch"
-            onClick={(event) => void confirm(event)}
-            disabled={disabled}
-            focusableWhenDisabled
-            aria-busy={busy === "confirm" || undefined}
-          >
-            {busy === "confirm" ? <Loader2 aria-hidden className="animate-spin" /> : <CheckCheck aria-hidden />}
-            {isDirty ? "Save and confirm" : "Confirm"}
-          </Button>
-          <Button
+            ref={saveButtonRef}
             type="submit"
-            variant="outline"
+            variant={showConfirm ? "outline" : "default"}
             size="touch"
             disabled={disabled || !isDirty}
             focusableWhenDisabled
@@ -438,6 +554,7 @@ function ManualTagForm({
   onConfirmed,
   onDirtyChange,
   onCancel,
+  showPlans = true,
 }: ManualTagFormProps) {
   const { form, busy, status, setStatus, ids, run, fail } = useTagForm(item, manualTagFormDefaults, onDirtyChange)
   const introId = `${ids("manual").control}-intro`
@@ -453,7 +570,7 @@ function ManualTagForm({
 
   async function store(values: TagFormOutput, confirm: boolean) {
     // Every field: the server keeps those with a value and checks the required ones again.
-    const patch = ItemPatchSchema.parse(values)
+    const patch = ItemPatchSchema.parse(showPlans ? values : withoutPlans(values))
     const result = await run(confirm ? "confirm" : "save", confirm ? "Saving and confirming…" : "Saving…", () =>
       tagItemByHand({ id: item.id, patch, confirm })
     )
@@ -488,7 +605,14 @@ function ManualTagForm({
         category, colour, season, formality and condition are required.
       </p>
 
-      <TagFormSections control={form.control} ids={ids} disabled={disabled} hintFor={NO_HINT} isEdited={NOT_EDITED} />
+      <TagFormSections
+        control={form.control}
+        ids={ids}
+        disabled={disabled}
+        hintFor={NO_HINT}
+        isEdited={NOT_EDITED}
+        showPlans={showPlans}
+      />
 
       <div className="flex flex-col gap-3 border-t pt-4">
         <p role="status" className="min-h-5 text-sm text-muted-foreground">
@@ -535,10 +659,15 @@ type TagFormSectionsProps = {
   hintFor: (field: HintField, ...formFields: (keyof TagFormValues)[]) => number | undefined
   /** True when the owner's saved value differs from Claude's. */
   isEdited: (field: keyof TagFormValues) => boolean
+  /** Shows the location and decision choices; the detail page has its own toggles for them. */
+  showPlans?: boolean
 }
 
-/** Every field section of the tag form; both modes share them and differ only in the footer. */
-function TagFormSections({ control, ids, disabled, hintFor, isEdited }: TagFormSectionsProps) {
+/**
+ * Every field section of the tag form; the modes share them and differ only
+ * in the footer, apart from the detail mode leaving out the plans choices.
+ */
+function TagFormSections({ control, ids, disabled, hintFor, isEdited, showPlans = true }: TagFormSectionsProps) {
   return (
     <>
       <FieldSet disabled={disabled}>
@@ -867,7 +996,7 @@ function TagFormSections({ control, ids, disabled, hintFor, isEdited }: TagFormS
       </FieldSet>
 
       <FieldSet disabled={disabled}>
-        <FieldLegend>Purchase and plans</FieldLegend>
+        <FieldLegend>{showPlans ? "Purchase and plans" : "Purchase and notes"}</FieldLegend>
         <div className="grid grid-cols-[minmax(0,1fr)_6rem] gap-4 sm:grid-cols-[minmax(0,12rem)_6rem_minmax(0,12rem)]">
           <TextField
             control={control}
@@ -894,40 +1023,44 @@ function TagFormSections({ control, ids, disabled, hintFor, isEdited }: TagFormS
             className="col-span-2 sm:col-span-1"
           />
         </div>
-        <Controller
-          control={control}
-          name="location"
-          render={({ field }) => (
-            <TagField ids={ids("location")} label="Where it is now">
-              <ChoiceGroup
-                labelId={ids("location").label}
-                values={ITEM_LOCATIONS}
-                labels={LOCATION_LABELS}
-                value={field.value}
-                onChange={field.onChange}
-                buttonRef={field.ref}
-                disabled={disabled}
-              />
-            </TagField>
-          )}
-        />
-        <Controller
-          control={control}
-          name="decision"
-          render={({ field }) => (
-            <TagField ids={ids("decision")} label="Plan for the move">
-              <ChoiceGroup
-                labelId={ids("decision").label}
-                values={ITEM_DECISIONS}
-                labels={DECISION_LABELS}
-                value={field.value}
-                onChange={field.onChange}
-                buttonRef={field.ref}
-                disabled={disabled}
-              />
-            </TagField>
-          )}
-        />
+        {showPlans ? (
+          <>
+            <Controller
+              control={control}
+              name="location"
+              render={({ field }) => (
+                <TagField ids={ids("location")} label="Where it is now">
+                  <ChoiceGroup
+                    labelId={ids("location").label}
+                    values={ITEM_LOCATIONS}
+                    labels={LOCATION_LABELS}
+                    value={field.value}
+                    onChange={field.onChange}
+                    buttonRef={field.ref}
+                    disabled={disabled}
+                  />
+                </TagField>
+              )}
+            />
+            <Controller
+              control={control}
+              name="decision"
+              render={({ field }) => (
+                <TagField ids={ids("decision")} label="Plan for the move">
+                  <ChoiceGroup
+                    labelId={ids("decision").label}
+                    values={ITEM_DECISIONS}
+                    labels={DECISION_LABELS}
+                    value={field.value}
+                    onChange={field.onChange}
+                    buttonRef={field.ref}
+                    disabled={disabled}
+                  />
+                </TagField>
+              )}
+            />
+          </>
+        ) : null}
         <Controller
           control={control}
           name="notes"

@@ -4,6 +4,8 @@ import { z } from "zod";
 
 import { getAnthropic } from "@/lib/ai/client";
 import { getDb } from "@/lib/db";
+import { ITEM_DECISIONS, ITEM_LOCATIONS } from "@/lib/db/enums";
+import { getBlobStorage } from "@/lib/images/blob";
 import { ItemPatchSchema } from "@/lib/items/contracts";
 import { ok } from "@/lib/result";
 import {
@@ -12,6 +14,11 @@ import {
   pollTaggingBatches as pollBatchesService,
   startTaggingBatch as startBatchService,
 } from "@/server/services/batches";
+import {
+  archiveItem as archiveItemService,
+  deleteItem as deleteItemService,
+  unarchiveItem as unarchiveItemService,
+} from "@/server/services/item-lifecycle";
 import {
   confirmItem as confirmItemService,
   confirmItems as confirmItemsService,
@@ -73,4 +80,51 @@ export const pollTaggingBatches = authedAction(
       await pollBatchesService({ db: getDb(), anthropic: getAnthropic, requestTimeoutMs: REVIEW_POLL_TIMEOUT_MS }),
     ),
   { name: "pollTaggingBatches" },
+);
+
+// Item detail page (/wardrobe/[id]). Like the review actions, these return
+// DTOs and revalidate nothing: the detail page reads uncached data in a
+// Suspense child, and the client updates what it already shows.
+
+/**
+ * The decision quick toggle. A one-field patch through updateItem: decision is
+ * not a tag field, so user_edited_fields is untouched.
+ */
+export const setItemDecision = authedAction(
+  z.strictObject({ id: z.uuid(), decision: z.enum(ITEM_DECISIONS) }),
+  async ({ id, decision }) => ok(await updateItem(getDb(), id, { decision })),
+  { name: "setItemDecision" },
+);
+
+/** The location quick toggle; a one-field patch like setItemDecision. */
+export const setItemLocation = authedAction(
+  z.strictObject({ id: z.uuid(), location: z.enum(ITEM_LOCATIONS) }),
+  async ({ id, location }) => ok(await updateItem(getDb(), id, { location })),
+  { name: "setItemLocation" },
+);
+
+export const archiveItem = authedAction(
+  z.strictObject({ id: z.uuid() }),
+  async ({ id }) => ok(await archiveItemService(getDb(), id)),
+  { name: "archiveItem" },
+);
+
+export const unarchiveItem = authedAction(
+  z.strictObject({ id: z.uuid() }),
+  async ({ id }) => ok(await unarchiveItemService(getDb(), id)),
+  { name: "unarchiveItem" },
+);
+
+/**
+ * Deletes the item, its photos in Blob first. The storage is built before the
+ * service runs, so a missing BLOB_READ_WRITE_TOKEN is a CONFIG error before
+ * anything is deleted.
+ */
+export const deleteItem = authedAction(
+  z.strictObject({ id: z.uuid() }),
+  async ({ id }) => {
+    const storage = getBlobStorage();
+    return ok(await deleteItemService(getDb(), id, { storage }));
+  },
+  { name: "deleteItem" },
 );

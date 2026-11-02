@@ -608,7 +608,7 @@ describe("leaving through a hidden <Activity> and coming back", () => {
   function renderInActivity(fakes: Fakes) {
     const ui = (mode: "visible" | "hidden") => (
       <>
-        <a href="/wardrobe">Wardrobe</a>
+        <a href="/settings">Settings</a>
         <Activity mode={mode}>
           <AddFlowView {...PROPS} deps={fakes.deps} />
         </Activity>
@@ -633,7 +633,7 @@ describe("leaving through a hidden <Activity> and coming back", () => {
     expect(screen.queryAllByRole("listitem")).toHaveLength(0)
     expect(screen.getByRole("status").textContent).toBe("")
     expect(beforeUnloadIsBlocked()).toBe(false)
-    clickLink(screen.getByRole("link", { name: "Wardrobe" }))
+    clickLink(screen.getByRole("link", { name: "Settings" }))
     expect(screen.queryByRole("alertdialog")).toBeNull()
 
     choose([photo("scarf.jpg")])
@@ -686,7 +686,7 @@ describe("leaving through a hidden <Activity> and coming back", () => {
     await waitFor(() => expect(signal).toBeDefined(), LONG_WAIT)
 
     // A sidebar link is held back while the upload runs.
-    fireEvent.click(screen.getByRole("link", { name: "Wardrobe" }))
+    fireEvent.click(screen.getByRole("link", { name: "Settings" }))
     await screen.findByRole("alertdialog")
 
     // The owner goes Back (or swipes back) instead of answering, which the

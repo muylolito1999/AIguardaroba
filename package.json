@@ -18,6 +18,7 @@
     "db:migrate": "drizzle-kit migrate",
     "db:studio": "drizzle-kit studio",
     "db:seed": "tsx --conditions=react-server scripts/seed.ts",
+    "db:seed:demo": "tsx --conditions=react-server scripts/seed-demo.ts",
     "hash-password": "tsx --conditions=react-server scripts/hash-password.ts",
     "auth:unlock": "tsx --conditions=react-server scripts/auth-unlock.ts",
     "icons": "tsx --conditions=react-server scripts/generate-icons.ts",
@@ -30,10 +31,12 @@
     "@base-ui/react": "^1.9.0",
     "@hookform/resolvers": "^7.0.1",
     "@imgly/background-removal": "1.7.0",
+    "@tanstack/react-virtual": "3.14.25",
     "@vercel/blob": "^2.8.2",
     "@vercel/functions": "^3.10.5",
     "bcryptjs": "^3.0.3",
     "class-variance-authority": "^0.7.1",
+    "client-zip": "^2.5.1",
     "cn": "^0.5.1",
     "drizzle-orm": "1.0.0-rc.5",
     "heic-to": "^1.6.7",
@@ -54,6 +57,7 @@
     "zod": "^4.6.7"
   },
   "devDependencies": {
+    "@axe-core/playwright": "^4.14.0",
     "@electric-sql/pglite": "^0.5.14",
     "@next/env": "16.4.3",
     "@playwright/test": "^1.64.1",

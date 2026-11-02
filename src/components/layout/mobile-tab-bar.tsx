@@ -31,8 +31,8 @@ function ActiveTabList() {
 function TabList({ pathname }: { pathname: string | null }) {
   return (
     <ul className="grid grid-cols-5">
-      {PRIMARY_NAV.map(({ href, label, icon: Icon }) => {
-        const active = isNavItemActive(pathname, href)
+      {PRIMARY_NAV.map(({ href, label, icon: Icon, alsoActiveOn }) => {
+        const active = isNavItemActive(pathname, href, alsoActiveOn)
         return (
           <li key={href} className="flex">
             <Link

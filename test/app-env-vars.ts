@@ -1,8 +1,9 @@
-// Every environment variable the app reads, plus E2E_TAG, reserved for the
-// planned Playwright smoke spec (no spec reads it yet). vitest.config.mts
-// blanks all of them for unit tests, and playwright.config.ts blanks all but
-// E2E_TAG for the e2e server, so neither run sees a developer's real
-// credentials. A variable the app starts reading belongs here too.
+// Every environment variable the app reads, plus E2E_TAG, which the Playwright
+// smoke spec reads in the test runner. vitest.config.mts blanks all of them for
+// unit tests, and playwright.config.ts blanks all but E2E_TAG for the e2e
+// server (passing a real Blob token or API key only from the shell, D-113), so
+// neither run sees a developer's real credentials from .env.local. A variable
+// the app starts reading belongs here too.
 //
 // A plain module with no imports: both configs load it outside Next, where
 // `server-only` would throw.

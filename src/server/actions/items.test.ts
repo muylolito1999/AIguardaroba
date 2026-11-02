@@ -3,12 +3,12 @@ import { randomUUID } from "node:crypto";
 import { eq } from "drizzle-orm";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { aiBatches, items, type Item } from "@/lib/db/schema";
+import { aiBatches, itemImages, items, type Item } from "@/lib/db/schema";
 import type { ItemPatchInput } from "@/lib/items/contracts";
-import { AppError } from "@/lib/result";
+import { AppError, CONFIG_ERROR_MESSAGE } from "@/lib/result";
 
 import { makeTestDb, type TestDb } from "../../../test/db";
-import { makeItem, makeTaggedItem } from "../../../test/factories";
+import { makeImage, makeItem, makeTaggedItem } from "../../../test/factories";
 import { createFakeAnthropic } from "../../../test/fakes/anthropic";
 import { COAT_TAGS } from "../../../test/fixtures/item-tags";
 
@@ -194,5 +194,98 @@ describe("item actions", () => {
       ok: false,
       error: { code: "UNAUTHENTICATED" },
     });
+  });
+});
+
+// The detail page's actions. Their services have their own tests; here the
+// wiring, the strict input schemas and, for delete, the missing Blob token
+// (blank in every test run) are checked.
+describe("item detail actions", () => {
+  it("sets the decision and the location without marking a tag as edited", async () => {
+    const item = await makeTaggedItem(testDb.db, { aiRaw: COAT_TAGS, status: "confirmed" });
+
+    expect(await actions.setItemDecision({ id: item.id, decision: "donate" })).toMatchObject({
+      ok: true,
+      data: { id: item.id, decision: "donate", location: "bologna", status: "confirmed", userEditedFields: [] },
+    });
+    expect(await actions.setItemLocation({ id: item.id, location: "in_transit" })).toMatchObject({
+      ok: true,
+      data: { id: item.id, decision: "donate", location: "in_transit" },
+    });
+    expect(await row(item.id)).toMatchObject({ decision: "donate", location: "in_transit", userEditedFields: [] });
+  });
+
+  it("validates the toggle and lifecycle input strictly", async () => {
+    const item = await makeTaggedItem(testDb.db, { aiRaw: COAT_TAGS });
+    // Deliberately malformed: the client could send anything.
+    const malformed: Array<() => Promise<unknown>> = [
+      () => actions.setItemDecision({ id: "nope", decision: "bring" }),
+      () => actions.setItemDecision({ id: item.id, decision: "keep" } as never),
+      () => actions.setItemDecision({ id: item.id, decision: "bring", location: "hamburg" } as never),
+      () => actions.setItemDecision({ id: item.id } as never),
+      () => actions.setItemLocation({ id: item.id, location: "berlin" } as never),
+      () => actions.setItemLocation({ id: item.id, location: "hamburg", decision: "bring" } as never),
+      () => actions.archiveItem({ id: "nope" }),
+      () => actions.archiveItem({ id: item.id, status: "archived" } as never),
+      () => actions.unarchiveItem({} as never),
+      () => actions.deleteItem({ id: "nope" }),
+      () => actions.deleteItem({ id: item.id, force: true } as never),
+    ];
+    for (const call of malformed) {
+      expect(await call()).toMatchObject({ ok: false, error: { code: "VALIDATION" } });
+    }
+    expect(await row(item.id)).toMatchObject({ status: "tagged", decision: "undecided", location: "bologna" });
+  });
+
+  it("answers NOT_FOUND for an item that no longer exists", async () => {
+    expect(await actions.setItemDecision({ id: randomUUID(), decision: "bring" })).toMatchObject({
+      ok: false,
+      error: { code: "NOT_FOUND" },
+    });
+    expect(await actions.archiveItem({ id: randomUUID() })).toMatchObject({ ok: false, error: { code: "NOT_FOUND" } });
+  });
+
+  it("archives and unarchives, returning the detail", async () => {
+    const item = await makeTaggedItem(testDb.db, { aiRaw: COAT_TAGS, status: "confirmed", wearCount: 2 });
+    expect(await actions.archiveItem({ id: item.id })).toMatchObject({
+      ok: true,
+      data: { id: item.id, status: "archived", wearCount: 2, original: null },
+    });
+    expect(await actions.unarchiveItem({ id: item.id })).toMatchObject({
+      ok: true,
+      data: { id: item.id, status: "confirmed" },
+    });
+  });
+
+  it("refuses to delete without a Blob token and deletes nothing", async () => {
+    const item = await makeTaggedItem(testDb.db, { aiRaw: COAT_TAGS });
+    await makeImage(testDb.db, item.id, { kind: "original" });
+    // The wrapper logs the CONFIG detail on the server (D-053).
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined);
+
+    expect(await actions.deleteItem({ id: item.id })).toEqual({
+      ok: false,
+      error: { code: "CONFIG", message: CONFIG_ERROR_MESSAGE },
+    });
+
+    expect(consoleError).toHaveBeenCalled();
+    consoleError.mockRestore();
+    expect((await row(item.id)).id).toBe(item.id);
+    expect(await testDb.db.select().from(itemImages).where(eq(itemImages.itemId, item.id))).toHaveLength(1);
+  });
+
+  it("refuses a signed-out caller before touching the item", async () => {
+    mocks.requireSession.mockRejectedValue(new AppError("UNAUTHENTICATED", "Signed out."));
+    const item = await makeTaggedItem(testDb.db, { aiRaw: COAT_TAGS });
+    for (const result of [
+      await actions.setItemDecision({ id: item.id, decision: "sell" }),
+      await actions.setItemLocation({ id: item.id, location: "hamburg" }),
+      await actions.archiveItem({ id: item.id }),
+      await actions.unarchiveItem({ id: item.id }),
+      await actions.deleteItem({ id: item.id }),
+    ]) {
+      expect(result).toMatchObject({ ok: false, error: { code: "UNAUTHENTICATED" } });
+    }
+    expect(await row(item.id)).toMatchObject({ status: "tagged", decision: "undecided", location: "bologna" });
   });
 });

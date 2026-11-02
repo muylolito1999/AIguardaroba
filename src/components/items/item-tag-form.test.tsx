@@ -290,7 +290,7 @@ describe("ItemTagForm when the list hands it a newer card", () => {
     await waitFor(() => expect((screen.getByLabelText("Name") as HTMLInputElement).value).toBe("Navy overcoat"))
   })
 
-  it("keeps unsaved edits when a newer card arrives", async () => {
+  it("keeps unsaved edits when a newer card arrives, and shows its values in the other fields", async () => {
     const item = tagged({ name: "Navy wool coat" })
     const { rerender } = renderForm(item)
 
@@ -299,7 +299,10 @@ describe("ItemTagForm when the list hands it a newer card", () => {
 
     await act(async () => {})
     expect((screen.getByLabelText("Brand") as HTMLInputElement).value).toBe("Barbour")
-    expect((screen.getByLabelText("Name") as HTMLInputElement).value).toBe("Navy wool coat")
+    // The newer card is the form's baseline now (D-132): an untouched field
+    // follows it, so a Save cannot send the old name back.
+    expect((screen.getByLabelText("Name") as HTMLInputElement).value).toBe("Navy overcoat")
+    expect(screen.getByRole("button", { name: "Save" }).getAttribute("aria-disabled")).not.toBe("true")
   })
 })
 

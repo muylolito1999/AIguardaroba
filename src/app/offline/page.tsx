@@ -20,10 +20,15 @@ export default function OfflinePage() {
           mobile data, then try again.
         </p>
       </div>
-      {/* A plain anchor forces a full page load through the network instead of the client router. */}
-      <a href="/wardrobe" className={buttonVariants({ size: "touch" })}>
-        Try again
-      </a>
+      {/* A plain GET form forces a full page load through the network instead of
+          the client router, with or without JavaScript. Not an <a>: with the
+          /wardrobe/[id] route, Next's lint rule asks for <Link>, which would
+          navigate on the client. */}
+      <form action="/wardrobe" method="get">
+        <button type="submit" className={buttonVariants({ size: "touch" })}>
+          Try again
+        </button>
+      </form>
     </main>
   )
 }

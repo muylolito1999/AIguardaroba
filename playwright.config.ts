@@ -4,6 +4,7 @@ import { defineConfig, devices } from "@playwright/test";
 import { hashSync } from "bcryptjs";
 
 import { E2E_DATABASE_URL, E2E_PASSWORD } from "./e2e/constants";
+import { liveServerEnv } from "./e2e/live-env";
 import { APP_ENV_VARS } from "./test/app-env-vars";
 
 // Every app variable starts blank on the e2e server. `next build` and
@@ -12,10 +13,9 @@ import { APP_ENV_VARS } from "./test/app-env-vars";
 // cannot fill it, and src/env.ts treats a blank value as unset. Without this,
 // a real ANTHROPIC_API_KEY or BLOB_READ_WRITE_TOKEN in .env.local would reach
 // the server, and the specs, which assume neither exists, would make paid
-// Claude calls and upload to the production Blob store. E2E_TAG stays out: it
-// is reserved for the planned Phase 4 smoke spec, which will read it in the
-// test runner, not the server. A future spec that needs real credentials must
-// pass them in explicitly below, never inherit them.
+// Claude calls and upload to the production Blob store. E2E_TAG stays out: the
+// smoke spec reads it in the test runner, not the server. Real credentials
+// reach the server only through liveServerEnv() below, never by inheritance.
 const BLANK_APP_ENV = Object.fromEntries(
   APP_ENV_VARS.filter((name) => name !== "E2E_TAG").map((name) => [name, ""]),
 );
@@ -55,6 +55,10 @@ export default defineConfig({
       DATABASE_URL_UNPOOLED: E2E_DATABASE_URL,
       APP_PASSWORD_HASH,
       SESSION_SECRET,
+      // Only what the runner's shell set (D-113): BLOB_READ_WRITE_TOKEN when it
+      // is set there, ANTHROPIC_API_KEY only with E2E_TAG=1 as well. Otherwise
+      // both stay blank as above. Never read from .env.local.
+      ...liveServerEnv(),
     },
   },
 });

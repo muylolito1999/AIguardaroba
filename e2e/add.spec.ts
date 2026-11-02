@@ -3,6 +3,7 @@ import { Pool } from "pg"
 
 import { E2E_DATABASE_URL, E2E_PASSWORD } from "./constants"
 import { makeJpegFixture, type PhotoFixture } from "./fixtures/images"
+import { NEEDS_NO_BLOB_TOKEN, SHELL_HAS_BLOB_TOKEN } from "./live-env"
 
 // The add flow against the e2e server, which has no BLOB_READ_WRITE_TOKEN and
 // no ANTHROPIC_API_KEY (playwright.config.ts). The page must still render,
@@ -10,6 +11,8 @@ import { makeJpegFixture, type PhotoFixture } from "./fixtures/images"
 // configured, for each photo and in a toast, without creating any item.
 
 const CONFIG_STATUS = "Failed: Uploads are not configured on the server."
+
+test.skip(SHELL_HAS_BLOB_TOKEN, NEEDS_NO_BLOB_TOKEN)
 
 async function signInTo(page: Page, path: string): Promise<void> {
   await page.goto(path)

@@ -441,6 +441,32 @@ describe("tagItem: failures", () => {
     expect(await row(item.id)).toMatchObject({ status: "tagged", taggingBatchId: null });
   });
 
+  it("records the spend and answers NOT_FOUND when the item is deleted while Claude answers", async () => {
+    const item = await pendingItem();
+    fake.enqueue(fakeMessage({ json: COAT_TAGS }));
+    // No lock is held across the call: the owner deletes the item meanwhile.
+    const create = fake.messages.create.bind(fake.messages);
+    const racing = {
+      ...fake,
+      messages: {
+        ...fake.messages,
+        create: (async (...args: Parameters<typeof create>) => {
+          await testDb.db.delete(items).where(eq(items.id, item.id));
+          return create(...args);
+        }) as typeof create,
+      },
+    } satisfies AnthropicLike;
+
+    const error = await appError(tagItem(deps({ anthropic: () => racing }), item.id));
+
+    expect(error.code).toBe("NOT_FOUND");
+    expect(fake.remaining()).toBe(0);
+    const calls = await testDb.db.select().from(aiCalls);
+    expect(calls).toHaveLength(1);
+    expect(calls[0]).toMatchObject({ purpose: "tagging", status: "success", itemId: null });
+    expect(calls[0]?.costUsd).toBeGreaterThan(0);
+  });
+
   it("answers NOT_FOUND for unknown and malformed ids", async () => {
     expect((await appError(tagItem(deps(), randomUUID()))).code).toBe("NOT_FOUND");
     expect((await appError(tagItem(deps(), "42"))).code).toBe("NOT_FOUND");

@@ -27,6 +27,7 @@ import {
   type TagBody,
   type TagData,
 } from "@/lib/items/contracts"
+import { noteWardrobeChangeIfOk } from "@/lib/items/wardrobe-changes"
 import { err, ok, type Result } from "@/lib/result"
 
 import type { TaggingSetup } from "./cost-quote"
@@ -100,12 +101,13 @@ export function createAddApi({ fetch, putBlob }: { fetch: FetchLike; putBlob: Pu
       }
     },
 
+    // A registered or tagged item changes what the wardrobe list shows (D-107).
     register(body, signal) {
-      return postResult(ITEM_API.register, body, RegisterDataSchema, signal)
+      return postResult(ITEM_API.register, body, RegisterDataSchema, signal).then(noteWardrobeChangeIfOk)
     },
 
     tagItem(itemId, body) {
-      return postResult(ITEM_API.tag(itemId), body, TagDataSchema)
+      return postResult(ITEM_API.tag(itemId), body, TagDataSchema).then(noteWardrobeChangeIfOk)
     },
 
     taggingSetup() {

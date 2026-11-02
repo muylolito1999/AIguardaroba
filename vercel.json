@@ -1,5 +1,8 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "regions": ["fra1"],
-  "crons": [{ "path": "/api/cron/poll-batches", "schedule": "0 4 * * *" }]
+  "crons": [{ "path": "/api/cron/poll-batches", "schedule": "0 4 * * *" }],
+  "functions": {
+    "src/app/api/export/images/route.ts": { "supportsCancellation": true }
+  }
 }

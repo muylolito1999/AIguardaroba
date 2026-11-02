@@ -64,8 +64,8 @@ function ActiveNavMenu() {
 function NavMenu({ pathname }: { pathname: string | null }) {
   return (
     <SidebarMenu className="gap-1">
-      {PRIMARY_NAV.map(({ href, label, icon: Icon }) => {
-        const active = isNavItemActive(pathname, href)
+      {PRIMARY_NAV.map(({ href, label, icon: Icon, alsoActiveOn }) => {
+        const active = isNavItemActive(pathname, href, alsoActiveOn)
         return (
           <SidebarMenuItem key={href}>
             <SidebarMenuButton

@@ -133,6 +133,12 @@ export const items = snakeCase.table(
     createdAt: createdAt(),
     updatedAt: updatedAt(),
     status: itemStatusEnum().notNull().default("pending_tagging"),
+    /**
+     * The status an archived item had when it was archived, so unarchiving
+     * puts it back where it was instead of guessing (D-128). Null for an item
+     * that is not archived, and for rows archived before the column existed.
+     */
+    archivedFrom: itemStatusEnum(),
     location: itemLocationEnum().notNull().default("bologna"),
     decision: itemDecisionEnum().notNull().default("undecided"),
     // Tag columns stay null until the item is tagged; the

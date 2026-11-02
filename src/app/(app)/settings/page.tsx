@@ -1,6 +1,6 @@
 import type { Metadata } from "next"
 import Link from "next/link"
-import { Gauge } from "lucide-react"
+import { Download, Gauge } from "lucide-react"
 
 import { LogoutButton } from "@/components/auth/logout-button"
 import { PageHeader } from "@/components/layout/page-header"
@@ -14,7 +14,6 @@ export const metadata: Metadata = {
 }
 
 const COMING_SOON = [
-  "Export (JSON, CSV and photos)",
   "Climate profiles",
 ]
 
@@ -48,6 +47,24 @@ export default function SettingsPage() {
           >
             <Gauge aria-hidden />
             AI usage
+          </Link>
+        </section>
+
+        <Separator />
+
+        <section className="flex flex-col gap-3">
+          <div className="flex flex-col gap-1">
+            <h2 className="font-heading text-base font-semibold">Your data</h2>
+            <p className="text-sm text-muted-foreground">
+              Download your wardrobe as JSON and CSV, and your photos as ZIP files.
+            </p>
+          </div>
+          <Link
+            href="/settings/export"
+            className={buttonVariants({ variant: "outline", size: "touch", className: "self-start" })}
+          >
+            <Download aria-hidden />
+            Export your data
           </Link>
         </section>
 

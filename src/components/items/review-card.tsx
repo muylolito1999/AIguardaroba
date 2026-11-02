@@ -16,6 +16,7 @@ import {
 } from "@/components/ui/alert-dialog"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
+import { focusWasLost } from "@/lib/focus"
 import type { ItemCardDto } from "@/lib/items/contracts"
 
 import { ItemPhoto } from "./item-photo"
@@ -28,16 +29,6 @@ import { requestTagging } from "./tag-request"
 /** id of a card's heading; the list moves focus there after a neighbouring card leaves. */
 export function reviewHeadingId(itemId: string): string {
   return `review-item-${itemId}`
-}
-
-/**
- * Focus has nowhere useful to stay: nothing has it, <body> has it, or the
- * element that had it left the page. Focus moved after a request settles only
- * then (or when it is still where the request started), so it is never taken
- * from a field the owner moved to meanwhile.
- */
-export function focusWasLost(active: Element | null): boolean {
-  return active === null || active === document.body || !active.isConnected
 }
 
 const HINT_LABELS: Record<HintField, string> = {

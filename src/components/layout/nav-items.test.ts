@@ -37,6 +37,14 @@ describe("isNavItemActive", () => {
     expect(isNavItemActive("/wardrobe", "/add")).toBe(false)
   })
 
+  it("matches the extra sections a tab owns", () => {
+    expect(isNavItemActive("/stats", "/wardrobe", ["/stats"])).toBe(true)
+    expect(isNavItemActive("/stats", "/wardrobe")).toBe(false)
+    expect(isNavItemActive("/statsx", "/wardrobe", ["/stats"])).toBe(false)
+    const wardrobe = PRIMARY_NAV.find((item) => item.href === "/wardrobe")
+    expect(wardrobe?.alsoActiveOn).toEqual(["/stats"])
+  })
+
   it("matches nothing while the pathname is unknown", () => {
     expect(isNavItemActive(null, "/wardrobe")).toBe(false)
   })

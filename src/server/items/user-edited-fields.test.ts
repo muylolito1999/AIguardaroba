@@ -18,6 +18,7 @@ function itemRow(overrides: Partial<Item> = {}): Item {
     createdAt: new Date("2026-11-01T10:00:00.000Z"),
     updatedAt: new Date("2026-11-01T10:00:00.000Z"),
     status: "tagged",
+    archivedFrom: null,
     location: "bologna",
     decision: "undecided",
     name: COAT_TAGS.name,

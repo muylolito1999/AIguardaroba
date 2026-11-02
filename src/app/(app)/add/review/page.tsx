@@ -5,6 +5,8 @@ import { Suspense } from "react"
 import { desc, inArray, sql } from "drizzle-orm"
 import { CircleAlert, Info, Plus } from "lucide-react"
 
+import { NoteServerItemChanges } from "@/components/items/note-server-item-changes"
+import { RefreshAfterItemChanges } from "@/components/items/refresh-after-item-changes"
 import { ReviewEmpty } from "@/components/items/review-empty"
 import { ReviewList } from "@/components/items/review-list"
 import { PageHeader } from "@/components/layout/page-header"
@@ -123,6 +125,15 @@ async function ReviewItems() {
           </AlertDescription>
         </Alert>
       ) : null}
+      {/* The items those results changed are shown stale by pages Next keeps hidden; they re-read when shown
+          (D-107). The cards below were loaded after the poll, so they already hold those results (D-136). */}
+      {poll.processed > 0 ? <NoteServerItemChanges render={poll} includedIn={cards} /> : null}
+      {/* This page is kept by Next too: shown again after an item changed elsewhere in the tab (confirmed,
+          archived or deleted on its item page, or registered on /add), it reads itself again, also when it
+          was empty. After the marker above, whose effect must credit its results to these cards first. Not
+          while shown: its own saves and tag answers already show here, except one landing while a refresh
+          of this page runs, which brings one more refresh (D-129, D-136). */}
+      <RefreshAfterItemChanges snapshot={cards} refreshWhileShown={false} />
       {/* Shown next to the problem notice: results from the batches that could be read were applied. */}
       {poll.processed > 0 ? (
         // Good news, not a problem: announced politely.

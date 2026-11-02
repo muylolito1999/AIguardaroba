@@ -4,6 +4,7 @@
 // HTTP errors, unreadable responses and network failures alike.
 
 import { ITEM_API, TagDataSchema, resultSchema, type TagData } from "@/lib/items/contracts"
+import { noteWardrobeChangeIfOk } from "@/lib/items/wardrobe-changes"
 import { err, type Result } from "@/lib/result"
 
 const TagResultSchema = resultSchema(TagDataSchema)
@@ -48,5 +49,6 @@ export async function requestTagging(itemId: string, options: TagRequestOptions 
   if (!parsed.success) {
     return err("UPSTREAM", `The server answered with an unexpected response (HTTP ${response.status}). Try again.`)
   }
-  return parsed.data
+  // Tags change what the wardrobe list shows (D-107).
+  return noteWardrobeChangeIfOk(parsed.data)
 }

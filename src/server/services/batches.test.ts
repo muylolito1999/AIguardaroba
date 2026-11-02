@@ -40,6 +40,7 @@ import {
   startTaggingBatch,
   type BatchPollDeps,
 } from "./batches";
+import { archiveItem, unarchiveItem } from "./item-lifecycle";
 import { taggingRequest, type TagItemDeps } from "./tag-item";
 
 const requireSession = vi.hoisted(() => vi.fn());
@@ -872,6 +873,24 @@ describe("runBatchPoll", () => {
       subcategory: "field jacket",
       userEditedFields: ["name"],
     });
+  });
+
+  it("keeps an item archived meanwhile archived, with the status it was archived from, and unarchives it as tagged", async () => {
+    const [item] = await pendingItems(1);
+    if (!item) throw new Error("item missing");
+    const { anthropicId } = await seedBatch([item]);
+    await archiveItem(testDb.db, item.id);
+    fake.endBatch(anthropicId, [succeededResult(item.id, fakeMessage({ json: JACKET_TAGS }))]);
+
+    expect(await runBatchPoll(pollDeps())).toMatchObject({ batches: 1, processed: 1, tagged: 1 });
+    expect(await itemRow(item.id)).toMatchObject({
+      status: "archived",
+      archivedFrom: "pending_tagging",
+      subcategory: "field jacket",
+    });
+
+    // The owner has not seen Claude's tags: back as tagged, so they reach the review queue.
+    expect(await unarchiveItem(testDb.db, item.id)).toMatchObject({ status: "tagged" });
   });
 
   it("keeps polling the other batches when one fails and returns their counts with the failure", async () => {

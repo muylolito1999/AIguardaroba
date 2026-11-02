@@ -17,12 +17,14 @@ import type { TaggingSetup } from "@/components/add/cost-quote"
 import type { requestTaggingSetup } from "@/components/add/tagging-setup-request"
 import { Button } from "@/components/ui/button"
 import { NETWORK_ERROR_MESSAGE } from "@/lib/images/blob-upload-client"
+import { focusWasLost } from "@/lib/focus"
 import type { ItemCardDto } from "@/lib/items/contracts"
+import { noteWardrobeChange } from "@/lib/items/wardrobe-changes"
 import { err, type Result } from "@/lib/result"
 import { toastError } from "@/lib/toast-result"
 
 import type { ReviewActions } from "./review-actions"
-import { focusWasLost, ReviewCard, reviewHeadingId } from "./review-card"
+import { ReviewCard, reviewHeadingId } from "./review-card"
 import { ReviewEmpty } from "./review-empty"
 import { mergeServerItems } from "./review-merge"
 import { ReviewTagging } from "./review-tagging"
@@ -236,6 +238,8 @@ export function ReviewList({
       setBulkProblem(result.error.message)
       return
     }
+    // Confirmed items change what the wardrobe list shows (D-107).
+    noteWardrobeChange()
     const { confirmed } = result.data
     if (confirmed !== ids.length) {
       // The action reports a count, not which items; reloading shows the truth.

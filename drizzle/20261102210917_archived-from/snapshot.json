@@ -1,0 +1,48 @@
+{
+  "type": "diff",
+  "version": "9",
+  "dialect": "postgres",
+  "id": "31169dab-25b1-44b0-9794-1ad30492fef3",
+  "prevIds": [
+    "21ce8f93-dd70-4d01-8e49-d1255d6ee641"
+  ],
+  "footprints": [
+    {
+      "statementType": "add_column",
+      "statementTarget": [
+        "column",
+        "public",
+        "items",
+        "archived_from"
+      ],
+      "writes": [
+        "s|col|public.items.archived_from",
+        "n|col|public.items.archived_from",
+        "e|col|public.items.archived_from"
+      ],
+      "reads": [
+        "n|tbl|public.items",
+        "n|sch|public",
+        "n|enum|public.item_status"
+      ]
+    }
+  ],
+  "deltas": [
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "items",
+        "name": "archived_from",
+        "type": "item_status",
+        "typeSchema": "public",
+        "notNull": false,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    }
+  ]
+}

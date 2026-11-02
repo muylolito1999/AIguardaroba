@@ -8,6 +8,7 @@ import { aiBatches, aiCalls, items } from "@/lib/db/schema"
 
 import { makeImage, makeItem, makeTaggedItem } from "../test/factories"
 import { E2E_DATABASE_URL, E2E_PASSWORD } from "./constants"
+import { NEEDS_NO_API_KEY, SHELL_TAGGING } from "./live-env"
 
 // The review screen against the production build, without an Anthropic key
 // or a Blob token: items are inserted straight into wardrobe_e2e, and their
@@ -179,6 +180,7 @@ test("a stored tagging error is shown with Retry", async ({ page }) => {
 })
 
 test("Tag now without an API key shows the error and leaves the item pending", async ({ page }) => {
+  test.skip(SHELL_TAGGING, NEEDS_NO_API_KEY)
   await signIn(page)
   const card = cardFor(page, pendingId)
   await card.getByRole("button", { name: "Tag now" }).click()
@@ -263,6 +265,7 @@ test.describe("at phone width", () => {
 test("the waiting items get one quote and are tagged together, each card showing its outcome", async ({
   page,
 }, testInfo) => {
+  test.skip(SHELL_TAGGING, NEEDS_NO_API_KEY)
   await signIn(page)
   const region = page.getByRole("region", { name: "Tagging" })
   await expect(region).toContainText(/Tag \d+ waiting items? ≈ (< )?\$\d+\.\d\d \(Haiku 5\.5\)/)

@@ -1,4 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
+import { eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
 
@@ -6,6 +7,7 @@ import { Pool } from "pg";
 // specs share the real cookie name.
 import { SESSION_COOKIE } from "@/lib/auth/token";
 import { relations } from "@/lib/db/relations";
+import { items } from "@/lib/db/schema";
 
 import { makeTaggedItem } from "../test/factories";
 import { E2E_DATABASE_URL, E2E_PASSWORD } from "./constants";
@@ -143,26 +145,34 @@ test.describe("without JavaScript", () => {
 });
 
 test("a cookieless POST with a forged Next-Action header returns no app data", async ({ request }) => {
-  // A confirmed item that any page rendering the wardrobe would show.
+  // A confirmed item that any page rendering the wardrobe would show. It is
+  // deleted again afterwards, because later specs (stats) count every
+  // confirmed item in the database.
   const pool = new Pool({ connectionString: E2E_DATABASE_URL, max: 1 });
+  const db = drizzle({ client: pool, relations });
+  let status: number;
+  let body: string;
   try {
-    await makeTaggedItem(drizzle({ client: pool, relations }), { name: CANARY_ITEM_NAME, status: "confirmed" });
+    const canary = await makeTaggedItem(db, { name: CANARY_ITEM_NAME, status: "confirmed" });
+    try {
+      // Proxy lets Next-Action requests through, so the DAL checks must hold (D-013).
+      const response = await request.post("/wardrobe", {
+        headers: {
+          "Next-Action": FORGED_ACTION_ID,
+          "Content-Type": "text/plain;charset=UTF-8",
+          Accept: "text/x-component",
+        },
+        data: "[]",
+        maxRedirects: 0,
+      });
+      status = response.status();
+      body = await response.text();
+    } finally {
+      await db.delete(items).where(eq(items.id, canary.id));
+    }
   } finally {
     await pool.end();
   }
-
-  // Proxy lets Next-Action requests through, so the DAL checks must hold (D-013).
-  const response = await request.post("/wardrobe", {
-    headers: {
-      "Next-Action": FORGED_ACTION_ID,
-      "Content-Type": "text/plain;charset=UTF-8",
-      Accept: "text/x-component",
-    },
-    data: "[]",
-    maxRedirects: 0,
-  });
-  const status = response.status();
-  const body = await response.text();
 
   expect(body, `status ${status} leaked item data`).not.toContain(CANARY_ITEM_NAME);
   const servedAppShell = status === 200 && body.includes(APP_CHROME_MARKER);

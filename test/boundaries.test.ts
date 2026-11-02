@@ -79,9 +79,10 @@ const SERVER_CODE_DIRS = ["src/server", "src/lib/ai", "src/lib/auth", "src/app/a
 const SERVER_CODE_FILES = ["src/lib/images/blob.ts", "src/lib/images/server-pipeline.ts"];
 
 // D-013: proxy lets forged Next-Action requests through, so every exported
-// async service function checks the session itself. The exceptions run before
-// a session can exist; each needs a reason here.
-const SERVICES_DIR = "src/server/services";
+// async service function, and every server read function in src/server/items
+// (the item card and detail reads), checks the session itself. The exceptions
+// run before a session can exist; each needs a reason here.
+const SESSION_CHECKED_DIRS = ["src/server/services", "src/server/items"];
 const SESSION_CHECKS = ["requireSession", "verifySession"];
 const SESSIONLESS_SERVICE_FUNCTIONS: Record<string, readonly string[]> = {
   // The password check that creates the session.
@@ -447,7 +448,12 @@ describe("client/server boundaries", () => {
       "src/lib/images/blob.ts",
       "src/lib/images/server-pipeline.ts",
       "src/server/items/dto.ts",
+      "src/server/items/detail.ts",
       "src/server/services/tag-item.ts",
+      "src/server/services/items-query.ts",
+      "src/server/services/item-lifecycle.ts",
+      "src/server/services/stats.ts",
+      "src/server/services/export.ts",
     ]) {
       expect(checked).toContain(expected);
     }
@@ -476,8 +482,14 @@ describe("client/server boundaries", () => {
     expect(violations).toEqual([]);
   });
 
-  it("checks the session in every exported async service function (D-013)", () => {
-    const serviceFiles = walk(path.join(ROOT, SERVICES_DIR)).filter((file) => !TEST_FILE.test(file));
+  it("checks the session in every exported async service and read function (D-013)", () => {
+    const serviceFiles = SESSION_CHECKED_DIRS.flatMap((dir) => walk(path.join(ROOT, dir))).filter(
+      (file) => !TEST_FILE.test(file),
+    );
+    // Guards against the walk silently finding nothing.
+    for (const expected of ["src/server/items/detail.ts", "src/server/services/items-query.ts"]) {
+      expect(serviceFiles.map((file) => toPosix(path.relative(ROOT, file)))).toContain(expected);
+    }
     const unchecked = serviceFiles.flatMap((file) => {
       const rel = toPosix(path.relative(ROOT, file));
       const allowed = SESSIONLESS_SERVICE_FUNCTIONS[rel] ?? [];

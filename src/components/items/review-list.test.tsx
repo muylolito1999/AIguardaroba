@@ -425,7 +425,9 @@ describe("the review list after the page renders again", () => {
     expect(articles.at(-1)).toBe(cardById(target.id))
     expect(nameValue(cardById(target.id))).toBe("My unsaved name")
     expect(document.getElementById(reviewHeadingId(all[cap - 2]?.id ?? ""))).toBeNull()
-  })
+    // Fourteen full tag forms: about 2 s alone, and past the default 5 s when
+    // the whole suite runs in parallel on a laptop.
+  }, 15_000)
 })
 
 describe("confirming while other changes arrive", () => {
