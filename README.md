@@ -92,16 +92,60 @@ Variables that Vercel injects on its own (`VERCEL_OIDC_TOKEN`, `BLOB_STORE_ID`, 
 2. Install pnpm: `npm i -g pnpm@11.28.9`.
 3. Install dependencies: `pnpm i`.
 4. Get the environment: `vercel env pull .env.local` (needs the Vercel project, see "Connecting the cloud" below). Phase 1 runs without it.
-5. Phase 2 onward: start the local database with `docker compose up -d db`. It is Postgres 18 on port 5433 with the databases `wardrobe` and `wardrobe_e2e`, for local browser and e2e checks only; production uses Neon. To use it, point `DATABASE_URL` and `DATABASE_URL_UNPOOLED` in `.env.local` at it (the connection details are in `docker-compose.yml`).
-6. Phase 2 onward: `pnpm db:migrate`, then `pnpm db:seed`. The seed is idempotent.
-7. Phase 2 onward: set the password with `pnpm hash-password --with-secret` and put both printed values in `.env.local`.
-8. `pnpm dev` and open http://localhost:3000.
+5. Start the local database with `docker compose up -d db` and point `.env.local` at it (see [Database](#database)). Production uses Neon.
+6. `pnpm db:migrate`, then `pnpm db:seed`. The seed is idempotent.
+7. Set the password with `pnpm hash-password --with-secret` and put both printed values in `.env.local` (see [Authentication](#authentication)).
+8. `pnpm dev` and open http://localhost:3000. You land on `/login`.
 
 Notes:
 
 - The session cookie is `Secure`. Chromium and Firefox accept it on `http://localhost`; Safari may not, so use `pnpm dev --experimental-https` there.
 - Five failed logins from one client lock that client out for 15 minutes. `pnpm auth:unlock` clears all recorded attempts.
 - Testing on a phone (camera, HEIC, install) needs real HTTPS. The simplest route is a preview deploy. The alternative is LAN HTTPS with a certificate issued for the LAN IP (`--experimental-https-key` and `--experimental-https-cert`) and the mkcert root CA installed on the phone; plain `--experimental-https` is not trusted over a LAN IP.
+
+## Database
+
+Postgres with Drizzle ORM. The schema lives in `src/lib/db/`: `enums.ts` (value lists shared with the zod schemas and forms), `schema.ts` (tables, snake_case in the database), `relations.ts`, `client.ts` (the pooled `pg` client) and `index.ts` (`getDb()`, created on first use). Migrations are generated SQL in `drizzle/`, one folder per migration, and are committed.
+
+### Local database (Docker)
+
+`docker compose up -d db` starts Postgres 18 on `localhost:5433` with two databases: `wardrobe` for local development and `wardrobe_e2e`, which the Playwright run empties and refills. The user and password are both `wardrobe`; they are local-only and not secret. For local development, put this in `.env.local`:
+
+```text
+DATABASE_URL=postgres://wardrobe:wardrobe@localhost:5433/wardrobe
+DATABASE_URL_UNPOOLED=postgres://wardrobe:wardrobe@localhost:5433/wardrobe
+```
+
+The init script that creates `wardrobe_e2e` runs only on an empty volume. `docker compose down -v` deletes the volume, and with it both databases; the next `docker compose up -d db` starts fresh.
+
+### Commands
+
+| Command | What it does |
+|---|---|
+| `pnpm db:generate --name <name>` | Writes a new migration folder from the changes in `schema.ts`. Needs no database. Review the SQL, then commit it. |
+| `pnpm db:migrate` | Applies pending migrations over `DATABASE_URL_UNPOOLED`. |
+| `pnpm db:seed` | Seeds the climate profiles and the `app_settings` row (see below). Safe to run again. |
+| `pnpm db:studio` | Opens Drizzle Studio on the `DATABASE_URL_UNPOOLED` database. |
+
+Migrations always run over `DATABASE_URL_UNPOOLED`, the direct connection: DDL and the migrator's lock do not belong on Neon's pooled endpoint. If the variable is missing, `drizzle.config.ts` stops with an error naming it; there is no fallback to the pooled `DATABASE_URL`, which the app uses at runtime. Migrations never run during the Vercel build, and `drizzle-kit push` is not used.
+
+The seed restores Hamburg to the reference values on every run and makes it the default profile. It inserts the Bologna placeholder only when it is missing, so values filled in through the climate editor survive a re-run, and it creates `app_settings` (home profile Bologna, new items located in Bologna) only when the row does not exist yet.
+
+### Neon
+
+Once the Neon integration exists, `vercel env pull .env.local` writes Neon's pooled `DATABASE_URL` and direct `DATABASE_URL_UNPOOLED` into `.env.local`, replacing the Docker values. The same commands then target Neon; the order before a deploy is in [Deploy](#deploy).
+
+## Authentication
+
+There is one user and one password. `proxy.ts` makes a fast first check of the session cookie, and every Server Action, Route Handler and server read checks the session again itself.
+
+- Setting the password: `pnpm hash-password --with-secret` asks for the password twice without echoing it (at least 10 characters, at most 72 bytes) and prints `APP_PASSWORD_HASH=…` and `SESSION_SECRET=…`. Put both lines in `.env.local` and in the Vercel dashboard for all environments. To change only the password, run it without `--with-secret` and replace `APP_PASSWORD_HASH`. Changing the password does not sign anyone out, and neither does logging out elsewhere: sessions are stateless tokens. If the password or a device may be compromised, also rotate `SESSION_SECRET` (`pnpm hash-password --with-secret`); that invalidates every existing session and also resets the rate-limit counts.
+- `APP_PASSWORD_HASH` is the base64 encoding of a bcrypt hash (cost 12), not the raw `$2b$…` hash: `@next/env` expands `$` in `.env` files and would corrupt it. A raw hash is rejected with a hint.
+- Sessions: after signing in, the browser holds a signed token in the `__Host-wardrobe_session` cookie (httpOnly, Secure, SameSite=Lax, `Path=/`, no Domain) for 30 days. The `__Host-` prefix stops a subdomain or a plain-HTTP response from planting or shadowing it. Changing `SESSION_SECRET` signs out every device.
+- Signed out, every page redirects to `/login?next=<path>`, and signing in returns there; `/api/*` answers 401 with a JSON error instead. Signed in, `/login` redirects to the app. The PWA files (manifest, icons, `/sw.js`), `/offline`, `/api/blob/upload` and `/api/cron/*` stay public; the last two check their own credentials.
+- Log out from Settings (Account) or from the sidebar footer on desktop.
+- The login form works without JavaScript too.
+- Rate limit: 5 failed logins from one client within 15 minutes lock that client until the oldest failure is 15 minutes old. A client is identified by a hash of its IP address and `SESSION_SECRET`; raw IP addresses are not stored. An IPv6 client counts as its whole /64 network, and an IPv4-mapped IPv6 address as the plain IPv4 address. The client address comes from `x-forwarded-for` (then `x-real-ip`), so the limit is only trustworthy behind a proxy that overwrites those headers, as Vercel does: a self-hosted `next start` keeps a client-supplied `x-forwarded-for`, which lets clients choose their own key. There is no global lock, because anyone could trigger it and lock the owner out; more than 200 failures in an hour across all clients only log a warning. `pnpm auth:unlock` deletes every recorded attempt and unlocks everyone.
 
 ## Connecting the cloud (one time)
 
@@ -155,12 +199,16 @@ A different tagging model applies to new items and to items you re-tag; existing
 |---|---|
 | `pnpm typecheck` | `next typegen && tsc --noEmit` |
 | `pnpm lint` | ESLint |
-| `pnpm test` | Vitest. Database tests run on in-memory PGlite; the Anthropic API, Blob and `fetch` are faked. No network access. |
+| `pnpm test` | Vitest. Database tests run on an in-memory PGlite database built from the committed migrations in `drizzle/`; the Anthropic API, Blob and `fetch` are faked. Needs no Docker, no `.env` file and no network. |
 | `pnpm build` | Production build. Cache Components violations only show up here. |
 | `pnpm test:e2e` | Playwright, local only, in a visible browser, against `pnpm build && pnpm start` and the Docker `wardrobe_e2e` database. Upload specs skip with a reason when there is no Blob token. |
 | `pnpm ai:smoke` | Live check against the Anthropic API (about $0.001). Run it manually after connecting the cloud. |
 
 A phase is done when `pnpm typecheck && pnpm lint && pnpm test && pnpm build` passes.
+
+Before the first `pnpm test:e2e`, install the browser once with `pnpm exec playwright install chromium`, and start the database with `docker compose up -d db` before every run. The run needs no `.env.local`: `playwright.config.ts` starts the server with its own `DATABASE_URL` and `DATABASE_URL_UNPOOLED` (both `wardrobe_e2e`), a fixed test password from `e2e/constants.ts` hashed into `APP_PASSWORD_HASH`, and a new random `SESSION_SECRET` on every run. These override any values in `.env.local`. The global setup then migrates `wardrobe_e2e`, empties every table and seeds it, so each run starts from the same state. Details are in [e2e/README.md](e2e/README.md).
+
+`src/lib/auth/rate-limit.pg.test.ts` checks that parallel logins on separate connections cannot get past the limit, which PGlite cannot show because it runs one transaction at a time. It is skipped unless `TEST_DATABASE_URL` names a migrated database, for example `TEST_DATABASE_URL=postgres://wardrobe:wardrobe@localhost:5433/wardrobe_e2e pnpm exec vitest run src/lib/auth/rate-limit.pg.test.ts`. It only writes `login_attempts` rows under its own random keys and deletes them afterwards.
 
 ## Project structure
 
@@ -172,22 +220,26 @@ src/
     ui/             shadcn components (Base UI primitives)
     layout/         sidebar, mobile tab bar, nav-items.ts (single source for the tabs)
     theme/  pwa/    theme provider and toggle; service worker registration, install hint
+    auth/           login form, logout button
     items/ add/ wardrobe/ relocate/ outfits/    feature components (Phases 3-6)
   lib/
     ai/             models and pricing (models.ts), structured calls, retries, cost, budget
-    db/  auth/      Drizzle schema and client; session, DAL, password, rate limit (Phase 2)
-    images/ climate/ weather/ export/           feature libraries (Phases 3-6)
+    db/  auth/      Drizzle schema and client; session token, DAL, password, rate limit
+    climate/        climate profile types, Hamburg and Bologna seed data, seeder
+    images/ weather/ export/                    feature libraries (Phases 3-6)
     result.ts       Result<T> type and error codes
   server/
     actions/        Server Actions (thin)
     services/       domain logic with injected dependencies, tested on PGlite
   env.ts            lazy, grouped environment validation
-  proxy.ts          optimistic auth check (Phase 2)
+  proxy.ts          optimistic auth check
 drizzle/            generated SQL migrations (committed)
+docker/             init script for the local Docker database (docker-compose.yml)
 scripts/            tsx scripts: seed, hash-password, auth-unlock, icons, env check, AI smoke test
 assets/             icon.svg (source for the generated PWA icons)
 public/             sw.js, generated icons
-test/  e2e/         Vitest helpers and fakes; Playwright specs
+test/               Vitest helpers: PGlite database (db.ts), row factories, stubs
+e2e/                Playwright specs, global setup and fixed test constants
 ```
 
 ## Licences of notable dependencies

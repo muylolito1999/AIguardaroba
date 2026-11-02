@@ -21,14 +21,16 @@ const CLIENT_FORBIDDEN = [
   "@/lib/ai/models",
   "@/lib/ai/client",
   "@/lib/ai/call",
-  "@/lib/auth/session",
-  "@/lib/auth/dal",
+  "@/lib/auth",
   "@/server",
 ];
-// Exceptions: actions are passed to the client as references, and the shared
-// enum constants are plain values the forms need.
-const CLIENT_ALLOWED = ["@/server/actions", "@/lib/db/enums"];
+// Exceptions: actions are passed to the client as references, the shared enum
+// constants are plain values the forms need, and the redirect check is a pure
+// function with no secrets.
+const CLIENT_ALLOWED = ["@/server/actions", "@/lib/db/enums", "@/lib/auth/safe-redirect"];
 
+// Single server modules outside the directories below. schema.ts, enums.ts and
+// relations.ts stay out: drizzle-kit loads them, and `server-only` throws there.
 const SERVER_ONLY_FILES = [
   "src/env.ts",
   "src/lib/db/client.ts",
@@ -37,10 +39,28 @@ const SERVER_ONLY_FILES = [
   "src/lib/ai/call.ts",
   "src/lib/ai/log.ts",
   "src/lib/ai/budget.ts",
-  "src/lib/auth/session.ts",
-  "src/lib/auth/dal.ts",
 ];
-const SERVER_ONLY_DIRS = ["src/server/services"];
+// Every non-test module in these directories, except 'use server' modules
+// (the client only ever gets references to their exports) and the exemptions.
+const SERVER_ONLY_DIRS = ["src/lib/auth", "src/server"];
+const SERVER_ONLY_EXEMPT = [
+  // Shared with proxy.ts, scripts and the Playwright specs, where `server-only`
+  // throws because they run outside Next's react-server condition.
+  "src/lib/auth/token.ts",
+  // Pure and safe in any bundle.
+  "src/lib/auth/safe-redirect.ts",
+];
+
+// D-013: proxy lets forged Next-Action requests through, so every exported
+// async service function checks the session itself. The exceptions run before
+// a session can exist; each needs a reason here.
+const SERVICES_DIR = "src/server/services";
+const SESSION_CHECKS = ["requireSession", "verifySession"];
+const SESSIONLESS_SERVICE_FUNCTIONS: Record<string, readonly string[]> = {
+  // The password check that creates the session.
+  "src/server/services/login.ts": ["attemptLogin"],
+};
+const TEST_FILE = /\.test\.[cm]?[jt]sx?$/;
 
 type ModuleInfo = {
   directives: string[];
@@ -114,6 +134,52 @@ function analyzeSource(fileName: string, source: string): ModuleInfo {
   visit(file);
 
   return { directives, valueImports, startsWithServerOnly };
+}
+
+function hasModifier(node: ts.Node, kind: ts.SyntaxKind): boolean {
+  return ts.canHaveModifiers(node) && (ts.getModifiers(node)?.some((modifier) => modifier.kind === kind) ?? false);
+}
+
+/** Async, or declared to return a Promise: anything that can do I/O. */
+function isAsyncFunction(node: ts.SignatureDeclaration): boolean {
+  if (hasModifier(node, ts.SyntaxKind.AsyncKeyword)) return true;
+  return node.type !== undefined && /^Promise\b/.test(node.type.getText());
+}
+
+function callsAny(node: ts.Node, names: readonly string[]): boolean {
+  let found = false;
+  const visit = (child: ts.Node): void => {
+    if (found) return;
+    if (ts.isCallExpression(child) && ts.isIdentifier(child.expression) && names.includes(child.expression.text)) {
+      found = true;
+      return;
+    }
+    ts.forEachChild(child, visit);
+  };
+  visit(node);
+  return found;
+}
+
+/**
+ * The exported async functions of a module (declarations and `const` arrow or
+ * function expressions) that never call one of `checks`.
+ */
+function exportedAsyncWithout(fileName: string, source: string, checks: readonly string[]): string[] {
+  const file = ts.createSourceFile(fileName, source, ts.ScriptTarget.Latest, true);
+  const missing: string[] = [];
+  for (const statement of file.statements) {
+    if (!hasModifier(statement, ts.SyntaxKind.ExportKeyword)) continue;
+    if (ts.isFunctionDeclaration(statement) && statement.body && isAsyncFunction(statement)) {
+      if (!callsAny(statement.body, checks)) missing.push(statement.name?.text ?? "default");
+    } else if (ts.isVariableStatement(statement)) {
+      for (const declaration of statement.declarationList.declarations) {
+        const init = declaration.initializer;
+        if (!init || !(ts.isArrowFunction(init) || ts.isFunctionExpression(init)) || !isAsyncFunction(init)) continue;
+        if (!callsAny(init.body, checks)) missing.push(declaration.name.getText());
+      }
+    }
+  }
+  return missing;
 }
 
 function toPosix(p: string): string {
@@ -247,8 +313,29 @@ describe("source analysis", () => {
     ["@/server/actions", false],
     ["@/lib/result", false],
     ["@/environment", false],
+    ["@/lib/auth/dal", true],
+    ["@/lib/auth/client-key", true],
+    ["@/lib/auth/password", true],
+    ["@/lib/auth/token", true],
+    ["@/lib/auth/safe-redirect", false],
+    ["@/lib/authors", false],
   ])("isForbiddenInClient(%s) is %s", (id, expected) => {
     expect(isForbiddenInClient(id)).toBe(expected);
+  });
+
+  it("finds exported async functions that skip the session check", () => {
+    const source = [
+      "import { requireSession } from '@/lib/auth/dal'",
+      "export async function listItems(db) { await requireSession(); return db.select() }",
+      "export async function leaky(db) { return db.select() }",
+      "export function promised(db): Promise<number> { return db.count() }",
+      "export const arrowLeak = async (db) => db.select()",
+      "export const arrowOk = async () => { const s = await requireSession(); return s }",
+      "export function pure(x: number) { return x + 1 }",
+      "async function internal(db) { return db.select() }",
+      "export async function nested(db) { const check = () => requireSession(); await check(); return db }",
+    ].join("\n");
+    expect(exportedAsyncWithout("s.ts", source, SESSION_CHECKS)).toEqual(["leaky", "promised", "arrowLeak"]);
   });
 
   it("follows shared helpers but not server actions or type-only imports", () => {
@@ -295,17 +382,57 @@ describe("client/server boundaries", () => {
   });
 
   it("starts every existing server module with import 'server-only'", () => {
+    const relative = (file: string) => toPosix(path.relative(ROOT, file));
     const serverFiles = [
       ...SERVER_ONLY_FILES.map((rel) => path.join(ROOT, rel)).filter((file) => existsSync(file)),
       ...SERVER_ONLY_DIRS.flatMap((dir) => walk(path.join(ROOT, dir))).filter(
-        (file) => !/\.test\.[cm]?[jt]sx?$/.test(file),
+        (file) =>
+          !TEST_FILE.test(file) &&
+          !SERVER_ONLY_EXEMPT.includes(relative(file)) &&
+          !analyzeFile(file).directives.includes("use server"),
       ),
     ];
-    expect(serverFiles.map((file) => toPosix(path.relative(ROOT, file)))).toContain("src/env.ts");
+    const checked = serverFiles.map(relative);
+    // Guards against the directory walk silently finding nothing.
+    for (const expected of [
+      "src/env.ts",
+      "src/lib/auth/dal.ts",
+      "src/lib/auth/password.ts",
+      "src/lib/auth/rate-limit.ts",
+      "src/lib/auth/client-key.ts",
+      "src/server/http.ts",
+      "src/server/actions/_wrap.ts",
+      "src/server/services/login.ts",
+    ]) {
+      expect(checked).toContain(expected);
+    }
+    for (const exempt of SERVER_ONLY_EXEMPT) expect(existsSync(path.join(ROOT, exempt)), exempt).toBe(true);
 
-    const missing = serverFiles
-      .filter((file) => !analyzeFile(file).startsWithServerOnly)
-      .map((file) => toPosix(path.relative(ROOT, file)));
+    const missing = serverFiles.filter((file) => !analyzeFile(file).startsWithServerOnly).map(relative);
     expect(missing).toEqual([]);
+  });
+
+  it("checks the session in every exported async service function (D-013)", () => {
+    const serviceFiles = walk(path.join(ROOT, SERVICES_DIR)).filter((file) => !TEST_FILE.test(file));
+    const unchecked = serviceFiles.flatMap((file) => {
+      const rel = toPosix(path.relative(ROOT, file));
+      const allowed = SESSIONLESS_SERVICE_FUNCTIONS[rel] ?? [];
+      return exportedAsyncWithout(file, readFileSync(file, "utf8"), SESSION_CHECKS)
+        .filter((name) => !allowed.includes(name))
+        .map((name) => `${rel}: ${name}`);
+    });
+    expect(
+      unchecked,
+      "Call requireSession() (or verifySession() in page reads) at the top of each exported service function. " +
+        "Only a function that must run before a session exists may be listed in SESSIONLESS_SERVICE_FUNCTIONS, with a reason.",
+    ).toEqual([]);
+
+    // The exemptions must name functions that still exist, so they cannot go stale.
+    for (const [rel, names] of Object.entries(SESSIONLESS_SERVICE_FUNCTIONS)) {
+      const file = path.join(ROOT, rel);
+      expect(existsSync(file), rel).toBe(true);
+      const exported = exportedAsyncWithout(file, readFileSync(file, "utf8"), []);
+      for (const name of names) expect(exported, `${rel}: ${name}`).toContain(name);
+    }
   });
 });

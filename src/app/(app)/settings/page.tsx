@@ -1,5 +1,6 @@
 import type { Metadata } from "next"
 
+import { LogoutButton } from "@/components/auth/logout-button"
 import { PageHeader } from "@/components/layout/page-header"
 import { IosInstallHint } from "@/components/pwa/ios-install-hint"
 import { ThemeToggle } from "@/components/theme/theme-toggle"
@@ -13,13 +14,12 @@ const COMING_SOON = [
   "AI usage and costs",
   "Export (JSON, CSV and photos)",
   "Climate profiles",
-  "Log out",
 ]
 
 export default function SettingsPage() {
   return (
     <>
-      <PageHeader title="Settings" description="Appearance, installation and more." />
+      <PageHeader title="Settings" description="Appearance, installation and your account." />
       <div className="flex max-w-2xl flex-col gap-8">
         <section className="flex flex-col gap-3">
           <div className="flex flex-col gap-1">
@@ -40,6 +40,18 @@ export default function SettingsPage() {
             On Android or desktop Chrome and Edge, choose Install app from the browser menu or the
             install icon in the address bar.
           </p>
+        </section>
+
+        <Separator />
+
+        <section className="flex flex-col gap-3">
+          <div className="flex flex-col gap-1">
+            <h2 className="font-heading text-base font-semibold">Account</h2>
+            <p className="text-sm text-muted-foreground">
+              Signing in keeps this device signed in for 30 days. Log out to end that session now.
+            </p>
+          </div>
+          <LogoutButton className="self-start" />
         </section>
 
         <Separator />

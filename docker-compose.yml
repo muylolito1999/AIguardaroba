@@ -1,0 +1,32 @@
+# Local Postgres for browser and e2e checks only (D-003); production uses Neon.
+# Unit tests use in-memory PGlite and need none of this.
+#
+#   docker compose up -d db
+#   DATABASE_URL=postgres://wardrobe:wardrobe@localhost:5433/wardrobe          (and DATABASE_URL_UNPOOLED)
+#   e2e:         postgres://wardrobe:wardrobe@localhost:5433/wardrobe_e2e
+#
+# The credentials are fixed, local-only and not secret. The init scripts run
+# only on an empty volume: after changing them, `docker compose down -v`.
+services:
+  db:
+    image: postgres:18-alpine
+    environment:
+      POSTGRES_USER: wardrobe
+      POSTGRES_PASSWORD: wardrobe
+      POSTGRES_DB: wardrobe
+    ports:
+      - "5433:5432"
+    volumes:
+      # Postgres 18 images keep data under /var/lib/postgresql/18/docker, so the
+      # volume mounts the parent directory (mounting .../data fails on 18+).
+      - wardrobe-pgdata:/var/lib/postgresql
+      - ./docker/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U wardrobe -d wardrobe"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
+volumes:
+  wardrobe-pgdata:

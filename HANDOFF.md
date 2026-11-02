@@ -2,6 +2,117 @@
 
 Newest entry first. Each entry records the state at the end of a working session. Task tracking lives in Beads (`bd ready`, `bd show <id>`); the reasons behind choices are in [DECISIONS.md](DECISIONS.md).
 
+## 2026-11-02 — Phase 2 (database + auth) complete
+
+### State
+
+Phase 2 is wardrobe-52y, now closed and committed. The code is complete and reviewed. The gate passes with no `.env.local`, the local Docker database migrates and seeds, and the headed e2e suite passes.
+
+Database:
+
+- `docker-compose.yml` (Postgres 18 on port 5433) with `docker/init` creating `wardrobe_e2e` next to `wardrobe`.
+- `drizzle.config.ts`, which requires `DATABASE_URL_UNPOOLED` for every connecting command.
+- The schema in `src/lib/db/` (enums, 14 tables, relations, the pooled `pg` client, `getDb()`) and the migration `drizzle/20261102094305_init`.
+- The climate data and seeder in `src/lib/climate/`, with `scripts/seed.ts` and `scripts/load-env.ts`.
+- The PGlite test harness and row factories in `test/`.
+
+Auth:
+
+- `src/lib/auth/` holds the token, session cookie, DAL, password, rate limit, client key and safe redirect.
+- `src/proxy.ts` with the pure `decideAuth`.
+- The `authedRoute` wrapper (`src/server/http.ts`) and `authedAction` (`src/server/actions/_wrap.ts`).
+- The login and logout actions, and the login service.
+- The scripts `hash-password`, `auth:unlock` and `env:check`.
+- The UI: the `(auth)` layout, `/login`, the logout button in Settings (Account) and in the sidebar footer.
+- The e2e setup: `playwright.config.ts` with its own server environment, `e2e/global-setup.ts`, `e2e/constants.ts` and `e2e/auth.spec.ts`.
+
+README has new Database and Authentication sections and an updated Testing section.
+
+The integration run found one bug, fixed before the review. A wrong password without JavaScript showed a blank page. Next 16.4.3 answers a form-posted Server Action on a partially prerendered route with only the dynamic part, and the first `/login` read `searchParams` on the server. `/login` is now fully static: the hidden `next` field renders on the client, and the action falls back to the Referer (D-054).
+
+The review then led to these fixes:
+
+- Open redirect: `safeRedirect` checked only the raw `next` value, so `/.//evil.com`, `/a/..//evil.com` and `/%2e//evil.com` normalized to `//evil.com`. That reached the proxy's redirect for a signed-in visitor on `/login` and the login action. The normalized path is now checked as well. Unit, proxy and e2e tests cover it.
+- The session cookie is now `__Host-wardrobe_session`, so a subdomain cannot plant or shadow it.
+- The login rate limit counts an IPv6 client as its /64 and an IPv4-mapped address as the IPv4 address. The code comment, D-059 and README now say the per-client limit relies on a proxy that overwrites `x-forwarded-for`, as Vercel does.
+- The runtime `pg` pool has an `error` listener, so an idle connection dropped by Neon no longer crashes the instance. It also has a 10 s connection timeout.
+- Every foreign-key column now has a leading index except the single-row `app_settings.home_profile_id`, and a migration test checks this. The init migration was regenerated, since nothing had been deployed.
+- `test/boundaries.test.ts` now requires `import "server-only"` in every module under `src/lib/auth` and `src/server`, except `token.ts`, `safe-redirect.ts` and `'use server'` modules. It forbids every `@/lib/auth` module in client code except `safe-redirect`. It also checks the D-013 rule: every exported async function in `src/server/services` must call `requireSession()` or `verifySession()`. Only `login.ts`'s `attemptLogin` is exempt, and the list gives the reason.
+- The PGlite concurrency test no longer claims to prove the advisory lock. A new test checks that the lock statement runs first in the transaction. The opt-in `src/lib/auth/rate-limit.pg.test.ts` checks the race on real Postgres.
+- README: after a suspected compromise, rotate `SESSION_SECRET` as well as the password, because a password change does not end existing sessions.
+
+### Decisions
+
+D-054 to D-059 are new: the login form without JavaScript, the proxy behaviour and matcher changes, the isolated e2e database, re-seeding that keeps the owner's data, the schema details settled in this phase, and session and login details. The review fixes updated D-055 (normalized redirect check), D-058 (foreign-key indexes, the regenerated migration) and D-059 (`__Host-` cookie, IPv6 /64, the trust limit of `x-forwarded-for`, password change versus secret rotation). D-012 and D-013 point to the entries that refine them. None are open.
+
+### Checks run
+
+An integration run from 10:13 to 10:24 passed: the gate, Docker migrate and seed, and headed e2e with 11 of 11. It ran on the previous migration (`20261102084605_init`) and cookie name. The review fixes changed both, so the checks were run again on 2026-11-02 (times UTC+1):
+
+- Before the cookie rename, a probe page on `http://localhost` showed that Playwright's Chromium stores a `__Host-` cookie over plain HTTP on localhost and sends it back.
+- 10:41 `src/lib/auth/rate-limit.pg.test.ts` against the Docker `wardrobe_e2e` database: passed. With the advisory lock temporarily removed it failed as expected: 6 of 12 parallel reservations got through. The lock was then restored.
+- 10:43 `pnpm db:generate --name init`, after deleting the old folder: the SQL differs from the old init only by the six new `CREATE INDEX` statements. `drizzle-kit check`: "Everything's fine".
+- 10:44 `docker compose down -v` (this project's volume only), then `docker compose up -d db`: healthy, with `wardrobe` and `wardrobe_e2e` created.
+- Gate with no env file except `.env.example`:
+  - 10:44:25 `pnpm typecheck`: passed.
+  - 10:44:30 `pnpm lint`: passed with no findings.
+  - 10:44:43 `pnpm test`: passed. 21 files and 383 tests passed. One file and one test were skipped: the opt-in real-Postgres test.
+  - 10:44:54 `pnpm build`: passed. 12 of 12 static pages, every route static including `/login`, and the proxy present.
+- With the DB-only `.env.local`:
+  - 10:45:09 `pnpm db:migrate`: applied `20261102094305_init`.
+  - 10:45:11 `pnpm db:seed`: Hamburg inserted, Bologna inserted, `app_settings` created.
+  - 10:45:12 `pnpm db:seed` again: Hamburg updated, Bologna kept, `app_settings` kept.
+  - 10:45:19 the database had 14 public tables, 18 enums, all six new foreign-key indexes and one migration row (`20261102094305_init`). `pnpm env:check`: `db` and `migrate` OK; the other groups report their unset variables, as expected with this file.
+- 10:45:31 `pnpm test:e2e` (headed Chromium, production build): 11 of 11 passed.
+- 10:46:11 `pnpm test:e2e` again, after adding "a next that normalizes to another host is ignored": 12 of 12 passed. The server logged "Failed to find Server Action" for the forged-action test, which is that test's expected path.
+- 10:46:32 `rate-limit.pg.test.ts` against `wardrobe_e2e`, now migrated by the e2e setup: passed, with exactly 5 of 12 parallel attempts allowed in each of 5 rounds. Its rows were removed afterwards.
+- The gate again after the last code change (the new e2e test), with no env file except `.env.example`; all four passed:
+  - 10:48:17 `pnpm typecheck`.
+  - 10:48:21 `pnpm lint`.
+  - 10:48:27 `pnpm test`: 21 files and 383 tests passed, 1 skipped.
+  - 10:48:32 `pnpm build`: 12 of 12 static pages, `/login` static.
+- An independent re-run before the commit, on the final tree:
+  - With `.env.local` moved out of the project: 10:49:54 `pnpm typecheck` passed; 10:50:00 `pnpm lint` passed; 10:50:00 `pnpm test` passed (21 files and 383 tests, 1 opt-in file skipped); 10:50:15 `pnpm build` passed with every route static.
+  - With the DB-only `.env.local` restored: 10:50:22 `pnpm db:migrate` succeeded (nothing new to apply); 10:50:23 `pnpm db:seed` gave Hamburg updated, Bologna kept, `app_settings` kept; `pnpm env:check` reported `db` and `migrate` OK and the other groups unset.
+  - 10:50:45 `pnpm test:e2e`, headed (`headless: false`, `pnpm build && pnpm start`): 12 of 12 passed.
+  - 10:50:52 `rate-limit.pg.test.ts` with `TEST_DATABASE_URL` pointing at the Docker `wardrobe_e2e` database: passed.
+
+### Migration state
+
+`drizzle/20261102094305_init` replaces `drizzle/20261102084605_init`, which never left this machine. It is applied to the local Docker `wardrobe` database (`pnpm db:migrate`) and `wardrobe_e2e` (e2e global setup), both recreated with `docker compose down -v`. It is not applied to Neon, which does not exist yet.
+
+### Deploy state
+
+Not deployed. No Vercel project exists yet.
+
+### Open risks
+
+- Next 16.4.3 shows a blank page when a form posted without JavaScript returns a result (rather than redirecting) on a partially prerendered page. Any later form that must work without JavaScript needs a fully static page, as `/login` has (D-054), or a redirect after the action. Test such forms with JavaScript disabled.
+- Two checks pass trivially for now. The D-013 boundary test has no service that reads data yet. The forged-action e2e test posts to a `/wardrobe` that renders no items. Both become meaningful when Phases 3 and 4 add read services and pages that show items. Phase 3 service tests will need to mock `@/lib/auth/dal` (or sign a session), because every service now calls `requireSession()`.
+- The cookie rename drops any session issued before it, once. So far only local runs have been affected.
+
+### Live checks pending
+
+None of these have been run yet; they need the cloud connection.
+
+- Neon: `pnpm db:migrate` over `DATABASE_URL_UNPOOLED` and `pnpm db:seed` against Neon, then `pnpm env:check`.
+- Login on a deployed preview over HTTPS: the `__Host-` Secure cookie, the proxy redirects and the 401 on `/api/*`.
+- The login rate limit on Vercel: one key per client from the platform's `x-forwarded-for` (IPv6 by /64), and a lockout after 5 failures.
+- Blob: the first real upload, plus a check that the public URL host passes the `head()` validation in `/api/items/register`.
+- `pnpm ai:smoke`: the API accepts the structured-output schemas (no "schema too complex" 400), base64 and URL image sources both work, and the second call shows a cache read.
+- Tagging cost: the measured cost per item against the estimate of about $0.06 per 100 items.
+- Batch path: the synchronous dry run, batch creation, polling and idempotent processing.
+- Relocation: each part finishes in under 200 s; actual against estimated cost for a full run.
+- iPhone over HTTPS: photo picker, camera, HEIC through the Files app, and installing the PWA.
+- ZIP export: one part streams in under 300 s.
+- Open-Meteo: the 30-minute cache works on Vercel.
+
+### Next steps
+
+1. Phase 3 is wardrobe-6rd: upload and AI tagging. Phases 4 to 6 follow as wardrobe-a27, wardrobe-evp and wardrobe-g4t.
+
+A Next.js security release is expected on 2026-11-03. When it is out, bump `next`, `eslint-config-next` and `@next/env` together.
+
 ## 2026-11-02 — Phase 1 (scaffold) complete
 
 ### State

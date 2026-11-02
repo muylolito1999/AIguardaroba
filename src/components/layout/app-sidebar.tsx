@@ -5,6 +5,7 @@ import Link from "next/link"
 import { usePathname } from "next/navigation"
 import { Shirt } from "lucide-react"
 
+import { LogoutButton } from "@/components/auth/logout-button"
 import { ThemeToggle } from "@/components/theme/theme-toggle"
 import {
   Sidebar,
@@ -49,6 +50,8 @@ export function AppSidebar() {
       </SidebarContent>
       <SidebarFooter className="pb-[calc(0.5rem+env(safe-area-inset-bottom))]">
         <ThemeToggle className="w-full" />
+        {/* Ghost keeps it quieter than the theme switch above; touch height matches the nav rows. */}
+        <LogoutButton variant="ghost" className="w-full" />
       </SidebarFooter>
     </Sidebar>
   )

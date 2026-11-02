@@ -1,0 +1,5105 @@
+{
+  "type": "base",
+  "version": "9",
+  "dialect": "postgres",
+  "id": "21ce8f93-dd70-4d01-8e49-d1255d6ee641",
+  "prevIds": [
+    "00000000-0000-0000-0000-000000000000"
+  ],
+  "footprints": [
+    {
+      "statementType": "create_enum",
+      "statementTarget": [
+        "enum",
+        "public",
+        "ai_call_status"
+      ],
+      "writes": [
+        "s|enum|public.ai_call_status",
+        "n|enum|public.ai_call_status",
+        "e|enum|public.ai_call_status",
+        "n|type|public.ai_call_status"
+      ],
+      "reads": [
+        "n|sch|public"
+      ]
+    },
+    {
+      "statementType": "create_enum",
+      "statementTarget": [
+        "enum",
+        "public",
+        "ai_purpose"
+      ],
+      "writes": [
+        "s|enum|public.ai_purpose",
+        "n|enum|public.ai_purpose",
+        "e|enum|public.ai_purpose",
+        "n|type|public.ai_purpose"
+      ],
+      "reads": [
+        "n|sch|public"
+      ]
+    },
+    {
+      "statementType": "create_enum",
+      "statementTarget": [
+        "enum",
+        "public",
+        "analysis_kind"
+      ],
+      "writes": [
+        "s|enum|public.analysis_kind",
+        "n|enum|public.analysis_kind",
+        "e|enum|public.analysis_kind",
+        "n|type|public.analysis_kind"
+      ],
+      "reads": [
+        "n|sch|public"
+      ]
+    },
+    {
+      "statementType": "create_enum",
+      "statementTarget": [
+        "enum",
+        "public",
+        "analysis_part_kind"
+      ],
+      "writes": [
+        "s|enum|public.analysis_part_kind",
+        "n|enum|public.analysis_part_kind",
+        "e|enum|public.analysis_part_kind",
+        "n|type|public.analysis_part_kind"
+      ],
+      "reads": [
+        "n|sch|public"
+      ]
+    },
+    {
+      "statementType": "create_enum",
+      "statementTarget": [
+        "enum",
+        "public",
+        "analysis_status"
+      ],
+      "writes": [
+        "s|enum|public.analysis_status",
+        "n|enum|public.analysis_status",
+        "e|enum|public.analysis_status",
+        "n|type|public.analysis_status"
+      ],
+      "reads": [
+        "n|sch|public"
+      ]
+    },
+    {
+      "statementType": "create_enum",
+      "statementTarget": [
+        "enum",
+        "public",
+        "batch_status"
+      ],
+      "writes": [
+        "s|enum|public.batch_status",
+        "n|enum|public.batch_status",
+        "e|enum|public.batch_status",
+        "n|type|public.batch_status"
+      ],
+      "reads": [
+        "n|sch|public"
+      ]
+    },
+    {
+      "statementType": "create_enum",
+      "statementTarget": [
+        "enum",
+        "public",
+        "formality"
+      ],
+      "writes": [
+        "s|enum|public.formality",
+        "n|enum|public.formality",
+        "e|enum|public.formality",
+        "n|type|public.formality"
+      ],
+      "reads": [
+        "n|sch|public"
+      ]
+    },
+    {
+      "statementType": "create_enum",
+      "statementTarget": [
+        "enum",
+        "public",
+        "image_kind"
+      ],
+      "writes": [
+        "s|enum|public.image_kind",
+        "n|enum|public.image_kind",
+        "e|enum|public.image_kind",
+        "n|type|public.image_kind"
+      ],
+      "reads": [
+        "n|sch|public"
+      ]
+    },
+    {
+      "statementType": "create_enum",
+      "statementTarget": [
+        "enum",
+        "public",
+        "item_category"
+      ],
+      "writes": [
+        "s|enum|public.item_category",
+        "n|enum|public.item_category",
+        "e|enum|public.item_category",
+        "n|type|public.item_category"
+      ],
+      "reads": [
+        "n|sch|public"
+      ]
+    },
+    {
+      "statementType": "create_enum",
+      "statementTarget": [
+        "enum",
+        "public",
+        "item_condition"
+      ],
+      "writes": [
+        "s|enum|public.item_condition",
+        "n|enum|public.item_condition",
+        "e|enum|public.item_condition",
+        "n|type|public.item_condition"
+      ],
+      "reads": [
+        "n|sch|public"
+      ]
+    },
+    {
+      "statementType": "create_enum",
+      "statementTarget": [
+        "enum",
+        "public",
+        "item_decision"
+      ],
+      "writes": [
+        "s|enum|public.item_decision",
+        "n|enum|public.item_decision",
+        "e|enum|public.item_decision",
+        "n|type|public.item_decision"
+      ],
+      "reads": [
+        "n|sch|public"
+      ]
+    },
+    {
+      "statementType": "create_enum",
+      "statementTarget": [
+        "enum",
+        "public",
+        "item_location"
+      ],
+      "writes": [
+        "s|enum|public.item_location",
+        "n|enum|public.item_location",
+        "e|enum|public.item_location",
+        "n|type|public.item_location"
+      ],
+      "reads": [
+        "n|sch|public"
+      ]
+    },
+    {
+      "statementType": "create_enum",
+      "statementTarget": [
+        "enum",
+        "public",
+        "item_status"
+      ],
+      "writes": [
+        "s|enum|public.item_status",
+        "n|enum|public.item_status",
+        "e|enum|public.item_status",
+        "n|type|public.item_status"
+      ],
+      "reads": [
+        "n|sch|public"
+      ]
+    },
+    {
+      "statementType": "create_enum",
+      "statementTarget": [
+        "enum",
+        "public",
+        "outfit_slot"
+      ],
+      "writes": [
+        "s|enum|public.outfit_slot",
+        "n|enum|public.outfit_slot",
+        "e|enum|public.outfit_slot",
+        "n|type|public.outfit_slot"
+      ],
+      "reads": [
+        "n|sch|public"
+      ]
+    },
+    {
+      "statementType": "create_enum",
+      "statementTarget": [
+        "enum",
+        "public",
+        "outfit_source"
+      ],
+      "writes": [
+        "s|enum|public.outfit_source",
+        "n|enum|public.outfit_source",
+        "e|enum|public.outfit_source",
+        "n|type|public.outfit_source"
+      ],
+      "reads": [
+        "n|sch|public"
+      ]
+    },
+    {
+      "statementType": "create_enum",
+      "statementTarget": [
+        "enum",
+        "public",
+        "packing_group"
+      ],
+      "writes": [
+        "s|enum|public.packing_group",
+        "n|enum|public.packing_group",
+        "e|enum|public.packing_group",
+        "n|type|public.packing_group"
+      ],
+      "reads": [
+        "n|sch|public"
+      ]
+    },
+    {
+      "statementType": "create_enum",
+      "statementTarget": [
+        "enum",
+        "public",
+        "part_status"
+      ],
+      "writes": [
+        "s|enum|public.part_status",
+        "n|enum|public.part_status",
+        "e|enum|public.part_status",
+        "n|type|public.part_status"
+      ],
+      "reads": [
+        "n|sch|public"
+      ]
+    },
+    {
+      "statementType": "create_enum",
+      "statementTarget": [
+        "enum",
+        "public",
+        "shopping_status"
+      ],
+      "writes": [
+        "s|enum|public.shopping_status",
+        "n|enum|public.shopping_status",
+        "e|enum|public.shopping_status",
+        "n|type|public.shopping_status"
+      ],
+      "reads": [
+        "n|sch|public"
+      ]
+    },
+    {
+      "statementType": "create_table",
+      "statementTarget": [
+        "table",
+        "public",
+        "ai_batches"
+      ],
+      "writes": [
+        "s|tbl|public.ai_batches",
+        "n|tbl|public.ai_batches",
+        "e|tbl|public.ai_batches",
+        "n|rel|public.ai_batches",
+        "n|type|public.ai_batches",
+        "n|rel|public.ai_batches_pkey",
+        "n|rel|public.ai_batches_anthropic_batch_id_key"
+      ],
+      "reads": [
+        "n|sch|public",
+        "n|enum|public.ai_purpose",
+        "n|enum|public.batch_status"
+      ]
+    },
+    {
+      "statementType": "create_table",
+      "statementTarget": [
+        "table",
+        "public",
+        "ai_calls"
+      ],
+      "writes": [
+        "s|tbl|public.ai_calls",
+        "n|tbl|public.ai_calls",
+        "e|tbl|public.ai_calls",
+        "n|rel|public.ai_calls",
+        "n|type|public.ai_calls",
+        "n|rel|public.ai_calls_pkey"
+      ],
+      "reads": [
+        "n|sch|public",
+        "n|enum|public.ai_purpose",
+        "n|enum|public.ai_call_status"
+      ]
+    },
+    {
+      "statementType": "create_table",
+      "statementTarget": [
+        "table",
+        "public",
+        "analyses"
+      ],
+      "writes": [
+        "s|tbl|public.analyses",
+        "n|tbl|public.analyses",
+        "e|tbl|public.analyses",
+        "n|rel|public.analyses",
+        "n|type|public.analyses",
+        "n|rel|public.analyses_pkey"
+      ],
+      "reads": [
+        "n|sch|public",
+        "n|enum|public.analysis_kind",
+        "n|enum|public.analysis_status"
+      ]
+    },
+    {
+      "statementType": "create_table",
+      "statementTarget": [
+        "table",
+        "public",
+        "analysis_parts"
+      ],
+      "writes": [
+        "s|tbl|public.analysis_parts",
+        "n|tbl|public.analysis_parts",
+        "e|tbl|public.analysis_parts",
+        "n|rel|public.analysis_parts",
+        "n|type|public.analysis_parts",
+        "n|rel|public.analysis_parts_pkey",
+        "n|rel|public.analysis_parts_analysis_id_kind_part_index_unique"
+      ],
+      "reads": [
+        "n|sch|public",
+        "n|enum|public.analysis_part_kind",
+        "n|enum|public.part_status"
+      ]
+    },
+    {
+      "statementType": "create_table",
+      "statementTarget": [
+        "table",
+        "public",
+        "app_settings"
+      ],
+      "writes": [
+        "s|tbl|public.app_settings",
+        "n|tbl|public.app_settings",
+        "e|tbl|public.app_settings",
+        "n|rel|public.app_settings",
+        "n|type|public.app_settings",
+        "n|rel|public.app_settings_pkey"
+      ],
+      "reads": [
+        "n|sch|public",
+        "n|enum|public.item_location"
+      ]
+    },
+    {
+      "statementType": "create_table",
+      "statementTarget": [
+        "table",
+        "public",
+        "climate_profiles"
+      ],
+      "writes": [
+        "s|tbl|public.climate_profiles",
+        "n|tbl|public.climate_profiles",
+        "e|tbl|public.climate_profiles",
+        "n|rel|public.climate_profiles",
+        "n|type|public.climate_profiles",
+        "n|rel|public.climate_profiles_pkey",
+        "n|rel|public.climate_profiles_slug_key"
+      ],
+      "reads": [
+        "n|sch|public"
+      ]
+    },
+    {
+      "statementType": "create_table",
+      "statementTarget": [
+        "table",
+        "public",
+        "item_images"
+      ],
+      "writes": [
+        "s|tbl|public.item_images",
+        "n|tbl|public.item_images",
+        "e|tbl|public.item_images",
+        "n|rel|public.item_images",
+        "n|type|public.item_images",
+        "n|rel|public.item_images_pkey",
+        "n|rel|public.item_images_item_id_kind_unique"
+      ],
+      "reads": [
+        "n|sch|public",
+        "n|enum|public.image_kind"
+      ]
+    },
+    {
+      "statementType": "create_table",
+      "statementTarget": [
+        "table",
+        "public",
+        "items"
+      ],
+      "writes": [
+        "s|tbl|public.items",
+        "n|tbl|public.items",
+        "e|tbl|public.items",
+        "n|rel|public.items",
+        "n|type|public.items",
+        "n|rel|public.items_pkey",
+        "n|rel|public.items_image_hash_key",
+        "n|rel|public.items_source_hash_key"
+      ],
+      "reads": [
+        "n|sch|public",
+        "n|enum|public.item_status",
+        "n|enum|public.item_location",
+        "n|enum|public.item_decision",
+        "n|enum|public.item_category",
+        "n|enum|public.formality",
+        "n|enum|public.item_condition"
+      ]
+    },
+    {
+      "statementType": "create_table",
+      "statementTarget": [
+        "table",
+        "public",
+        "login_attempts"
+      ],
+      "writes": [
+        "s|tbl|public.login_attempts",
+        "n|tbl|public.login_attempts",
+        "e|tbl|public.login_attempts",
+        "n|rel|public.login_attempts",
+        "n|type|public.login_attempts",
+        "n|rel|public.login_attempts_pkey"
+      ],
+      "reads": [
+        "n|sch|public"
+      ]
+    },
+    {
+      "statementType": "create_table",
+      "statementTarget": [
+        "table",
+        "public",
+        "outfit_items"
+      ],
+      "writes": [
+        "s|tbl|public.outfit_items",
+        "n|tbl|public.outfit_items",
+        "e|tbl|public.outfit_items",
+        "n|rel|public.outfit_items",
+        "n|type|public.outfit_items",
+        "n|rel|public.outfit_items_pkey"
+      ],
+      "reads": [
+        "n|sch|public",
+        "n|enum|public.outfit_slot"
+      ]
+    },
+    {
+      "statementType": "create_table",
+      "statementTarget": [
+        "table",
+        "public",
+        "outfits"
+      ],
+      "writes": [
+        "s|tbl|public.outfits",
+        "n|tbl|public.outfits",
+        "e|tbl|public.outfits",
+        "n|rel|public.outfits",
+        "n|type|public.outfits",
+        "n|rel|public.outfits_pkey"
+      ],
+      "reads": [
+        "n|sch|public",
+        "n|enum|public.outfit_source"
+      ]
+    },
+    {
+      "statementType": "create_table",
+      "statementTarget": [
+        "table",
+        "public",
+        "packing_checklist_items"
+      ],
+      "writes": [
+        "s|tbl|public.packing_checklist_items",
+        "n|tbl|public.packing_checklist_items",
+        "e|tbl|public.packing_checklist_items",
+        "n|rel|public.packing_checklist_items",
+        "n|type|public.packing_checklist_items",
+        "n|rel|public.packing_checklist_items_pkey"
+      ],
+      "reads": [
+        "n|sch|public",
+        "n|enum|public.packing_group"
+      ]
+    },
+    {
+      "statementType": "create_table",
+      "statementTarget": [
+        "table",
+        "public",
+        "shopping_list_items"
+      ],
+      "writes": [
+        "s|tbl|public.shopping_list_items",
+        "n|tbl|public.shopping_list_items",
+        "e|tbl|public.shopping_list_items",
+        "n|rel|public.shopping_list_items",
+        "n|type|public.shopping_list_items",
+        "n|rel|public.shopping_list_items_pkey",
+        "n|rel|public.shopping_list_items_analysis_id_gap_key_unique"
+      ],
+      "reads": [
+        "n|sch|public",
+        "n|enum|public.item_category",
+        "n|enum|public.shopping_status"
+      ]
+    },
+    {
+      "statementType": "create_table",
+      "statementTarget": [
+        "table",
+        "public",
+        "wear_logs"
+      ],
+      "writes": [
+        "s|tbl|public.wear_logs",
+        "n|tbl|public.wear_logs",
+        "e|tbl|public.wear_logs",
+        "n|rel|public.wear_logs",
+        "n|type|public.wear_logs",
+        "n|rel|public.wear_logs_pkey"
+      ],
+      "reads": [
+        "n|sch|public"
+      ]
+    },
+    {
+      "statementType": "create_index",
+      "statementTarget": [
+        "index",
+        "public",
+        "ai_batches",
+        "ai_batches_status_idx"
+      ],
+      "writes": [
+        "s|idx|public.ai_batches_status_idx",
+        "n|idx|public.ai_batches_status_idx",
+        "e|idx|public.ai_batches_status_idx",
+        "n|rel|public.ai_batches_status_idx"
+      ],
+      "reads": [
+        "n|tbl|public.ai_batches",
+        "n|sch|public",
+        "n|col|public.ai_batches.status"
+      ]
+    },
+    {
+      "statementType": "create_index",
+      "statementTarget": [
+        "index",
+        "public",
+        "ai_calls",
+        "ai_calls_created_at_idx"
+      ],
+      "writes": [
+        "s|idx|public.ai_calls_created_at_idx",
+        "n|idx|public.ai_calls_created_at_idx",
+        "e|idx|public.ai_calls_created_at_idx",
+        "n|rel|public.ai_calls_created_at_idx"
+      ],
+      "reads": [
+        "n|tbl|public.ai_calls",
+        "n|sch|public",
+        "n|col|public.ai_calls.created_at"
+      ]
+    },
+    {
+      "statementType": "create_index",
+      "statementTarget": [
+        "index",
+        "public",
+        "ai_calls",
+        "ai_calls_purpose_created_at_idx"
+      ],
+      "writes": [
+        "s|idx|public.ai_calls_purpose_created_at_idx",
+        "n|idx|public.ai_calls_purpose_created_at_idx",
+        "e|idx|public.ai_calls_purpose_created_at_idx",
+        "n|rel|public.ai_calls_purpose_created_at_idx"
+      ],
+      "reads": [
+        "n|tbl|public.ai_calls",
+        "n|sch|public",
+        "n|col|public.ai_calls.purpose",
+        "n|col|public.ai_calls.created_at"
+      ]
+    },
+    {
+      "statementType": "create_index",
+      "statementTarget": [
+        "index",
+        "public",
+        "ai_calls",
+        "ai_calls_item_id_idx"
+      ],
+      "writes": [
+        "s|idx|public.ai_calls_item_id_idx",
+        "n|idx|public.ai_calls_item_id_idx",
+        "e|idx|public.ai_calls_item_id_idx",
+        "n|rel|public.ai_calls_item_id_idx"
+      ],
+      "reads": [
+        "n|tbl|public.ai_calls",
+        "n|sch|public",
+        "n|col|public.ai_calls.item_id"
+      ]
+    },
+    {
+      "statementType": "create_index",
+      "statementTarget": [
+        "index",
+        "public",
+        "ai_calls",
+        "ai_calls_analysis_id_idx"
+      ],
+      "writes": [
+        "s|idx|public.ai_calls_analysis_id_idx",
+        "n|idx|public.ai_calls_analysis_id_idx",
+        "e|idx|public.ai_calls_analysis_id_idx",
+        "n|rel|public.ai_calls_analysis_id_idx"
+      ],
+      "reads": [
+        "n|tbl|public.ai_calls",
+        "n|sch|public",
+        "n|col|public.ai_calls.analysis_id"
+      ]
+    },
+    {
+      "statementType": "create_index",
+      "statementTarget": [
+        "index",
+        "public",
+        "analyses",
+        "analyses_cache_key_idx"
+      ],
+      "writes": [
+        "s|idx|public.analyses_cache_key_idx",
+        "n|idx|public.analyses_cache_key_idx",
+        "e|idx|public.analyses_cache_key_idx",
+        "n|rel|public.analyses_cache_key_idx"
+      ],
+      "reads": [
+        "n|tbl|public.analyses",
+        "n|sch|public",
+        "n|col|public.analyses.cache_key"
+      ]
+    },
+    {
+      "statementType": "create_index",
+      "statementTarget": [
+        "index",
+        "public",
+        "analyses",
+        "analyses_kind_created_at_idx"
+      ],
+      "writes": [
+        "s|idx|public.analyses_kind_created_at_idx",
+        "n|idx|public.analyses_kind_created_at_idx",
+        "e|idx|public.analyses_kind_created_at_idx",
+        "n|rel|public.analyses_kind_created_at_idx"
+      ],
+      "reads": [
+        "n|tbl|public.analyses",
+        "n|sch|public",
+        "n|col|public.analyses.kind",
+        "n|col|public.analyses.created_at"
+      ]
+    },
+    {
+      "statementType": "create_index",
+      "statementTarget": [
+        "index",
+        "public",
+        "analyses",
+        "analyses_climate_profile_id_idx"
+      ],
+      "writes": [
+        "s|idx|public.analyses_climate_profile_id_idx",
+        "n|idx|public.analyses_climate_profile_id_idx",
+        "e|idx|public.analyses_climate_profile_id_idx",
+        "n|rel|public.analyses_climate_profile_id_idx"
+      ],
+      "reads": [
+        "n|tbl|public.analyses",
+        "n|sch|public",
+        "n|col|public.analyses.climate_profile_id"
+      ]
+    },
+    {
+      "statementType": "create_index",
+      "statementTarget": [
+        "index",
+        "public",
+        "climate_profiles",
+        "climate_profiles_single_default_idx"
+      ],
+      "writes": [
+        "s|idx|public.climate_profiles_single_default_idx",
+        "n|idx|public.climate_profiles_single_default_idx",
+        "e|idx|public.climate_profiles_single_default_idx",
+        "n|rel|public.climate_profiles_single_default_idx"
+      ],
+      "reads": [
+        "n|tbl|public.climate_profiles",
+        "n|sch|public",
+        "n|col|public.climate_profiles.is_default"
+      ]
+    },
+    {
+      "statementType": "create_index",
+      "statementTarget": [
+        "index",
+        "public",
+        "items",
+        "items_status_idx"
+      ],
+      "writes": [
+        "s|idx|public.items_status_idx",
+        "n|idx|public.items_status_idx",
+        "e|idx|public.items_status_idx",
+        "n|rel|public.items_status_idx"
+      ],
+      "reads": [
+        "n|tbl|public.items",
+        "n|sch|public",
+        "n|col|public.items.status"
+      ]
+    },
+    {
+      "statementType": "create_index",
+      "statementTarget": [
+        "index",
+        "public",
+        "items",
+        "items_category_idx"
+      ],
+      "writes": [
+        "s|idx|public.items_category_idx",
+        "n|idx|public.items_category_idx",
+        "e|idx|public.items_category_idx",
+        "n|rel|public.items_category_idx"
+      ],
+      "reads": [
+        "n|tbl|public.items",
+        "n|sch|public",
+        "n|col|public.items.category"
+      ]
+    },
+    {
+      "statementType": "create_index",
+      "statementTarget": [
+        "index",
+        "public",
+        "items",
+        "items_location_idx"
+      ],
+      "writes": [
+        "s|idx|public.items_location_idx",
+        "n|idx|public.items_location_idx",
+        "e|idx|public.items_location_idx",
+        "n|rel|public.items_location_idx"
+      ],
+      "reads": [
+        "n|tbl|public.items",
+        "n|sch|public",
+        "n|col|public.items.location"
+      ]
+    },
+    {
+      "statementType": "create_index",
+      "statementTarget": [
+        "index",
+        "public",
+        "items",
+        "items_decision_idx"
+      ],
+      "writes": [
+        "s|idx|public.items_decision_idx",
+        "n|idx|public.items_decision_idx",
+        "e|idx|public.items_decision_idx",
+        "n|rel|public.items_decision_idx"
+      ],
+      "reads": [
+        "n|tbl|public.items",
+        "n|sch|public",
+        "n|col|public.items.decision"
+      ]
+    },
+    {
+      "statementType": "create_index",
+      "statementTarget": [
+        "index",
+        "public",
+        "items",
+        "items_created_at_idx"
+      ],
+      "writes": [
+        "s|idx|public.items_created_at_idx",
+        "n|idx|public.items_created_at_idx",
+        "e|idx|public.items_created_at_idx",
+        "n|rel|public.items_created_at_idx"
+      ],
+      "reads": [
+        "n|tbl|public.items",
+        "n|sch|public",
+        "n|col|public.items.created_at"
+      ]
+    },
+    {
+      "statementType": "create_index",
+      "statementTarget": [
+        "index",
+        "public",
+        "items",
+        "items_tagging_batch_id_idx"
+      ],
+      "writes": [
+        "s|idx|public.items_tagging_batch_id_idx",
+        "n|idx|public.items_tagging_batch_id_idx",
+        "e|idx|public.items_tagging_batch_id_idx",
+        "n|rel|public.items_tagging_batch_id_idx"
+      ],
+      "reads": [
+        "n|tbl|public.items",
+        "n|sch|public",
+        "n|col|public.items.tagging_batch_id"
+      ]
+    },
+    {
+      "statementType": "create_index",
+      "statementTarget": [
+        "index",
+        "public",
+        "login_attempts",
+        "login_attempts_key_hash_attempted_at_idx"
+      ],
+      "writes": [
+        "s|idx|public.login_attempts_key_hash_attempted_at_idx",
+        "n|idx|public.login_attempts_key_hash_attempted_at_idx",
+        "e|idx|public.login_attempts_key_hash_attempted_at_idx",
+        "n|rel|public.login_attempts_key_hash_attempted_at_idx"
+      ],
+      "reads": [
+        "n|tbl|public.login_attempts",
+        "n|sch|public",
+        "n|col|public.login_attempts.key_hash",
+        "n|col|public.login_attempts.attempted_at"
+      ]
+    },
+    {
+      "statementType": "create_index",
+      "statementTarget": [
+        "index",
+        "public",
+        "outfit_items",
+        "outfit_items_item_id_idx"
+      ],
+      "writes": [
+        "s|idx|public.outfit_items_item_id_idx",
+        "n|idx|public.outfit_items_item_id_idx",
+        "e|idx|public.outfit_items_item_id_idx",
+        "n|rel|public.outfit_items_item_id_idx"
+      ],
+      "reads": [
+        "n|tbl|public.outfit_items",
+        "n|sch|public",
+        "n|col|public.outfit_items.item_id"
+      ]
+    },
+    {
+      "statementType": "create_index",
+      "statementTarget": [
+        "index",
+        "public",
+        "packing_checklist_items",
+        "packing_checklist_items_analysis_id_idx"
+      ],
+      "writes": [
+        "s|idx|public.packing_checklist_items_analysis_id_idx",
+        "n|idx|public.packing_checklist_items_analysis_id_idx",
+        "e|idx|public.packing_checklist_items_analysis_id_idx",
+        "n|rel|public.packing_checklist_items_analysis_id_idx"
+      ],
+      "reads": [
+        "n|tbl|public.packing_checklist_items",
+        "n|sch|public",
+        "n|col|public.packing_checklist_items.analysis_id"
+      ]
+    },
+    {
+      "statementType": "create_index",
+      "statementTarget": [
+        "index",
+        "public",
+        "packing_checklist_items",
+        "packing_checklist_items_item_id_idx"
+      ],
+      "writes": [
+        "s|idx|public.packing_checklist_items_item_id_idx",
+        "n|idx|public.packing_checklist_items_item_id_idx",
+        "e|idx|public.packing_checklist_items_item_id_idx",
+        "n|rel|public.packing_checklist_items_item_id_idx"
+      ],
+      "reads": [
+        "n|tbl|public.packing_checklist_items",
+        "n|sch|public",
+        "n|col|public.packing_checklist_items.item_id"
+      ]
+    },
+    {
+      "statementType": "create_index",
+      "statementTarget": [
+        "index",
+        "public",
+        "shopping_list_items",
+        "shopping_list_items_linked_item_id_idx"
+      ],
+      "writes": [
+        "s|idx|public.shopping_list_items_linked_item_id_idx",
+        "n|idx|public.shopping_list_items_linked_item_id_idx",
+        "e|idx|public.shopping_list_items_linked_item_id_idx",
+        "n|rel|public.shopping_list_items_linked_item_id_idx"
+      ],
+      "reads": [
+        "n|tbl|public.shopping_list_items",
+        "n|sch|public",
+        "n|col|public.shopping_list_items.linked_item_id"
+      ]
+    },
+    {
+      "statementType": "create_index",
+      "statementTarget": [
+        "index",
+        "public",
+        "wear_logs",
+        "wear_logs_item_id_idx"
+      ],
+      "writes": [
+        "s|idx|public.wear_logs_item_id_idx",
+        "n|idx|public.wear_logs_item_id_idx",
+        "e|idx|public.wear_logs_item_id_idx",
+        "n|rel|public.wear_logs_item_id_idx"
+      ],
+      "reads": [
+        "n|tbl|public.wear_logs",
+        "n|sch|public",
+        "n|col|public.wear_logs.item_id"
+      ]
+    },
+    {
+      "statementType": "create_index",
+      "statementTarget": [
+        "index",
+        "public",
+        "wear_logs",
+        "wear_logs_outfit_id_idx"
+      ],
+      "writes": [
+        "s|idx|public.wear_logs_outfit_id_idx",
+        "n|idx|public.wear_logs_outfit_id_idx",
+        "e|idx|public.wear_logs_outfit_id_idx",
+        "n|rel|public.wear_logs_outfit_id_idx"
+      ],
+      "reads": [
+        "n|tbl|public.wear_logs",
+        "n|sch|public",
+        "n|col|public.wear_logs.outfit_id"
+      ]
+    },
+    {
+      "statementType": "create_fk",
+      "statementTarget": [
+        "table",
+        "public",
+        "ai_calls"
+      ],
+      "writes": [
+        "s|fk|public.ai_calls.ai_calls_item_id_items_id_fkey",
+        "n|fk|public.ai_calls.ai_calls_item_id_items_id_fkey",
+        "e|fk|public.ai_calls.ai_calls_item_id_items_id_fkey",
+        "n|con|public.ai_calls.ai_calls_item_id_items_id_fkey"
+      ],
+      "reads": [
+        "n|tbl|public.ai_calls",
+        "n|sch|public",
+        "n|tbl|public.items",
+        "n|sch|public",
+        "n|col|public.ai_calls.item_id",
+        "n|col|public.items.id",
+        "e|uniqueness|public.items.id"
+      ]
+    },
+    {
+      "statementType": "create_fk",
+      "statementTarget": [
+        "table",
+        "public",
+        "ai_calls"
+      ],
+      "writes": [
+        "s|fk|public.ai_calls.ai_calls_analysis_id_analyses_id_fkey",
+        "n|fk|public.ai_calls.ai_calls_analysis_id_analyses_id_fkey",
+        "e|fk|public.ai_calls.ai_calls_analysis_id_analyses_id_fkey",
+        "n|con|public.ai_calls.ai_calls_analysis_id_analyses_id_fkey"
+      ],
+      "reads": [
+        "n|tbl|public.ai_calls",
+        "n|sch|public",
+        "n|tbl|public.analyses",
+        "n|sch|public",
+        "n|col|public.ai_calls.analysis_id",
+        "n|col|public.analyses.id",
+        "e|uniqueness|public.analyses.id"
+      ]
+    },
+    {
+      "statementType": "create_fk",
+      "statementTarget": [
+        "table",
+        "public",
+        "analyses"
+      ],
+      "writes": [
+        "s|fk|public.analyses.analyses_climate_profile_id_climate_profiles_id_fkey",
+        "n|fk|public.analyses.analyses_climate_profile_id_climate_profiles_id_fkey",
+        "e|fk|public.analyses.analyses_climate_profile_id_climate_profiles_id_fkey",
+        "n|con|public.analyses.analyses_climate_profile_id_climate_profiles_id_fkey"
+      ],
+      "reads": [
+        "n|tbl|public.analyses",
+        "n|sch|public",
+        "n|tbl|public.climate_profiles",
+        "n|sch|public",
+        "n|col|public.analyses.climate_profile_id",
+        "n|col|public.climate_profiles.id",
+        "e|uniqueness|public.climate_profiles.id"
+      ]
+    },
+    {
+      "statementType": "create_fk",
+      "statementTarget": [
+        "table",
+        "public",
+        "analysis_parts"
+      ],
+      "writes": [
+        "s|fk|public.analysis_parts.analysis_parts_analysis_id_analyses_id_fkey",
+        "n|fk|public.analysis_parts.analysis_parts_analysis_id_analyses_id_fkey",
+        "e|fk|public.analysis_parts.analysis_parts_analysis_id_analyses_id_fkey",
+        "n|con|public.analysis_parts.analysis_parts_analysis_id_analyses_id_fkey"
+      ],
+      "reads": [
+        "n|tbl|public.analysis_parts",
+        "n|sch|public",
+        "n|tbl|public.analyses",
+        "n|sch|public",
+        "n|col|public.analysis_parts.analysis_id",
+        "n|col|public.analyses.id",
+        "e|uniqueness|public.analyses.id"
+      ]
+    },
+    {
+      "statementType": "create_fk",
+      "statementTarget": [
+        "table",
+        "public",
+        "app_settings"
+      ],
+      "writes": [
+        "s|fk|public.app_settings.app_settings_home_profile_id_climate_profiles_id_fkey",
+        "n|fk|public.app_settings.app_settings_home_profile_id_climate_profiles_id_fkey",
+        "e|fk|public.app_settings.app_settings_home_profile_id_climate_profiles_id_fkey",
+        "n|con|public.app_settings.app_settings_home_profile_id_climate_profiles_id_fkey"
+      ],
+      "reads": [
+        "n|tbl|public.app_settings",
+        "n|sch|public",
+        "n|tbl|public.climate_profiles",
+        "n|sch|public",
+        "n|col|public.app_settings.home_profile_id",
+        "n|col|public.climate_profiles.id",
+        "e|uniqueness|public.climate_profiles.id"
+      ]
+    },
+    {
+      "statementType": "create_fk",
+      "statementTarget": [
+        "table",
+        "public",
+        "item_images"
+      ],
+      "writes": [
+        "s|fk|public.item_images.item_images_item_id_items_id_fkey",
+        "n|fk|public.item_images.item_images_item_id_items_id_fkey",
+        "e|fk|public.item_images.item_images_item_id_items_id_fkey",
+        "n|con|public.item_images.item_images_item_id_items_id_fkey"
+      ],
+      "reads": [
+        "n|tbl|public.item_images",
+        "n|sch|public",
+        "n|tbl|public.items",
+        "n|sch|public",
+        "n|col|public.item_images.item_id",
+        "n|col|public.items.id",
+        "e|uniqueness|public.items.id"
+      ]
+    },
+    {
+      "statementType": "create_fk",
+      "statementTarget": [
+        "table",
+        "public",
+        "items"
+      ],
+      "writes": [
+        "s|fk|public.items.items_tagging_batch_id_ai_batches_id_fkey",
+        "n|fk|public.items.items_tagging_batch_id_ai_batches_id_fkey",
+        "e|fk|public.items.items_tagging_batch_id_ai_batches_id_fkey",
+        "n|con|public.items.items_tagging_batch_id_ai_batches_id_fkey"
+      ],
+      "reads": [
+        "n|tbl|public.items",
+        "n|sch|public",
+        "n|tbl|public.ai_batches",
+        "n|sch|public",
+        "n|col|public.items.tagging_batch_id",
+        "n|col|public.ai_batches.id",
+        "e|uniqueness|public.ai_batches.id"
+      ]
+    },
+    {
+      "statementType": "create_fk",
+      "statementTarget": [
+        "table",
+        "public",
+        "outfit_items"
+      ],
+      "writes": [
+        "s|fk|public.outfit_items.outfit_items_outfit_id_outfits_id_fkey",
+        "n|fk|public.outfit_items.outfit_items_outfit_id_outfits_id_fkey",
+        "e|fk|public.outfit_items.outfit_items_outfit_id_outfits_id_fkey",
+        "n|con|public.outfit_items.outfit_items_outfit_id_outfits_id_fkey"
+      ],
+      "reads": [
+        "n|tbl|public.outfit_items",
+        "n|sch|public",
+        "n|tbl|public.outfits",
+        "n|sch|public",
+        "n|col|public.outfit_items.outfit_id",
+        "n|col|public.outfits.id",
+        "e|uniqueness|public.outfits.id"
+      ]
+    },
+    {
+      "statementType": "create_fk",
+      "statementTarget": [
+        "table",
+        "public",
+        "outfit_items"
+      ],
+      "writes": [
+        "s|fk|public.outfit_items.outfit_items_item_id_items_id_fkey",
+        "n|fk|public.outfit_items.outfit_items_item_id_items_id_fkey",
+        "e|fk|public.outfit_items.outfit_items_item_id_items_id_fkey",
+        "n|con|public.outfit_items.outfit_items_item_id_items_id_fkey"
+      ],
+      "reads": [
+        "n|tbl|public.outfit_items",
+        "n|sch|public",
+        "n|tbl|public.items",
+        "n|sch|public",
+        "n|col|public.outfit_items.item_id",
+        "n|col|public.items.id",
+        "e|uniqueness|public.items.id"
+      ]
+    },
+    {
+      "statementType": "create_fk",
+      "statementTarget": [
+        "table",
+        "public",
+        "packing_checklist_items"
+      ],
+      "writes": [
+        "s|fk|public.packing_checklist_items.packing_checklist_items_analysis_id_analyses_id_fkey",
+        "n|fk|public.packing_checklist_items.packing_checklist_items_analysis_id_analyses_id_fkey",
+        "e|fk|public.packing_checklist_items.packing_checklist_items_analysis_id_analyses_id_fkey",
+        "n|con|public.packing_checklist_items.packing_checklist_items_analysis_id_analyses_id_fkey"
+      ],
+      "reads": [
+        "n|tbl|public.packing_checklist_items",
+        "n|sch|public",
+        "n|tbl|public.analyses",
+        "n|sch|public",
+        "n|col|public.packing_checklist_items.analysis_id",
+        "n|col|public.analyses.id",
+        "e|uniqueness|public.analyses.id"
+      ]
+    },
+    {
+      "statementType": "create_fk",
+      "statementTarget": [
+        "table",
+        "public",
+        "packing_checklist_items"
+      ],
+      "writes": [
+        "s|fk|public.packing_checklist_items.packing_checklist_items_item_id_items_id_fkey",
+        "n|fk|public.packing_checklist_items.packing_checklist_items_item_id_items_id_fkey",
+        "e|fk|public.packing_checklist_items.packing_checklist_items_item_id_items_id_fkey",
+        "n|con|public.packing_checklist_items.packing_checklist_items_item_id_items_id_fkey"
+      ],
+      "reads": [
+        "n|tbl|public.packing_checklist_items",
+        "n|sch|public",
+        "n|tbl|public.items",
+        "n|sch|public",
+        "n|col|public.packing_checklist_items.item_id",
+        "n|col|public.items.id",
+        "e|uniqueness|public.items.id"
+      ]
+    },
+    {
+      "statementType": "create_fk",
+      "statementTarget": [
+        "table",
+        "public",
+        "shopping_list_items"
+      ],
+      "writes": [
+        "s|fk|public.shopping_list_items.shopping_list_items_analysis_id_analyses_id_fkey",
+        "n|fk|public.shopping_list_items.shopping_list_items_analysis_id_analyses_id_fkey",
+        "e|fk|public.shopping_list_items.shopping_list_items_analysis_id_analyses_id_fkey",
+        "n|con|public.shopping_list_items.shopping_list_items_analysis_id_analyses_id_fkey"
+      ],
+      "reads": [
+        "n|tbl|public.shopping_list_items",
+        "n|sch|public",
+        "n|tbl|public.analyses",
+        "n|sch|public",
+        "n|col|public.shopping_list_items.analysis_id",
+        "n|col|public.analyses.id",
+        "e|uniqueness|public.analyses.id"
+      ]
+    },
+    {
+      "statementType": "create_fk",
+      "statementTarget": [
+        "table",
+        "public",
+        "shopping_list_items"
+      ],
+      "writes": [
+        "s|fk|public.shopping_list_items.shopping_list_items_linked_item_id_items_id_fkey",
+        "n|fk|public.shopping_list_items.shopping_list_items_linked_item_id_items_id_fkey",
+        "e|fk|public.shopping_list_items.shopping_list_items_linked_item_id_items_id_fkey",
+        "n|con|public.shopping_list_items.shopping_list_items_linked_item_id_items_id_fkey"
+      ],
+      "reads": [
+        "n|tbl|public.shopping_list_items",
+        "n|sch|public",
+        "n|tbl|public.items",
+        "n|sch|public",
+        "n|col|public.shopping_list_items.linked_item_id",
+        "n|col|public.items.id",
+        "e|uniqueness|public.items.id"
+      ]
+    },
+    {
+      "statementType": "create_fk",
+      "statementTarget": [
+        "table",
+        "public",
+        "wear_logs"
+      ],
+      "writes": [
+        "s|fk|public.wear_logs.wear_logs_item_id_items_id_fkey",
+        "n|fk|public.wear_logs.wear_logs_item_id_items_id_fkey",
+        "e|fk|public.wear_logs.wear_logs_item_id_items_id_fkey",
+        "n|con|public.wear_logs.wear_logs_item_id_items_id_fkey"
+      ],
+      "reads": [
+        "n|tbl|public.wear_logs",
+        "n|sch|public",
+        "n|tbl|public.items",
+        "n|sch|public",
+        "n|col|public.wear_logs.item_id",
+        "n|col|public.items.id",
+        "e|uniqueness|public.items.id"
+      ]
+    },
+    {
+      "statementType": "create_fk",
+      "statementTarget": [
+        "table",
+        "public",
+        "wear_logs"
+      ],
+      "writes": [
+        "s|fk|public.wear_logs.wear_logs_outfit_id_outfits_id_fkey",
+        "n|fk|public.wear_logs.wear_logs_outfit_id_outfits_id_fkey",
+        "e|fk|public.wear_logs.wear_logs_outfit_id_outfits_id_fkey",
+        "n|con|public.wear_logs.wear_logs_outfit_id_outfits_id_fkey"
+      ],
+      "reads": [
+        "n|tbl|public.wear_logs",
+        "n|sch|public",
+        "n|tbl|public.outfits",
+        "n|sch|public",
+        "n|col|public.wear_logs.outfit_id",
+        "n|col|public.outfits.id",
+        "e|uniqueness|public.outfits.id"
+      ]
+    }
+  ],
+  "ddl": [
+    {
+      "schema": "public",
+      "name": "ai_batches",
+      "isRlsEnabled": false,
+      "entityType": "tables"
+    },
+    {
+      "schema": "public",
+      "name": "ai_calls",
+      "isRlsEnabled": false,
+      "entityType": "tables"
+    },
+    {
+      "schema": "public",
+      "name": "analyses",
+      "isRlsEnabled": false,
+      "entityType": "tables"
+    },
+    {
+      "schema": "public",
+      "name": "analysis_parts",
+      "isRlsEnabled": false,
+      "entityType": "tables"
+    },
+    {
+      "schema": "public",
+      "name": "app_settings",
+      "isRlsEnabled": false,
+      "entityType": "tables"
+    },
+    {
+      "schema": "public",
+      "name": "climate_profiles",
+      "isRlsEnabled": false,
+      "entityType": "tables"
+    },
+    {
+      "schema": "public",
+      "name": "item_images",
+      "isRlsEnabled": false,
+      "entityType": "tables"
+    },
+    {
+      "schema": "public",
+      "name": "items",
+      "isRlsEnabled": false,
+      "entityType": "tables"
+    },
+    {
+      "schema": "public",
+      "name": "login_attempts",
+      "isRlsEnabled": false,
+      "entityType": "tables"
+    },
+    {
+      "schema": "public",
+      "name": "outfit_items",
+      "isRlsEnabled": false,
+      "entityType": "tables"
+    },
+    {
+      "schema": "public",
+      "name": "outfits",
+      "isRlsEnabled": false,
+      "entityType": "tables"
+    },
+    {
+      "schema": "public",
+      "name": "packing_checklist_items",
+      "isRlsEnabled": false,
+      "entityType": "tables"
+    },
+    {
+      "schema": "public",
+      "name": "shopping_list_items",
+      "isRlsEnabled": false,
+      "entityType": "tables"
+    },
+    {
+      "schema": "public",
+      "name": "wear_logs",
+      "isRlsEnabled": false,
+      "entityType": "tables"
+    },
+    {
+      "schema": "public",
+      "name": "ai_call_status",
+      "values": [
+        "success",
+        "invalid_output",
+        "max_tokens",
+        "refusal",
+        "error"
+      ],
+      "entityType": "enums"
+    },
+    {
+      "schema": "public",
+      "name": "ai_purpose",
+      "values": [
+        "tagging",
+        "relocation_chunk",
+        "relocation_repair",
+        "relocation_synthesis",
+        "outfit_suggestion",
+        "shopping",
+        "smoke_test"
+      ],
+      "entityType": "enums"
+    },
+    {
+      "schema": "public",
+      "name": "analysis_kind",
+      "values": [
+        "relocation",
+        "outfit_suggestion",
+        "shopping"
+      ],
+      "entityType": "enums"
+    },
+    {
+      "schema": "public",
+      "name": "analysis_part_kind",
+      "values": [
+        "chunk",
+        "synthesis"
+      ],
+      "entityType": "enums"
+    },
+    {
+      "schema": "public",
+      "name": "analysis_status",
+      "values": [
+        "pending",
+        "running",
+        "complete",
+        "failed"
+      ],
+      "entityType": "enums"
+    },
+    {
+      "schema": "public",
+      "name": "batch_status",
+      "values": [
+        "in_progress",
+        "canceling",
+        "ended",
+        "processed"
+      ],
+      "entityType": "enums"
+    },
+    {
+      "schema": "public",
+      "name": "formality",
+      "values": [
+        "athletic",
+        "casual",
+        "smart_casual",
+        "business",
+        "formal"
+      ],
+      "entityType": "enums"
+    },
+    {
+      "schema": "public",
+      "name": "image_kind",
+      "values": [
+        "original",
+        "processed",
+        "nobg",
+        "thumb"
+      ],
+      "entityType": "enums"
+    },
+    {
+      "schema": "public",
+      "name": "item_category",
+      "values": [
+        "outerwear",
+        "top",
+        "bottom",
+        "dress",
+        "shoes",
+        "gloves",
+        "hat_beanie",
+        "scarf",
+        "base_layer",
+        "accessory",
+        "bag",
+        "other"
+      ],
+      "entityType": "enums"
+    },
+    {
+      "schema": "public",
+      "name": "item_condition",
+      "values": [
+        "new",
+        "good",
+        "worn",
+        "needs_repair"
+      ],
+      "entityType": "enums"
+    },
+    {
+      "schema": "public",
+      "name": "item_decision",
+      "values": [
+        "bring",
+        "leave",
+        "donate",
+        "sell",
+        "undecided"
+      ],
+      "entityType": "enums"
+    },
+    {
+      "schema": "public",
+      "name": "item_location",
+      "values": [
+        "bologna",
+        "hamburg",
+        "in_transit",
+        "unknown"
+      ],
+      "entityType": "enums"
+    },
+    {
+      "schema": "public",
+      "name": "item_status",
+      "values": [
+        "pending_tagging",
+        "tagged",
+        "confirmed",
+        "archived"
+      ],
+      "entityType": "enums"
+    },
+    {
+      "schema": "public",
+      "name": "outfit_slot",
+      "values": [
+        "outerwear",
+        "base_layer",
+        "top",
+        "bottom",
+        "shoes",
+        "hat",
+        "gloves",
+        "scarf",
+        "accessory"
+      ],
+      "entityType": "enums"
+    },
+    {
+      "schema": "public",
+      "name": "outfit_source",
+      "values": [
+        "user",
+        "ai"
+      ],
+      "entityType": "enums"
+    },
+    {
+      "schema": "public",
+      "name": "packing_group",
+      "values": [
+        "suitcase",
+        "carry_on",
+        "ship_later",
+        "wear_on_travel_day"
+      ],
+      "entityType": "enums"
+    },
+    {
+      "schema": "public",
+      "name": "part_status",
+      "values": [
+        "pending",
+        "running",
+        "complete",
+        "failed"
+      ],
+      "entityType": "enums"
+    },
+    {
+      "schema": "public",
+      "name": "shopping_status",
+      "values": [
+        "todo",
+        "bought",
+        "skipped"
+      ],
+      "entityType": "enums"
+    },
+    {
+      "schema": "public",
+      "table": "ai_batches",
+      "name": "id",
+      "type": "uuid",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "gen_random_uuid()",
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "ai_batches",
+      "name": "anthropic_batch_id",
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "ai_batches",
+      "name": "purpose",
+      "type": "ai_purpose",
+      "typeSchema": "public",
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "ai_batches",
+      "name": "model",
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "ai_batches",
+      "name": "status",
+      "type": "batch_status",
+      "typeSchema": "public",
+      "notNull": true,
+      "dimensions": 0,
+      "default": "'in_progress'",
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "ai_batches",
+      "name": "item_ids",
+      "type": "uuid",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 1,
+      "default": "'{}'",
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "ai_batches",
+      "name": "request_count",
+      "type": "integer",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "ai_batches",
+      "name": "estimated_cost_usd",
+      "type": "numeric(12,6)",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "'0'",
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "ai_batches",
+      "name": "cost_usd",
+      "type": "numeric(12,6)",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "'0'",
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "ai_batches",
+      "name": "created_at",
+      "type": "timestamp with time zone",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "now()",
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "ai_batches",
+      "name": "ended_at",
+      "type": "timestamp with time zone",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "ai_batches",
+      "name": "processed_at",
+      "type": "timestamp with time zone",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "ai_batches",
+      "name": "error",
+      "type": "text",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "ai_calls",
+      "name": "id",
+      "type": "uuid",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "gen_random_uuid()",
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "ai_calls",
+      "name": "created_at",
+      "type": "timestamp with time zone",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "now()",
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "ai_calls",
+      "name": "model",
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "ai_calls",
+      "name": "purpose",
+      "type": "ai_purpose",
+      "typeSchema": "public",
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "ai_calls",
+      "name": "status",
+      "type": "ai_call_status",
+      "typeSchema": "public",
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "ai_calls",
+      "name": "input_tokens",
+      "type": "integer",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "0",
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "ai_calls",
+      "name": "output_tokens",
+      "type": "integer",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "0",
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "ai_calls",
+      "name": "cache_creation_input_tokens",
+      "type": "integer",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "0",
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "ai_calls",
+      "name": "cache_read_input_tokens",
+      "type": "integer",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "0",
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "ai_calls",
+      "name": "cache_write_1h_tokens",
+      "type": "integer",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "0",
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "ai_calls",
+      "name": "thinking_tokens",
+      "type": "integer",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "0",
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "ai_calls",
+      "name": "pricing_tier",
+      "type": "text",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "ai_calls",
+      "name": "is_batch",
+      "type": "boolean",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "false",
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "ai_calls",
+      "name": "cost_usd",
+      "type": "numeric(12,6)",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "'0'",
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "ai_calls",
+      "name": "latency_ms",
+      "type": "integer",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "ai_calls",
+      "name": "request_id",
+      "type": "text",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "ai_calls",
+      "name": "stop_reason",
+      "type": "text",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "ai_calls",
+      "name": "error_code",
+      "type": "text",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "ai_calls",
+      "name": "error_message",
+      "type": "text",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "ai_calls",
+      "name": "attempt",
+      "type": "integer",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "1",
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "ai_calls",
+      "name": "item_id",
+      "type": "uuid",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "ai_calls",
+      "name": "analysis_id",
+      "type": "uuid",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "analyses",
+      "name": "id",
+      "type": "uuid",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "gen_random_uuid()",
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "analyses",
+      "name": "created_at",
+      "type": "timestamp with time zone",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "now()",
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "analyses",
+      "name": "kind",
+      "type": "analysis_kind",
+      "typeSchema": "public",
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "analyses",
+      "name": "status",
+      "type": "analysis_status",
+      "typeSchema": "public",
+      "notNull": true,
+      "dimensions": 0,
+      "default": "'pending'",
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "analyses",
+      "name": "climate_profile_id",
+      "type": "uuid",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "analyses",
+      "name": "date_from",
+      "type": "date",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "analyses",
+      "name": "date_to",
+      "type": "date",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "analyses",
+      "name": "params",
+      "type": "jsonb",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "'{}'",
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "analyses",
+      "name": "model",
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "analyses",
+      "name": "effort",
+      "type": "text",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "analyses",
+      "name": "prompt_version",
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "analyses",
+      "name": "input_snapshot_hash",
+      "type": "text",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "analyses",
+      "name": "cache_key",
+      "type": "text",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "analyses",
+      "name": "input_snapshot",
+      "type": "jsonb",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "analyses",
+      "name": "result",
+      "type": "jsonb",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "analyses",
+      "name": "estimated_cost_usd",
+      "type": "numeric(12,6)",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "analyses",
+      "name": "cost_usd",
+      "type": "numeric(12,6)",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "'0'",
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "analyses",
+      "name": "error",
+      "type": "text",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "analyses",
+      "name": "completed_at",
+      "type": "timestamp with time zone",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "analysis_parts",
+      "name": "id",
+      "type": "uuid",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "gen_random_uuid()",
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "analysis_parts",
+      "name": "analysis_id",
+      "type": "uuid",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "analysis_parts",
+      "name": "kind",
+      "type": "analysis_part_kind",
+      "typeSchema": "public",
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "analysis_parts",
+      "name": "part_index",
+      "type": "integer",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "analysis_parts",
+      "name": "status",
+      "type": "part_status",
+      "typeSchema": "public",
+      "notNull": true,
+      "dimensions": 0,
+      "default": "'pending'",
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "analysis_parts",
+      "name": "input",
+      "type": "jsonb",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "analysis_parts",
+      "name": "result",
+      "type": "jsonb",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "analysis_parts",
+      "name": "cost_usd",
+      "type": "numeric(12,6)",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "'0'",
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "analysis_parts",
+      "name": "attempts",
+      "type": "integer",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "0",
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "analysis_parts",
+      "name": "error",
+      "type": "text",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "analysis_parts",
+      "name": "started_at",
+      "type": "timestamp with time zone",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "analysis_parts",
+      "name": "completed_at",
+      "type": "timestamp with time zone",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "app_settings",
+      "name": "id",
+      "type": "integer",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "1",
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "app_settings",
+      "name": "home_profile_id",
+      "type": "uuid",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "app_settings",
+      "name": "default_item_location",
+      "type": "item_location",
+      "typeSchema": "public",
+      "notNull": true,
+      "dimensions": 0,
+      "default": "'bologna'",
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "app_settings",
+      "name": "updated_at",
+      "type": "timestamp with time zone",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "now()",
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "climate_profiles",
+      "name": "id",
+      "type": "uuid",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "gen_random_uuid()",
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "climate_profiles",
+      "name": "slug",
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "climate_profiles",
+      "name": "city",
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "climate_profiles",
+      "name": "country",
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "climate_profiles",
+      "name": "lat",
+      "type": "double precision",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "climate_profiles",
+      "name": "lon",
+      "type": "double precision",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "climate_profiles",
+      "name": "timezone",
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "climate_profiles",
+      "name": "source",
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "climate_profiles",
+      "name": "months",
+      "type": "jsonb",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "climate_profiles",
+      "name": "wind_notes",
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "''",
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "climate_profiles",
+      "name": "notes",
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "''",
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "climate_profiles",
+      "name": "is_default",
+      "type": "boolean",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "false",
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "climate_profiles",
+      "name": "is_placeholder",
+      "type": "boolean",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "false",
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "climate_profiles",
+      "name": "created_at",
+      "type": "timestamp with time zone",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "now()",
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "climate_profiles",
+      "name": "updated_at",
+      "type": "timestamp with time zone",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "now()",
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "item_images",
+      "name": "id",
+      "type": "uuid",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "gen_random_uuid()",
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "item_images",
+      "name": "item_id",
+      "type": "uuid",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "item_images",
+      "name": "kind",
+      "type": "image_kind",
+      "typeSchema": "public",
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "item_images",
+      "name": "blob_url",
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "item_images",
+      "name": "blob_pathname",
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "item_images",
+      "name": "content_type",
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "item_images",
+      "name": "width",
+      "type": "integer",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "item_images",
+      "name": "height",
+      "type": "integer",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "item_images",
+      "name": "bytes",
+      "type": "integer",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "item_images",
+      "name": "created_at",
+      "type": "timestamp with time zone",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "now()",
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "items",
+      "name": "id",
+      "type": "uuid",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "gen_random_uuid()",
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "items",
+      "name": "created_at",
+      "type": "timestamp with time zone",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "now()",
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "items",
+      "name": "updated_at",
+      "type": "timestamp with time zone",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "now()",
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "items",
+      "name": "status",
+      "type": "item_status",
+      "typeSchema": "public",
+      "notNull": true,
+      "dimensions": 0,
+      "default": "'pending_tagging'",
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "items",
+      "name": "location",
+      "type": "item_location",
+      "typeSchema": "public",
+      "notNull": true,
+      "dimensions": 0,
+      "default": "'bologna'",
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "items",
+      "name": "decision",
+      "type": "item_decision",
+      "typeSchema": "public",
+      "notNull": true,
+      "dimensions": 0,
+      "default": "'undecided'",
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "items",
+      "name": "name",
+      "type": "text",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "items",
+      "name": "category",
+      "type": "item_category",
+      "typeSchema": "public",
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "items",
+      "name": "subcategory",
+      "type": "text",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "items",
+      "name": "colors",
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 1,
+      "default": "'{}'",
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "items",
+      "name": "color_hex",
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 1,
+      "default": "'{}'",
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "items",
+      "name": "material_guess",
+      "type": "text",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "items",
+      "name": "materials",
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 1,
+      "default": "'{}'",
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "items",
+      "name": "warmth_level",
+      "type": "integer",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "items",
+      "name": "waterproof",
+      "type": "boolean",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "items",
+      "name": "windproof",
+      "type": "boolean",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "items",
+      "name": "insulated",
+      "type": "boolean",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "items",
+      "name": "breathable",
+      "type": "boolean",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "items",
+      "name": "seasons",
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 1,
+      "default": "'{}'",
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "items",
+      "name": "formality",
+      "type": "formality",
+      "typeSchema": "public",
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "items",
+      "name": "pattern",
+      "type": "text",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "items",
+      "name": "fit",
+      "type": "text",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "items",
+      "name": "condition",
+      "type": "item_condition",
+      "typeSchema": "public",
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "items",
+      "name": "brand",
+      "type": "text",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "items",
+      "name": "size",
+      "type": "text",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "items",
+      "name": "description",
+      "type": "text",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "items",
+      "name": "notes",
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "''",
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "items",
+      "name": "purchase_price",
+      "type": "numeric(10,2)",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "items",
+      "name": "currency",
+      "type": "char(3)",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "'EUR'",
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "items",
+      "name": "purchase_date",
+      "type": "date",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "items",
+      "name": "ai_raw",
+      "type": "jsonb",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "items",
+      "name": "ai_model",
+      "type": "text",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "items",
+      "name": "ai_prompt_version",
+      "type": "text",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "items",
+      "name": "ai_confidence",
+      "type": "jsonb",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "items",
+      "name": "image_hash",
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "items",
+      "name": "source_hash",
+      "type": "text",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "items",
+      "name": "user_edited_fields",
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 1,
+      "default": "'{}'",
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "items",
+      "name": "wear_count",
+      "type": "integer",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "0",
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "items",
+      "name": "last_worn_at",
+      "type": "timestamp with time zone",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "items",
+      "name": "tagging_error",
+      "type": "text",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "items",
+      "name": "tagging_batch_id",
+      "type": "uuid",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "login_attempts",
+      "name": "id",
+      "type": "uuid",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "gen_random_uuid()",
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "login_attempts",
+      "name": "key_hash",
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "login_attempts",
+      "name": "success",
+      "type": "boolean",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "login_attempts",
+      "name": "attempted_at",
+      "type": "timestamp with time zone",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "now()",
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "outfit_items",
+      "name": "outfit_id",
+      "type": "uuid",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "outfit_items",
+      "name": "item_id",
+      "type": "uuid",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "outfit_items",
+      "name": "slot",
+      "type": "outfit_slot",
+      "typeSchema": "public",
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "outfits",
+      "name": "id",
+      "type": "uuid",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "gen_random_uuid()",
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "outfits",
+      "name": "name",
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "outfits",
+      "name": "occasion",
+      "type": "text",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "outfits",
+      "name": "weather_min_c",
+      "type": "numeric(4,1)",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "outfits",
+      "name": "weather_max_c",
+      "type": "numeric(4,1)",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "outfits",
+      "name": "rain_ok",
+      "type": "boolean",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "false",
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "outfits",
+      "name": "source",
+      "type": "outfit_source",
+      "typeSchema": "public",
+      "notNull": true,
+      "dimensions": 0,
+      "default": "'user'",
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "outfits",
+      "name": "rating",
+      "type": "integer",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "outfits",
+      "name": "notes",
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "''",
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "outfits",
+      "name": "ai_reasoning",
+      "type": "text",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "outfits",
+      "name": "created_at",
+      "type": "timestamp with time zone",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "now()",
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "packing_checklist_items",
+      "name": "id",
+      "type": "uuid",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "gen_random_uuid()",
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "packing_checklist_items",
+      "name": "analysis_id",
+      "type": "uuid",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "packing_checklist_items",
+      "name": "item_id",
+      "type": "uuid",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "packing_checklist_items",
+      "name": "label",
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "packing_checklist_items",
+      "name": "packed",
+      "type": "boolean",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "false",
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "packing_checklist_items",
+      "name": "group",
+      "type": "packing_group",
+      "typeSchema": "public",
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "packing_checklist_items",
+      "name": "sort_order",
+      "type": "integer",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "0",
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "shopping_list_items",
+      "name": "id",
+      "type": "uuid",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "gen_random_uuid()",
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "shopping_list_items",
+      "name": "analysis_id",
+      "type": "uuid",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "shopping_list_items",
+      "name": "item_type",
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "shopping_list_items",
+      "name": "category",
+      "type": "item_category",
+      "typeSchema": "public",
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "shopping_list_items",
+      "name": "priority",
+      "type": "integer",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "2",
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "shopping_list_items",
+      "name": "reason",
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "''",
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "shopping_list_items",
+      "name": "specs",
+      "type": "jsonb",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "'[]'",
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "shopping_list_items",
+      "name": "budget_hint_eur",
+      "type": "numeric(10,2)",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "shopping_list_items",
+      "name": "quantity",
+      "type": "integer",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "1",
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "shopping_list_items",
+      "name": "est_price_min_eur",
+      "type": "numeric(10,2)",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "shopping_list_items",
+      "name": "est_price_max_eur",
+      "type": "numeric(10,2)",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "shopping_list_items",
+      "name": "buy_timing",
+      "type": "text",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "shopping_list_items",
+      "name": "status",
+      "type": "shopping_status",
+      "typeSchema": "public",
+      "notNull": true,
+      "dimensions": 0,
+      "default": "'todo'",
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "shopping_list_items",
+      "name": "linked_item_id",
+      "type": "uuid",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "shopping_list_items",
+      "name": "gap_key",
+      "type": "text",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "shopping_list_items",
+      "name": "created_at",
+      "type": "timestamp with time zone",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "now()",
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "wear_logs",
+      "name": "id",
+      "type": "uuid",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "gen_random_uuid()",
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "wear_logs",
+      "name": "item_id",
+      "type": "uuid",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "wear_logs",
+      "name": "outfit_id",
+      "type": "uuid",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "wear_logs",
+      "name": "worn_on",
+      "type": "date",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "wear_logs",
+      "name": "weather_snapshot",
+      "type": "jsonb",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "wear_logs",
+      "name": "created_at",
+      "type": "timestamp with time zone",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "now()",
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "ai_batches",
+      "name": "ai_batches_status_idx",
+      "nameExplicit": true,
+      "columns": [
+        {
+          "value": "status",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "with": "",
+      "method": "btree",
+      "concurrently": false,
+      "entityType": "indexes"
+    },
+    {
+      "schema": "public",
+      "table": "ai_calls",
+      "name": "ai_calls_created_at_idx",
+      "nameExplicit": true,
+      "columns": [
+        {
+          "value": "created_at",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "with": "",
+      "method": "btree",
+      "concurrently": false,
+      "entityType": "indexes"
+    },
+    {
+      "schema": "public",
+      "table": "ai_calls",
+      "name": "ai_calls_purpose_created_at_idx",
+      "nameExplicit": true,
+      "columns": [
+        {
+          "value": "purpose",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
+        {
+          "value": "created_at",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "with": "",
+      "method": "btree",
+      "concurrently": false,
+      "entityType": "indexes"
+    },
+    {
+      "schema": "public",
+      "table": "ai_calls",
+      "name": "ai_calls_item_id_idx",
+      "nameExplicit": true,
+      "columns": [
+        {
+          "value": "item_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "with": "",
+      "method": "btree",
+      "concurrently": false,
+      "entityType": "indexes"
+    },
+    {
+      "schema": "public",
+      "table": "ai_calls",
+      "name": "ai_calls_analysis_id_idx",
+      "nameExplicit": true,
+      "columns": [
+        {
+          "value": "analysis_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "with": "",
+      "method": "btree",
+      "concurrently": false,
+      "entityType": "indexes"
+    },
+    {
+      "schema": "public",
+      "table": "analyses",
+      "name": "analyses_cache_key_idx",
+      "nameExplicit": true,
+      "columns": [
+        {
+          "value": "cache_key",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "with": "",
+      "method": "btree",
+      "concurrently": false,
+      "entityType": "indexes"
+    },
+    {
+      "schema": "public",
+      "table": "analyses",
+      "name": "analyses_kind_created_at_idx",
+      "nameExplicit": true,
+      "columns": [
+        {
+          "value": "kind",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
+        {
+          "value": "created_at",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "with": "",
+      "method": "btree",
+      "concurrently": false,
+      "entityType": "indexes"
+    },
+    {
+      "schema": "public",
+      "table": "analyses",
+      "name": "analyses_climate_profile_id_idx",
+      "nameExplicit": true,
+      "columns": [
+        {
+          "value": "climate_profile_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "with": "",
+      "method": "btree",
+      "concurrently": false,
+      "entityType": "indexes"
+    },
+    {
+      "schema": "public",
+      "table": "climate_profiles",
+      "name": "climate_profiles_single_default_idx",
+      "nameExplicit": true,
+      "columns": [
+        {
+          "value": "is_default",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        }
+      ],
+      "isUnique": true,
+      "where": "\"is_default\"",
+      "with": "",
+      "method": "btree",
+      "concurrently": false,
+      "entityType": "indexes"
+    },
+    {
+      "schema": "public",
+      "table": "items",
+      "name": "items_status_idx",
+      "nameExplicit": true,
+      "columns": [
+        {
+          "value": "status",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "with": "",
+      "method": "btree",
+      "concurrently": false,
+      "entityType": "indexes"
+    },
+    {
+      "schema": "public",
+      "table": "items",
+      "name": "items_category_idx",
+      "nameExplicit": true,
+      "columns": [
+        {
+          "value": "category",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "with": "",
+      "method": "btree",
+      "concurrently": false,
+      "entityType": "indexes"
+    },
+    {
+      "schema": "public",
+      "table": "items",
+      "name": "items_location_idx",
+      "nameExplicit": true,
+      "columns": [
+        {
+          "value": "location",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "with": "",
+      "method": "btree",
+      "concurrently": false,
+      "entityType": "indexes"
+    },
+    {
+      "schema": "public",
+      "table": "items",
+      "name": "items_decision_idx",
+      "nameExplicit": true,
+      "columns": [
+        {
+          "value": "decision",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "with": "",
+      "method": "btree",
+      "concurrently": false,
+      "entityType": "indexes"
+    },
+    {
+      "schema": "public",
+      "table": "items",
+      "name": "items_created_at_idx",
+      "nameExplicit": true,
+      "columns": [
+        {
+          "value": "created_at",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "with": "",
+      "method": "btree",
+      "concurrently": false,
+      "entityType": "indexes"
+    },
+    {
+      "schema": "public",
+      "table": "items",
+      "name": "items_tagging_batch_id_idx",
+      "nameExplicit": true,
+      "columns": [
+        {
+          "value": "tagging_batch_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "with": "",
+      "method": "btree",
+      "concurrently": false,
+      "entityType": "indexes"
+    },
+    {
+      "schema": "public",
+      "table": "login_attempts",
+      "name": "login_attempts_key_hash_attempted_at_idx",
+      "nameExplicit": true,
+      "columns": [
+        {
+          "value": "key_hash",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
+        {
+          "value": "attempted_at",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "with": "",
+      "method": "btree",
+      "concurrently": false,
+      "entityType": "indexes"
+    },
+    {
+      "schema": "public",
+      "table": "outfit_items",
+      "name": "outfit_items_item_id_idx",
+      "nameExplicit": true,
+      "columns": [
+        {
+          "value": "item_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "with": "",
+      "method": "btree",
+      "concurrently": false,
+      "entityType": "indexes"
+    },
+    {
+      "schema": "public",
+      "table": "packing_checklist_items",
+      "name": "packing_checklist_items_analysis_id_idx",
+      "nameExplicit": true,
+      "columns": [
+        {
+          "value": "analysis_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "with": "",
+      "method": "btree",
+      "concurrently": false,
+      "entityType": "indexes"
+    },
+    {
+      "schema": "public",
+      "table": "packing_checklist_items",
+      "name": "packing_checklist_items_item_id_idx",
+      "nameExplicit": true,
+      "columns": [
+        {
+          "value": "item_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "with": "",
+      "method": "btree",
+      "concurrently": false,
+      "entityType": "indexes"
+    },
+    {
+      "schema": "public",
+      "table": "shopping_list_items",
+      "name": "shopping_list_items_linked_item_id_idx",
+      "nameExplicit": true,
+      "columns": [
+        {
+          "value": "linked_item_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "with": "",
+      "method": "btree",
+      "concurrently": false,
+      "entityType": "indexes"
+    },
+    {
+      "schema": "public",
+      "table": "wear_logs",
+      "name": "wear_logs_item_id_idx",
+      "nameExplicit": true,
+      "columns": [
+        {
+          "value": "item_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "with": "",
+      "method": "btree",
+      "concurrently": false,
+      "entityType": "indexes"
+    },
+    {
+      "schema": "public",
+      "table": "wear_logs",
+      "name": "wear_logs_outfit_id_idx",
+      "nameExplicit": true,
+      "columns": [
+        {
+          "value": "outfit_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "with": "",
+      "method": "btree",
+      "concurrently": false,
+      "entityType": "indexes"
+    },
+    {
+      "schema": "public",
+      "table": "ai_calls",
+      "name": "ai_calls_item_id_items_id_fkey",
+      "nameExplicit": false,
+      "columns": [
+        "item_id"
+      ],
+      "schemaTo": "public",
+      "tableTo": "items",
+      "columnsTo": [
+        "id"
+      ],
+      "onUpdate": "NO ACTION",
+      "onDelete": "SET NULL",
+      "entityType": "fks"
+    },
+    {
+      "schema": "public",
+      "table": "ai_calls",
+      "name": "ai_calls_analysis_id_analyses_id_fkey",
+      "nameExplicit": false,
+      "columns": [
+        "analysis_id"
+      ],
+      "schemaTo": "public",
+      "tableTo": "analyses",
+      "columnsTo": [
+        "id"
+      ],
+      "onUpdate": "NO ACTION",
+      "onDelete": "SET NULL",
+      "entityType": "fks"
+    },
+    {
+      "schema": "public",
+      "table": "analyses",
+      "name": "analyses_climate_profile_id_climate_profiles_id_fkey",
+      "nameExplicit": false,
+      "columns": [
+        "climate_profile_id"
+      ],
+      "schemaTo": "public",
+      "tableTo": "climate_profiles",
+      "columnsTo": [
+        "id"
+      ],
+      "onUpdate": "NO ACTION",
+      "onDelete": "SET NULL",
+      "entityType": "fks"
+    },
+    {
+      "schema": "public",
+      "table": "analysis_parts",
+      "name": "analysis_parts_analysis_id_analyses_id_fkey",
+      "nameExplicit": false,
+      "columns": [
+        "analysis_id"
+      ],
+      "schemaTo": "public",
+      "tableTo": "analyses",
+      "columnsTo": [
+        "id"
+      ],
+      "onUpdate": "NO ACTION",
+      "onDelete": "CASCADE",
+      "entityType": "fks"
+    },
+    {
+      "schema": "public",
+      "table": "app_settings",
+      "name": "app_settings_home_profile_id_climate_profiles_id_fkey",
+      "nameExplicit": false,
+      "columns": [
+        "home_profile_id"
+      ],
+      "schemaTo": "public",
+      "tableTo": "climate_profiles",
+      "columnsTo": [
+        "id"
+      ],
+      "onUpdate": "NO ACTION",
+      "onDelete": "SET NULL",
+      "entityType": "fks"
+    },
+    {
+      "schema": "public",
+      "table": "item_images",
+      "name": "item_images_item_id_items_id_fkey",
+      "nameExplicit": false,
+      "columns": [
+        "item_id"
+      ],
+      "schemaTo": "public",
+      "tableTo": "items",
+      "columnsTo": [
+        "id"
+      ],
+      "onUpdate": "NO ACTION",
+      "onDelete": "CASCADE",
+      "entityType": "fks"
+    },
+    {
+      "schema": "public",
+      "table": "items",
+      "name": "items_tagging_batch_id_ai_batches_id_fkey",
+      "nameExplicit": false,
+      "columns": [
+        "tagging_batch_id"
+      ],
+      "schemaTo": "public",
+      "tableTo": "ai_batches",
+      "columnsTo": [
+        "id"
+      ],
+      "onUpdate": "NO ACTION",
+      "onDelete": "SET NULL",
+      "entityType": "fks"
+    },
+    {
+      "schema": "public",
+      "table": "outfit_items",
+      "name": "outfit_items_outfit_id_outfits_id_fkey",
+      "nameExplicit": false,
+      "columns": [
+        "outfit_id"
+      ],
+      "schemaTo": "public",
+      "tableTo": "outfits",
+      "columnsTo": [
+        "id"
+      ],
+      "onUpdate": "NO ACTION",
+      "onDelete": "CASCADE",
+      "entityType": "fks"
+    },
+    {
+      "schema": "public",
+      "table": "outfit_items",
+      "name": "outfit_items_item_id_items_id_fkey",
+      "nameExplicit": false,
+      "columns": [
+        "item_id"
+      ],
+      "schemaTo": "public",
+      "tableTo": "items",
+      "columnsTo": [
+        "id"
+      ],
+      "onUpdate": "NO ACTION",
+      "onDelete": "CASCADE",
+      "entityType": "fks"
+    },
+    {
+      "schema": "public",
+      "table": "packing_checklist_items",
+      "name": "packing_checklist_items_analysis_id_analyses_id_fkey",
+      "nameExplicit": false,
+      "columns": [
+        "analysis_id"
+      ],
+      "schemaTo": "public",
+      "tableTo": "analyses",
+      "columnsTo": [
+        "id"
+      ],
+      "onUpdate": "NO ACTION",
+      "onDelete": "CASCADE",
+      "entityType": "fks"
+    },
+    {
+      "schema": "public",
+      "table": "packing_checklist_items",
+      "name": "packing_checklist_items_item_id_items_id_fkey",
+      "nameExplicit": false,
+      "columns": [
+        "item_id"
+      ],
+      "schemaTo": "public",
+      "tableTo": "items",
+      "columnsTo": [
+        "id"
+      ],
+      "onUpdate": "NO ACTION",
+      "onDelete": "SET NULL",
+      "entityType": "fks"
+    },
+    {
+      "schema": "public",
+      "table": "shopping_list_items",
+      "name": "shopping_list_items_analysis_id_analyses_id_fkey",
+      "nameExplicit": false,
+      "columns": [
+        "analysis_id"
+      ],
+      "schemaTo": "public",
+      "tableTo": "analyses",
+      "columnsTo": [
+        "id"
+      ],
+      "onUpdate": "NO ACTION",
+      "onDelete": "SET NULL",
+      "entityType": "fks"
+    },
+    {
+      "schema": "public",
+      "table": "shopping_list_items",
+      "name": "shopping_list_items_linked_item_id_items_id_fkey",
+      "nameExplicit": false,
+      "columns": [
+        "linked_item_id"
+      ],
+      "schemaTo": "public",
+      "tableTo": "items",
+      "columnsTo": [
+        "id"
+      ],
+      "onUpdate": "NO ACTION",
+      "onDelete": "SET NULL",
+      "entityType": "fks"
+    },
+    {
+      "schema": "public",
+      "table": "wear_logs",
+      "name": "wear_logs_item_id_items_id_fkey",
+      "nameExplicit": false,
+      "columns": [
+        "item_id"
+      ],
+      "schemaTo": "public",
+      "tableTo": "items",
+      "columnsTo": [
+        "id"
+      ],
+      "onUpdate": "NO ACTION",
+      "onDelete": "CASCADE",
+      "entityType": "fks"
+    },
+    {
+      "schema": "public",
+      "table": "wear_logs",
+      "name": "wear_logs_outfit_id_outfits_id_fkey",
+      "nameExplicit": false,
+      "columns": [
+        "outfit_id"
+      ],
+      "schemaTo": "public",
+      "tableTo": "outfits",
+      "columnsTo": [
+        "id"
+      ],
+      "onUpdate": "NO ACTION",
+      "onDelete": "CASCADE",
+      "entityType": "fks"
+    },
+    {
+      "schema": "public",
+      "table": "outfit_items",
+      "name": "outfit_items_pkey",
+      "columns": [
+        "outfit_id",
+        "item_id"
+      ],
+      "nameExplicit": false,
+      "entityType": "pks"
+    },
+    {
+      "schema": "public",
+      "table": "ai_batches",
+      "name": "ai_batches_pkey",
+      "columns": [
+        "id"
+      ],
+      "nameExplicit": false,
+      "entityType": "pks"
+    },
+    {
+      "schema": "public",
+      "table": "ai_calls",
+      "name": "ai_calls_pkey",
+      "columns": [
+        "id"
+      ],
+      "nameExplicit": false,
+      "entityType": "pks"
+    },
+    {
+      "schema": "public",
+      "table": "analyses",
+      "name": "analyses_pkey",
+      "columns": [
+        "id"
+      ],
+      "nameExplicit": false,
+      "entityType": "pks"
+    },
+    {
+      "schema": "public",
+      "table": "analysis_parts",
+      "name": "analysis_parts_pkey",
+      "columns": [
+        "id"
+      ],
+      "nameExplicit": false,
+      "entityType": "pks"
+    },
+    {
+      "schema": "public",
+      "table": "app_settings",
+      "name": "app_settings_pkey",
+      "columns": [
+        "id"
+      ],
+      "nameExplicit": false,
+      "entityType": "pks"
+    },
+    {
+      "schema": "public",
+      "table": "climate_profiles",
+      "name": "climate_profiles_pkey",
+      "columns": [
+        "id"
+      ],
+      "nameExplicit": false,
+      "entityType": "pks"
+    },
+    {
+      "schema": "public",
+      "table": "item_images",
+      "name": "item_images_pkey",
+      "columns": [
+        "id"
+      ],
+      "nameExplicit": false,
+      "entityType": "pks"
+    },
+    {
+      "schema": "public",
+      "table": "items",
+      "name": "items_pkey",
+      "columns": [
+        "id"
+      ],
+      "nameExplicit": false,
+      "entityType": "pks"
+    },
+    {
+      "schema": "public",
+      "table": "login_attempts",
+      "name": "login_attempts_pkey",
+      "columns": [
+        "id"
+      ],
+      "nameExplicit": false,
+      "entityType": "pks"
+    },
+    {
+      "schema": "public",
+      "table": "outfits",
+      "name": "outfits_pkey",
+      "columns": [
+        "id"
+      ],
+      "nameExplicit": false,
+      "entityType": "pks"
+    },
+    {
+      "schema": "public",
+      "table": "packing_checklist_items",
+      "name": "packing_checklist_items_pkey",
+      "columns": [
+        "id"
+      ],
+      "nameExplicit": false,
+      "entityType": "pks"
+    },
+    {
+      "schema": "public",
+      "table": "shopping_list_items",
+      "name": "shopping_list_items_pkey",
+      "columns": [
+        "id"
+      ],
+      "nameExplicit": false,
+      "entityType": "pks"
+    },
+    {
+      "schema": "public",
+      "table": "wear_logs",
+      "name": "wear_logs_pkey",
+      "columns": [
+        "id"
+      ],
+      "nameExplicit": false,
+      "entityType": "pks"
+    },
+    {
+      "schema": "public",
+      "table": "analysis_parts",
+      "name": "analysis_parts_analysis_id_kind_part_index_unique",
+      "nameExplicit": true,
+      "columns": [
+        "analysis_id",
+        "kind",
+        "part_index"
+      ],
+      "nullsNotDistinct": false,
+      "entityType": "uniques"
+    },
+    {
+      "schema": "public",
+      "table": "item_images",
+      "name": "item_images_item_id_kind_unique",
+      "nameExplicit": true,
+      "columns": [
+        "item_id",
+        "kind"
+      ],
+      "nullsNotDistinct": false,
+      "entityType": "uniques"
+    },
+    {
+      "schema": "public",
+      "table": "shopping_list_items",
+      "name": "shopping_list_items_analysis_id_gap_key_unique",
+      "nameExplicit": true,
+      "columns": [
+        "analysis_id",
+        "gap_key"
+      ],
+      "nullsNotDistinct": false,
+      "entityType": "uniques"
+    },
+    {
+      "schema": "public",
+      "table": "ai_batches",
+      "name": "ai_batches_anthropic_batch_id_key",
+      "nameExplicit": false,
+      "columns": [
+        "anthropic_batch_id"
+      ],
+      "nullsNotDistinct": false,
+      "entityType": "uniques"
+    },
+    {
+      "schema": "public",
+      "table": "climate_profiles",
+      "name": "climate_profiles_slug_key",
+      "nameExplicit": false,
+      "columns": [
+        "slug"
+      ],
+      "nullsNotDistinct": false,
+      "entityType": "uniques"
+    },
+    {
+      "schema": "public",
+      "table": "items",
+      "name": "items_image_hash_key",
+      "nameExplicit": false,
+      "columns": [
+        "image_hash"
+      ],
+      "nullsNotDistinct": false,
+      "entityType": "uniques"
+    },
+    {
+      "schema": "public",
+      "table": "items",
+      "name": "items_source_hash_key",
+      "nameExplicit": false,
+      "columns": [
+        "source_hash"
+      ],
+      "nullsNotDistinct": false,
+      "entityType": "uniques"
+    },
+    {
+      "schema": "public",
+      "table": "app_settings",
+      "name": "app_settings_single_row_check",
+      "value": "\"id\" = 1",
+      "entityType": "checks"
+    },
+    {
+      "schema": "public",
+      "table": "climate_profiles",
+      "name": "climate_profiles_months_check",
+      "value": "CASE WHEN jsonb_typeof(\"months\") = 'array' THEN jsonb_array_length(\"months\") = 12 ELSE false END",
+      "entityType": "checks"
+    },
+    {
+      "schema": "public",
+      "table": "items",
+      "name": "items_warmth_level_check",
+      "value": "\"warmth_level\" BETWEEN 1 AND 5",
+      "entityType": "checks"
+    },
+    {
+      "schema": "public",
+      "table": "items",
+      "name": "items_seasons_check",
+      "value": "\"seasons\" <@ ARRAY['winter', 'spring', 'summer', 'autumn']::text[]",
+      "entityType": "checks"
+    },
+    {
+      "schema": "public",
+      "table": "items",
+      "name": "items_wear_count_check",
+      "value": "\"wear_count\" >= 0",
+      "entityType": "checks"
+    },
+    {
+      "schema": "public",
+      "table": "items",
+      "name": "items_tagged_complete_check",
+      "value": "\"status\" NOT IN ('tagged', 'confirmed') OR (\"category\" IS NOT NULL AND \"warmth_level\" IS NOT NULL AND \"waterproof\" IS NOT NULL AND \"windproof\" IS NOT NULL AND \"insulated\" IS NOT NULL AND \"formality\" IS NOT NULL AND \"condition\" IS NOT NULL AND cardinality(\"seasons\") > 0)",
+      "entityType": "checks"
+    },
+    {
+      "schema": "public",
+      "table": "outfits",
+      "name": "outfits_rating_check",
+      "value": "\"rating\" BETWEEN 1 AND 5",
+      "entityType": "checks"
+    },
+    {
+      "schema": "public",
+      "table": "shopping_list_items",
+      "name": "shopping_list_items_priority_check",
+      "value": "\"priority\" BETWEEN 1 AND 3",
+      "entityType": "checks"
+    },
+    {
+      "schema": "public",
+      "table": "shopping_list_items",
+      "name": "shopping_list_items_quantity_check",
+      "value": "\"quantity\" >= 1",
+      "entityType": "checks"
+    },
+    {
+      "schema": "public",
+      "table": "wear_logs",
+      "name": "wear_logs_target_check",
+      "value": "\"item_id\" IS NOT NULL OR \"outfit_id\" IS NOT NULL",
+      "entityType": "checks"
+    }
+  ]
+}
