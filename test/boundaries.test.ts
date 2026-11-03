@@ -15,7 +15,11 @@ const SRC = path.join(ROOT, "src");
 const SOURCE_FILE = /\.(?:[cm]?[jt]sx?)$/;
 
 // Module ids (as `@/…` paths) a client bundle must not contain. Prefix match.
-// @/lib/ai/cost is caught through its import of models.
+// @/lib/ai/cost is caught through its import of models. The relocation
+// payload and chunk modules use node:crypto, the prompts hold the relocation
+// system prompt and the estimate prices with the server's model table: none of
+// them belongs in the browser (the client-safe relocation modules are
+// contracts.ts and schemas.ts).
 const CLIENT_FORBIDDEN = [
   "@/env",
   "@/lib/db",
@@ -27,6 +31,10 @@ const CLIENT_FORBIDDEN = [
   "@/lib/images/blob",
   "@/lib/images/server-pipeline",
   "@/lib/auth",
+  "@/lib/relocation/payload",
+  "@/lib/relocation/chunks",
+  "@/lib/relocation/prompts",
+  "@/lib/relocation/estimate",
   "@/server",
 ];
 // Exceptions: actions are passed to the client as references, the shared enum
@@ -357,6 +365,13 @@ describe("source analysis", () => {
     ["@/lib/auth/token", true],
     ["@/lib/auth/safe-redirect", false],
     ["@/lib/authors", false],
+    ["@/lib/relocation/payload", true],
+    ["@/lib/relocation/chunks", true],
+    ["@/lib/relocation/prompts", true],
+    ["@/lib/relocation/estimate", true],
+    ["@/lib/relocation/contracts", false],
+    ["@/lib/relocation/schemas", false],
+    ["@/lib/climate/range", false],
   ])("isForbiddenInClient(%s) is %s", (id, expected) => {
     expect(isForbiddenInClient(id)).toBe(expected);
   });
@@ -454,6 +469,9 @@ describe("client/server boundaries", () => {
       "src/server/services/item-lifecycle.ts",
       "src/server/services/stats.ts",
       "src/server/services/export.ts",
+      "src/server/services/relocation.ts",
+      "src/server/services/climate.ts",
+      "src/server/services/shopping.ts",
     ]) {
       expect(checked).toContain(expected);
     }
@@ -468,9 +486,9 @@ describe("client/server boundaries", () => {
       ...SERVER_CODE_DIRS.flatMap((dir) => walk(path.join(ROOT, dir))),
       ...SERVER_CODE_FILES.map((rel) => path.join(ROOT, rel)),
     ].filter((file) => !TEST_FILE.test(file));
-    expect(serverFiles.map((file) => toPosix(path.relative(ROOT, file)))).toContain(
-      "src/app/api/items/register/route.ts",
-    );
+    const checked = serverFiles.map((file) => toPosix(path.relative(ROOT, file)));
+    expect(checked).toContain("src/app/api/items/register/route.ts");
+    expect(checked).toContain("src/app/api/analyses/[id]/parts/[partId]/route.ts");
     const violations = serverFiles.flatMap((file) =>
       analyzeFile(file)
         .valueImports.filter((specifier) => {
@@ -487,7 +505,13 @@ describe("client/server boundaries", () => {
       (file) => !TEST_FILE.test(file),
     );
     // Guards against the walk silently finding nothing.
-    for (const expected of ["src/server/items/detail.ts", "src/server/services/items-query.ts"]) {
+    for (const expected of [
+      "src/server/items/detail.ts",
+      "src/server/services/items-query.ts",
+      "src/server/services/relocation.ts",
+      "src/server/services/climate.ts",
+      "src/server/services/shopping.ts",
+    ]) {
       expect(serviceFiles.map((file) => toPosix(path.relative(ROOT, file)))).toContain(expected);
     }
     const unchecked = serviceFiles.flatMap((file) => {

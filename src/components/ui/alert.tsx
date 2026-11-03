@@ -8,8 +8,11 @@ const alertVariants = cva(
     variants: {
       variant: {
         default: "bg-card text-card-foreground",
+        // --destructive-strong, not --destructive: the description's red at 90 %
+        // reached 4.49:1 on the light card in the axe scan, below WCAG AA's
+        // 4.5:1 (D-117 c).
         destructive:
-          "bg-card text-destructive *:data-[slot=alert-description]:text-destructive/90 *:[svg]:text-current",
+          "bg-card text-destructive-strong *:data-[slot=alert-description]:text-destructive-strong *:[svg]:text-current",
       },
     },
     defaultVariants: {

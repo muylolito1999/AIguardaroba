@@ -1,5 +1,6 @@
 import "server-only";
 
+import { AnthropicError, APIError } from "@anthropic-ai/sdk";
 import type {
   ContentBlockParam,
   Message,
@@ -10,7 +11,7 @@ import type {
 } from "@anthropic-ai/sdk/resources/messages";
 import type { z } from "zod";
 
-import type { AnthropicLike, AnthropicRequestOptions } from "@/lib/ai/client";
+import type { AnthropicLike, AnthropicRequestOptions, MessageStreamLike } from "@/lib/ai/client";
 import { toJsonSchemaFormat } from "@/lib/ai/json-schema";
 import { dbCallLogger, usageColumns, type AiCallLogger, type AiCallRecord } from "@/lib/ai/log";
 import type { PricedModelId } from "@/lib/ai/models";
@@ -20,6 +21,7 @@ import {
   planNextAttempt,
   ReplyError,
   requestIdOf,
+  StreamInterruptedError,
   type ErrorClassification,
 } from "@/lib/ai/retry";
 import type { Db } from "@/lib/db/client";
@@ -214,6 +216,15 @@ export type CallStructuredOptions<T> = StructuredRequest & {
   /** Cancels the call, e.g. the route's request.signal. */
   signal?: AbortSignal;
   links?: { itemId?: string | null; analysisId?: string | null };
+  /**
+   * Called with each paid attempt's cost once its ai_calls row is written,
+   * failed replies included, so a caller can keep a running total even when
+   * the call gives up and throws. A streamed reply that broke off reports the
+   * usage message_start announced (D-163); other transport errors have no
+   * usage and no call. Awaited before the next attempt, so a caller can store
+   * the cost as it goes (D-168).
+   */
+  onAttemptCost?: (usd: number) => void | Promise<void>;
 };
 
 export type CallStructuredResult<T> = {
@@ -230,7 +241,15 @@ export type CallStructuredResult<T> = {
 
 type AttemptOutcome =
   | { ok: true; message: Message; requestId: string | null; latencyMs: number }
-  | { ok: false; error: unknown; latencyMs: number; deadlineHit: boolean; cancelled: boolean };
+  | {
+      ok: false;
+      error: unknown;
+      latencyMs: number;
+      deadlineHit: boolean;
+      cancelled: boolean;
+      /** What the stream had reported when a reply broke off; null otherwise. */
+      usage: Usage | null;
+    };
 
 async function sendAttempt(
   anthropic: AnthropicLike,
@@ -246,21 +265,36 @@ async function sendAttempt(
     timeout: Math.max(1, Math.min(settings.requestTimeoutMs ?? settings.remainingMs, settings.remainingMs)),
   };
   const started = settings.now();
+  let stream: MessageStreamLike | undefined;
+  // The SDK clears its snapshot when a body ends before message_stop, so the
+  // usage is kept from the events as they arrive. The listener stays trivial:
+  // MessageStream wraps an error thrown by a listener like a broken stream.
+  let reported: Usage | null = null;
   try {
     if (settings.stream) {
-      const stream = anthropic.messages.stream(params, requestOptions);
+      stream = anthropic.messages.stream(params, requestOptions);
+      stream.on("streamEvent", (_event, snapshot) => {
+        reported = snapshot.usage;
+      });
       const message = await stream.finalMessage();
       return { ok: true, message, requestId: stream.request_id ?? null, latencyMs: settings.now() - started };
     }
     const message = await anthropic.messages.create(params, requestOptions);
     return { ok: true, message, requestId: message._request_id ?? null, latencyMs: settings.now() - started };
   } catch (error) {
+    // MessageStream raises a socket closed mid-body, or a body that ends
+    // before message_stop, as a plain AnthropicError. Every APIError (HTTP
+    // errors, SSE error events, aborts) keeps its own classification (D-163).
+    const interrupted = stream !== undefined && error instanceof AnthropicError && !(error instanceof APIError);
     return {
       ok: false,
-      error,
+      error: interrupted
+        ? new StreamInterruptedError(error.message, { cause: error, requestId: stream?.request_id ?? null })
+        : error,
       latencyMs: settings.now() - started,
       deadlineHit: deadline.signal.aborted,
       cancelled: settings.signal?.aborted === true,
+      usage: interrupted ? reported : null,
     };
   } finally {
     clearTimeout(timer);
@@ -330,6 +364,10 @@ export async function callStructured<T>(options: CallStructuredOptions<T>): Prom
   let maxTokens = options.maxTokens;
   let maxTokensRetries = 0;
   let totalCostUsd = 0;
+  // The longest attempt so far that had a reply under way. A retry after a
+  // short failure (a stream that broke off early) may still need as long as
+  // an earlier full reply took (D-177).
+  let longestReplyMs = 0;
 
   for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt += 1) {
     if (options.signal?.aborted) throw new AppError("AI_TIMEOUT", "The request to Claude was cancelled.");
@@ -379,6 +417,7 @@ export async function callStructured<T>(options: CallStructuredOptions<T>): Prom
         errorCode: reply.kind === "ok" ? null : reply.kind,
         errorMessage: replyDetail(reply),
       });
+      await options.onAttemptCost?.(usage.costUsd);
       if (reply.kind === "ok") {
         return {
           data: reply.data,
@@ -396,15 +435,26 @@ export async function callStructured<T>(options: CallStructuredOptions<T>): Prom
       cause = outcome.error;
       classification =
         outcome.deadlineHit || outcome.cancelled ? abortClassification(outcome.cancelled) : classifyError(outcome.error);
+      // A reply that broke off is billed for at least what the stream had
+      // reported: the input, cache tokens and the output count so far, which
+      // message_start gives as a placeholder (a lower bound, D-163).
+      const usage = outcome.usage === null ? null : usageColumns(options.model, outcome.usage);
+      if (usage !== null) totalCostUsd += usage.costUsd;
       await log({
         ...row,
+        ...usage,
         status: "error",
         requestId: requestIdOf(outcome.error),
         errorCode: classification.label,
         errorMessage: outcome.error instanceof Error ? outcome.error.message : classification.message,
       });
+      if (usage !== null) await options.onAttemptCost?.(usage.costUsd);
       if (outcome.error instanceof AppError) throw outcome.error;
     }
+    // Transport and HTTP errors are not replies: their latency says nothing
+    // about how long the next reply takes, so it is not counted. A reply
+    // earlier in the call still sets the time their retry needs (D-185).
+    if (classification.replyStarted === true) longestReplyMs = Math.max(longestReplyMs, latencyMs);
 
     const plan = planNextAttempt({
       attempt,
@@ -417,6 +467,7 @@ export async function callStructured<T>(options: CallStructuredOptions<T>): Prom
       currentMaxTokens: maxTokens,
       maxTokensCeiling: ceiling,
       cause,
+      longestReplyMs,
     });
     if (plan.action === "fail") throw plan.error;
     if (plan.delayMs > 0) await sleep(plan.delayMs);

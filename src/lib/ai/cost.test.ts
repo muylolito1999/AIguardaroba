@@ -124,10 +124,10 @@ describe("computeCostUsd", () => {
     expect(computeCostUsd("claude-opus-5-5", { input_tokens: M, output_tokens: M })).toBeCloseTo(24, 12);
   });
 
-  it("prices cache reads at 0.1x on Haiku and Sonnet and 0.05x on Opus", () => {
-    // Sonnet 5.5 reads at $0.20 per MTok; Opus 5.5 is the only 0.05x model (also $0.20).
+  it("prices cache reads at 0.1x on Haiku and 0.05x on Sonnet and Opus", () => {
+    // Sonnet 5.5 reads at $0.10 per MTok and Opus 5.5 at $0.20 (D-021).
     expect(computeCostUsd("claude-sonnet-5-5", { input_tokens: 0, output_tokens: 0, cache_read_input_tokens: M })).toBeCloseTo(
-      0.2,
+      0.1,
       12,
     );
     expect(computeCostUsd("claude-opus-5-5", { input_tokens: 0, output_tokens: 0, cache_read_input_tokens: M })).toBeCloseTo(
@@ -180,7 +180,7 @@ describe("computeCostUsd", () => {
         { input_tokens: 0, output_tokens: 0, cache_read_input_tokens: M },
         { batch: true },
       ),
-    ).toBeCloseTo(0.1, 12);
+    ).toBeCloseTo(0.05, 12);
   });
 
   it("bills thinking as part of output_tokens without counting it twice", () => {

@@ -21,6 +21,13 @@ export const BOLOGNA_MONTHS: ClimateMonth[] = Array.from({ length: 12 }, (_, ind
   notes: null,
 }));
 
+/**
+ * What the seed's notes become once the owner has filled in every month and
+ * left the notes as seeded: the owner's description without the remark that
+ * the values are still to come (D-169).
+ */
+export const BOLOGNA_COMPLETED_NOTES = `Owner's description: ${BOLOGNA_SPEC_NOTES}.`;
+
 export const BOLOGNA: ClimateProfileInput = {
   slug: "bologna",
   city: "Bologna",

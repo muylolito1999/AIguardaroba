@@ -9,6 +9,7 @@ import {
   planNextAttempt,
   ReplyError,
   requestIdOf,
+  StreamInterruptedError,
   type ErrorClassification,
   type PlanInput,
 } from "@/lib/ai/retry";
@@ -165,9 +166,18 @@ describe("classifyError", () => {
     expect(classifyError("a string")).toMatchObject({ retryable: false, code: "INTERNAL" });
   });
 
-  it("reads the request id of API errors only", () => {
+  it("reads the request id of API errors and broken streams only", () => {
     expect(requestIdOf(apiError(529))).toBe("req_fake_529");
+    expect(requestIdOf(new StreamInterruptedError("terminated", { cause: null, requestId: "req_9" }))).toBe("req_9");
     expect(requestIdOf(new Error("x"))).toBeNull();
+  });
+
+  it("retries a streamed reply that broke off (D-163)", () => {
+    expect(classifyError(new StreamInterruptedError("terminated", { cause: null, requestId: null }))).toMatchObject({
+      retryable: true,
+      label: "stream_interrupted",
+      code: "AI_UNAVAILABLE",
+    });
   });
 });
 
@@ -260,5 +270,81 @@ describe("planNextAttempt", () => {
     if (result.action !== "fail") return;
     expect(result.error.code).toBe("AI_UNAVAILABLE");
     expect(result.error.cause).toBe(cause);
+  });
+});
+
+describe("planNextAttempt: time for the next attempt (D-164)", () => {
+  const invalid = classifyError(new ReplyError("invalid_output", "Claude's reply did not match the expected format."));
+  const broken = classifyError(new StreamInterruptedError("terminated", { cause: null, requestId: null }));
+
+  it("fails an invalid reply with its own error when the last attempt took longer than the time left", () => {
+    // A 170 s synthesis attempt with 98 s of the part's 270 s left.
+    const result = plan(invalid, { deadlineAt: NOW + 98_000, longestReplyMs: 170_000 });
+    expect(result.action).toBe("fail");
+    if (result.action !== "fail") return;
+    expect(result.error.code).toBe("AI_INVALID_OUTPUT");
+    expect(result.error.details).toMatchObject({ attempts: 1, reason: "no_time_for_retry" });
+  });
+
+  it("retries an invalid reply when another attempt of the same length fits", () => {
+    expect(plan(invalid, { deadlineAt: NOW + 200_000, longestReplyMs: 170_000 }).action).toBe("retry");
+  });
+
+  it("applies to a stream that broke off late, counting the backoff", () => {
+    expect(plan(broken, { deadlineAt: NOW + 60_000, longestReplyMs: 200_000 })).toMatchObject({ action: "fail" });
+    expect(plan(broken, { deadlineAt: NOW + 60_000, longestReplyMs: 59_600 })).toMatchObject({ action: "fail" });
+    expect(plan(broken, { deadlineAt: NOW + 60_000, longestReplyMs: 5_000 })).toMatchObject({ action: "retry", delayMs: 500 });
+  });
+
+  it("applies to an SSE error event that broke a reply off late, as to a dropped connection (D-177)", () => {
+    // An overloaded_error event 200 s into a part's stream, with 60 s of its 270 s left.
+    const overloaded = classifyError(midStreamError("overloaded_error"));
+    const result = plan(overloaded, { deadlineAt: NOW + 60_000, longestReplyMs: 200_000 });
+    expect(result.action).toBe("fail");
+    if (result.action !== "fail") return;
+    // The overload stays visible, not a "did not answer in time" after a paid attempt.
+    expect(result.error.code).toBe("AI_UNAVAILABLE");
+    expect(result.error.message).toBe("Claude's reply broke off (overloaded_error). Try again shortly.");
+    expect(result.error.details).toEqual({ attempts: 1, reason: "no_time_for_retry" });
+    expect(plan(overloaded, { deadlineAt: NOW + 60_000, longestReplyMs: 5_000 })).toMatchObject({ action: "retry" });
+  });
+
+  it("leaves transport errors before any reply to the minimum-attempt check: their latency says nothing about the next one", () => {
+    expect(plan(classifyError(apiError(529)), { deadlineAt: NOW + 10_000, longestReplyMs: 0 }).action).toBe("retry");
+    expect(plan(classifyError(apiError(529)), { deadlineAt: NOW + 10_000 }).action).toBe("retry");
+  });
+
+  it("does not retry a transport error after a reply of the call that the time left could not hold again (D-185)", () => {
+    // A reply in this call took 40 s; 10 s are left when a 529 comes.
+    const overloaded = plan(classifyError(apiError(529)), { deadlineAt: NOW + 10_000, longestReplyMs: 40_000 });
+    expect(overloaded.action).toBe("fail");
+    if (overloaded.action !== "fail") return;
+    // The overload stays visible, not a "did not answer in time" after a paid attempt.
+    expect(overloaded.error.code).toBe("AI_UNAVAILABLE");
+    expect(overloaded.error.message).toBe("Claude is overloaded right now (HTTP 529 overloaded_error). Try again shortly.");
+    expect(overloaded.error.details).toEqual({ attempts: 1, status: 529, reason: "no_time_for_retry" });
+
+    const unreachable = plan(classifyError(connectionError()), { deadlineAt: NOW + 10_000, longestReplyMs: 40_000 });
+    expect(unreachable).toMatchObject({ action: "fail" });
+    if (unreachable.action !== "fail") return;
+    expect(unreachable.error.message).toBe("Could not reach Claude. Check the connection and try again.");
+    expect(unreachable.error.details).toMatchObject({ reason: "no_time_for_retry" });
+
+    // A wait that runs past the deadline still says how long to wait.
+    const busy = plan(classifyError(apiError(529, { headers: { "retry-after": "200" } })), {
+      deadlineAt: NOW + 140_000,
+      longestReplyMs: 130_000,
+    });
+    expect(busy.action).toBe("fail");
+    if (busy.action !== "fail") return;
+    expect(busy.error.message).toBe("Claude is busy. Try again in about 200 s.");
+    expect(busy.error.details).toMatchObject({ retryAfterSeconds: 200 });
+
+    expect(plan(classifyError(apiError(529)), { deadlineAt: NOW + 50_000, longestReplyMs: 40_000 }).action).toBe("retry");
+  });
+
+  it("keeps the max_tokens retry's own rule (D-062)", () => {
+    const cut = classifyError(new ReplyError("max_tokens", "cut"));
+    expect(plan(cut, { deadlineAt: NOW + 10_000, longestReplyMs: 40_000 })).toMatchObject({ action: "retry", maxTokens: 8192 });
   });
 });

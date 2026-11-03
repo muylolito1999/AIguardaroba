@@ -7,9 +7,10 @@ import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar"
 // Top/side padding adds the safe-area insets because viewport-fit=cover lets the
 // installed app draw under a landscape notch (the top inset is 0 under the opaque
 // iOS status bar); the bottom padding clears the fixed mobile tab bar plus the
-// home indicator.
+// home indicator. In print (the packing checklist) the padding goes and the
+// page is white, as the sidebar, tab bar and toasts hide themselves.
 const MAIN_CLASSES =
-  "min-w-0 flex-1 px-4 pt-[calc(1rem+env(safe-area-inset-top))] pb-[calc(4.5rem+env(safe-area-inset-bottom))] outline-none md:pt-[calc(1.5rem+env(safe-area-inset-top))] md:pr-[max(2rem,env(safe-area-inset-right))] md:pb-[calc(1.5rem+env(safe-area-inset-bottom))] md:pl-8"
+  "min-w-0 flex-1 px-4 pt-[calc(1rem+env(safe-area-inset-top))] pb-[calc(4.5rem+env(safe-area-inset-bottom))] outline-none md:pt-[calc(1.5rem+env(safe-area-inset-top))] md:pr-[max(2rem,env(safe-area-inset-right))] md:pb-[calc(1.5rem+env(safe-area-inset-bottom))] md:pl-8 print:bg-white print:p-0"
 
 export default function AppLayout({ children }: LayoutProps<"/">) {
   return (

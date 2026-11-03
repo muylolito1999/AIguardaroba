@@ -34,6 +34,23 @@ export class ReplyError extends Error {
   }
 }
 
+/**
+ * A streamed reply that broke off after the response started: the socket
+ * closed mid-body, or the body ended before message_stop. The SDK raises these
+ * as a plain AnthropicError (not an APIError), so callStructured rewraps them
+ * at the stream boundary, the only place the SDK is the sole wrapper (D-163).
+ * A TypeError anywhere else is still a bug on our side and is not retried.
+ */
+export class StreamInterruptedError extends Error {
+  readonly requestId: string | null;
+
+  constructor(message: string, options: { cause: unknown; requestId: string | null }) {
+    super(message, { cause: options.cause });
+    this.name = "StreamInterruptedError";
+    this.requestId = options.requestId;
+  }
+}
+
 export type ErrorClassification = {
   retryable: boolean;
   /** Short label stored in ai_calls.error_code, e.g. http_529, connection, invalid_output. */
@@ -46,6 +63,13 @@ export type ErrorClassification = {
   /** Response headers, read for retry-after. */
   headers: HeadersLike | null;
   details?: Record<string, unknown>;
+  /**
+   * The failed attempt had a reply under way: a whole reply that could not be
+   * used, or a streamed reply that broke off, by a dropped connection or by an
+   * SSE error event after the 200. Its latency then shows how long a reply
+   * takes, which a retry needs again (D-164, D-177).
+   */
+  replyStarted?: true;
 };
 
 const RETRYABLE_STATUSES = new Set([408, 409, 429]);
@@ -71,6 +95,7 @@ function classifyApiError(error: APIError): ErrorClassification {
   if (status === null) {
     // An SSE `event: error` after a 200 (for example overloaded_error mid-stream).
     // The SDK does not retry these; we do, unless the type says the request is wrong.
+    // The reply was streaming until then, like a stream whose socket dropped.
     const label = `stream_${type ?? "error"}`;
     if (type === null || RETRYABLE_STREAM_TYPES.has(type)) {
       return {
@@ -80,6 +105,7 @@ function classifyApiError(error: APIError): ErrorClassification {
         message: `Claude's reply broke off (${type ?? "stream error"}). Try again shortly.`,
         status,
         headers,
+        replyStarted: true,
       };
     }
     return {
@@ -89,6 +115,7 @@ function classifyApiError(error: APIError): ErrorClassification {
       message: `Claude rejected the request (${type}).`,
       status,
       headers,
+      replyStarted: true,
     };
   }
 
@@ -144,6 +171,7 @@ export function classifyError(error: unknown): ErrorClassification {
       status: null,
       headers: null,
       ...(error.details === undefined ? {} : { details: error.details }),
+      replyStarted: true,
     };
   }
   if (error instanceof AppError) {
@@ -155,6 +183,19 @@ export function classifyError(error: unknown): ErrorClassification {
       status: null,
       headers: null,
       ...(error.details === undefined ? {} : { details: error.details }),
+    };
+  }
+  if (error instanceof StreamInterruptedError) {
+    // Like an SSE error event mid-stream (D-019): the reply had started, so
+    // another attempt is likely to get through.
+    return {
+      retryable: true,
+      label: "stream_interrupted",
+      code: "AI_UNAVAILABLE",
+      message: "Claude's reply broke off. Try again shortly.",
+      status: null,
+      headers: null,
+      replyStarted: true,
     };
   }
   // Subclasses first: all of these extend APIError with an undefined status.
@@ -202,6 +243,7 @@ export function classifyError(error: unknown): ErrorClassification {
 
 /** The request id of a failed API call, for the ai_calls row. */
 export function requestIdOf(error: unknown): string | null {
+  if (error instanceof StreamInterruptedError) return error.requestId;
   return error instanceof APIError ? (error.requestID ?? null) : null;
 }
 
@@ -249,6 +291,15 @@ export type PlanInput = {
   maxTokensCeiling: number;
   /** The failure itself, kept as the AppError's cause for server logs. */
   cause?: unknown;
+  /**
+   * The longest reply so far in this call, the failed attempt included: the
+   * latency of every attempt that had a reply under way (replyStarted); 0
+   * before any. The next attempt may need as long as the longest of them, so
+   * a retry that cannot get that much time before the deadline is not sent,
+   * after an invalid reply, a stream that broke off, or (once a reply came)
+   * an HTTP or connection error (D-164, D-177, D-185).
+   */
+  longestReplyMs?: number;
 };
 
 export type AttemptPlan =
@@ -279,6 +330,22 @@ export function planNextAttempt(input: PlanInput): AttemptPlan {
   const requested = immediate ? null : parseRetryAfter(c.headers, input.now);
   const delayMs = immediate ? 0 : (requested ?? backoffMs(attempt, input.random));
 
+  // A reply that came whole but bad, or one that broke off (a dropped
+  // connection or an SSE error event mid-reply), shows how long the next one
+  // needs: as long as the longest reply of this call. Sent with less time
+  // left, it would be paid for and then cut off by the deadline, ending as a
+  // "Try again" timeout that hides the real cause; failing now keeps that
+  // cause (D-164, D-177). The max_tokens retry asks for a larger cap instead
+  // and keeps its own rule (D-062).
+  const repeatsAReply = c.replyStarted === true && !isMaxTokens;
+  if (
+    repeatsAReply &&
+    input.longestReplyMs !== undefined &&
+    input.now + delayMs + Math.max(input.minAttemptMs, input.longestReplyMs) > input.deadlineAt
+  ) {
+    return fail(c.code, c.message, { ...details, reason: "no_time_for_retry" });
+  }
+
   if (input.now + delayMs + input.minAttemptMs > input.deadlineAt) {
     // Waiting would run past the route's deadline: fail now and say when to retry.
     const retryAfterSeconds = Math.max(1, Math.ceil(delayMs / 1000));
@@ -288,6 +355,15 @@ export function planNextAttempt(input: PlanInput): AttemptPlan {
           ...details,
           retryAfterSeconds,
         });
+  }
+
+  // An HTTP or connection error says nothing about the next reply's length,
+  // but a reply earlier in this call does: once the call has seen one, the
+  // retry needs as long as the longest, whatever failed last. Checked after
+  // the wait above, so a wait past the deadline still says how long (D-185).
+  const longestReplyMs = input.longestReplyMs ?? 0;
+  if (!isMaxTokens && longestReplyMs > 0 && input.now + delayMs + longestReplyMs > input.deadlineAt) {
+    return fail(c.code, c.message, { ...details, reason: "no_time_for_retry" });
   }
 
   return {

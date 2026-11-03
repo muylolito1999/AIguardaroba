@@ -1,6 +1,6 @@
 import type { Metadata } from "next"
 import Link from "next/link"
-import { Download, Gauge } from "lucide-react"
+import { CloudSun, Download, Gauge } from "lucide-react"
 
 import { LogoutButton } from "@/components/auth/logout-button"
 import { PageHeader } from "@/components/layout/page-header"
@@ -12,10 +12,6 @@ import { Separator } from "@/components/ui/separator"
 export const metadata: Metadata = {
   title: "Settings",
 }
-
-const COMING_SOON = [
-  "Climate profiles",
-]
 
 export default function SettingsPage() {
   return (
@@ -47,6 +43,24 @@ export default function SettingsPage() {
           >
             <Gauge aria-hidden />
             AI usage
+          </Link>
+        </section>
+
+        <Separator />
+
+        <section className="flex flex-col gap-3">
+          <div className="flex flex-col gap-1">
+            <h2 className="font-heading text-base font-semibold">Climate profiles</h2>
+            <p className="text-sm text-muted-foreground">
+              The monthly climate values the relocation plan reasons from, and which city it starts with.
+            </p>
+          </div>
+          <Link
+            href="/settings/climate"
+            className={buttonVariants({ variant: "outline", size: "touch", className: "self-start" })}
+          >
+            <CloudSun aria-hidden />
+            Climate profiles
           </Link>
         </section>
 
@@ -89,17 +103,6 @@ export default function SettingsPage() {
             </p>
           </div>
           <LogoutButton className="self-start" />
-        </section>
-
-        <Separator />
-
-        <section className="flex flex-col gap-3">
-          <h2 className="font-heading text-base font-semibold">Coming soon</h2>
-          <ul className="list-disc space-y-1 pl-5 text-sm text-muted-foreground">
-            {COMING_SOON.map((feature) => (
-              <li key={feature}>{feature}</li>
-            ))}
-          </ul>
         </section>
       </div>
     </>

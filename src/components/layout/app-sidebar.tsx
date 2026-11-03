@@ -27,7 +27,7 @@ export function AppSidebar() {
     <Sidebar
       collapsible="none"
       // Insets keep the content clear of the status bar and a landscape notch in the installed iOS app.
-      className="sticky top-0 hidden h-svh shrink-0 border-r pt-safe pl-[env(safe-area-inset-left)] md:flex"
+      className="sticky top-0 hidden h-svh shrink-0 border-r pt-safe pl-[env(safe-area-inset-left)] md:flex print:hidden"
     >
       <SidebarHeader>
         <div className="flex h-11 items-center gap-2 px-2">

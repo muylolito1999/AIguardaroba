@@ -201,6 +201,50 @@ The page reads at most 2,000 matching items and says so when there are more. The
 
 `pnpm db:seed:demo` inserts 300 synthetic confirmed items (fixed random seed, real-looking names, colours, brands, warmth, flags and wear counts) for checking the grid, filters and stats at a realistic size; `pnpm db:seed:demo --clean` removes them. It runs only when `DATABASE_URL` points at `localhost` or `127.0.0.1` and does not name another host in its query string (`?host=`). Every demo item has the note `demo-seed`, and its photo rows point at `/icons/icon-192.png`, so no Blob store is involved; running it twice adds nothing. Remove demo items with `--clean`, not with Delete: Delete would try to remove their photos from Blob storage. To seed the e2e database instead of the dev one, set the variable for that command only: `DATABASE_URL=postgres://wardrobe:wardrobe@localhost:5433/wardrobe_e2e pnpm db:seed:demo`.
 
+## Relocation
+
+`/relocate` plans a move to a climate profile's city (Hamburg first): what to bring, leave, donate or sell, what to buy, and how to pack. Claude Sonnet 5.5 (`CLAUDE_ANALYSIS_MODEL`, effort `CLAUDE_ANALYSIS_EFFORT`, default medium) does the reasoning; the app does the bookkeeping.
+
+### The form and the estimate
+
+- Fields: the climate profile (the default first), arrival and end dates (default today and a year later, up to 3 years, in Europe/Berlin days), your constraints (up to 2,000 characters; the chips add the spec's examples: bike commute, business-casual office, two 23 kg suitcases and two boxes later), a purchase budget in whole euros (the €600 button fills the spec's example; empty means none, and anything else, such as "600€", is flagged rather than read as no budget) and "Confirmed items only" (on by default; off includes tagged items you have not confirmed, flagged as such). Items waiting for tags and archived items are always left out, and the estimate says how many.
+- The estimate updates 400 ms after you stop typing, without calling Claude and without an API key: "≈ $0.55 with Sonnet 5.5 · 7 parts · 300 items", the likely range, the effort and the AI budget left this month. Run waits while the budget would not cover it (D-147). It also waits, with the reason, when the wardrobe is too large for the summary and packing list to fit in one part at the configured effort: from 1,801 items at effort high, 3,134 at medium (D-175).
+- A placeholder profile (Bologna until you fill it in) shows a warning with a link to Settings, Climate profiles; Run then needs "Use the placeholder data anyway".
+- Setting another default profile in Settings while the form is open in the background switches the form to it when you come back, unless you picked a profile yourself (D-158).
+- Cache: when a finished run had the same wardrobe lines, climate, months, constraints, budget, model, effort and prompt version, the form shows "Unchanged since …" with View result (free) and "Re-run anyway". The key uses the months, not the exact dates, so the same 12-month stay asked again later in the month reuses the result (D-142).
+
+### Running and resuming
+
+Run creates the analysis and opens its page, which runs it from the browser: the items in chunks of at most 70 (whole categories, 6 chunks for 300 items), four at a time, then one synthesis call for the summary, gaps, layering systems, packing list and warnings. Each part is its own request to `POST /api/analyses/[id]/parts/[partId]`, under Vercel Hobby's 300-second limit (D-025, D-145). A chunk whose answer leaves items out gets one repair call for just those items. A reply whose stream breaks off is asked for again, like a busy server (D-163); a reply cut off by its output limit, or a retry that could not finish before the part's 270 s are up (it needs as long as the longest reply of the call so far, also after a busy server or a lost connection), ends the part at once with that reason instead of a paid attempt the deadline would cut off (D-164, D-177, D-185). The page shows each part's state and cost (every paid attempt, failed ones included, added as it is logged, D-161, D-168) and the money spent so far against the estimate.
+
+- Opening another page is safe: requests already sent finish, and the run continues when you come back (from the page itself or "Resume" in the list of earlier analyses). Closing or reloading the tab does not stop parts already running either: they finish on the server and show when you open the run again (D-167).
+- A failed part keeps what it got; Retry asks again only for what is missing. A part another tab is running is waited for; if it fails there, it shows here as failed with Retry. A failed part is only paid for again when you press Retry, "Retry failed parts" or "Try again" (D-157).
+- Without an API key (or with another configuration problem, or the monthly budget spent) the run stops before any part is taken, with the reason and "Try again" (D-146).
+
+### Results
+
+`/relocate/<id>` shows the summary with the climate, period, item count, budget, model and the run's cost, then five tabs:
+
+- Items: three columns, Bring, Leave and Donate or sell (one column at a time behind a switch on a phone). Each card has the AI's decision, priority and reason, and your decision as toggles that save to the item at once (an override). "Apply AI decisions to N undecided items" copies the AI's decisions to every item you have not decided yet, after asking; your own decisions are never overwritten (D-028).
+- Gaps: what to buy, each with why it is needed (citing the climate numbers), concrete specs, priority, quantity, a price range in euros and whether to buy before or after the move, plus how the priority 1 and 2 gaps compare with your budget. Every gap starts selected, so one press adds them all to the shopping list; adding again adds nothing twice (D-029, D-149).
+- Layering: 3 to 5 outfits for typical weather of the stay (about 3 °C drizzle with 30 km/h wind, a showery 12 °C April, a 21 °C July with rain risk, and the stay's hardest condition) built from items you own, each with what is missing.
+- Packing: the checklist by suitcase, carry-on, wear on the travel day and ship later, with extras such as documents. Ticks and added extras are saved at once. A packed item you (or the AI, where you have not decided) no longer bring is marked "Yours: Donate · not coming" and left out of the counts, but keeps its box in case you change your mind (D-181). Items you are bringing that no group holds are listed below it, except items already at the destination or on their way there (D-170). "Print checklist" opens `/relocate/<id>/print`, which prints the checklist alone (no navigation, white paper, packed rows ticked, a long group continuing on the next sheet) and lists the items no longer coming apart under "Not bringing"; after a tick or a decision changed on the plan, Back or Forward to the print page reads it again, and a print page opened while a tick or decision was still saving reads again once that save answers (D-173, D-181, D-184).
+- Warnings: Claude's (uncertain tags, duplicates, poor condition) and the app's own (priority gaps over budget, packing mismatches, placeholder climate data) (D-148).
+
+Like the wardrobe, the result page reads itself again when you come back to it after changing an item elsewhere, or after deleting one of its gaps from `/shopping`, which can then be added again (D-151, D-173); both at once read it once. An override, tick, added gap or extra you make while a read of the page is on its way (its own, or one a link to the page started) stays shown, an extra only once, and the page reads once more to catch up (D-180, D-183). Overrides and ticks re-render only their own card or row, and cards off screen are skipped by the browser's layout, so large wardrobes stay usable (D-174).
+
+### What Claude sees
+
+Each item is one short line under an alias (`i12`), never its id, photo or notes: `i12|outerwear/parka|navy,black|down;polyester|w5|wp1 wd1 ins1 br?|winter|casual|good|confirmed|Navy down parka`, about 40 to 70 tokens and always under 100. `|lc:mat,w` marks tags the automatic tagging was unsure about (confidence below 0.6) that you have not edited, so Claude can warn about them; `|now:there` marks items already at the run's destination and, on a Hamburg run, `|now:in_transit` items on their way there; they are decided like the rest but never packed (D-170). A legend explains the fields once (D-141). Each call also gets the destination's climate table for the months of the stay (temperatures, rain mm and days, sunshine, wind notes; a placeholder line when the data is incomplete), the months in order with the arrival month first, your constraints, the budget and a wardrobe summary by category and warmth. The system prompt (`src/lib/relocation/prompts.ts`, version `reloc-v4`) asks for frugal, layering-first decisions reasoned from those numbers. It defines the decisions by where an item ends up: bring means it goes to the destination, in the luggage, worn on the travel day or shipped later; leave means it is not moved, or, for an item already there or on its way, that it is not needed there; and items worn in rotation (socks, base layers, work shirts) are kept in a week's quantity (D-171, D-179). Editing the prompt, an instruction, the legend, the decision-line format or a wire schema requires bumping `RELOC_PROMPT_VERSION`, which a test enforces (D-140, D-160, D-171). Everything a run needs is stored when it starts, so editing items mid-run changes nothing (D-139). Answers are checked against strict schemas: an answer with unknown aliases, impossible prices or a missing layering system is asked for again (D-144); an enum value that differs only in capitals, such as "Bring", is accepted (D-165).
+
+## Shopping list
+
+`/shopping` lists what to buy, grouped Must have, Should have and Nice to have. Relocation gaps arrive with their reason, specs, quantity, price range and timing, in the plan's most-important-first order within each priority (D-159); "Add item" adds your own. Each entry's status (To buy, Bought, Skipped) saves at once; "Link to an item I own" searches your wardrobe for the item that fills it; Delete asks first. The budget panel adds up what is still to buy against a budget prefilled from your latest finished relocation plan (only for the comparison; it is not saved) and says whether the low or high end goes over (D-154). A plan that finishes in the same tab updates it when you come back to the list (D-173). A status, link, delete or added row you save while the list is being read again (by the list itself, or by the Shopping link pressed on the list) stays shown, and the list reads once more (D-180, D-183).
+
+## Climate profiles
+
+`/settings/climate` (Settings, Climate profiles) edits each profile's monthly maximum, minimum and mean temperature, rain in mm, rain days and sunshine hours, plus wind notes and notes. An empty cell means unknown; text a cell cannot read, such as a lone "-", is an error that blocks Save (D-153, D-182). Bologna starts as a placeholder; once all 72 values are filled in and saved, its placeholder mark goes away for good, its source becomes "Monthly values entered by the owner…", and its seeded notes, if you left them as they were, keep only your description, so a relocation prompt no longer calls the data a placeholder (D-169). "Set as default" chooses the profile the relocation form starts with. `pnpm db:seed` restores Hamburg's reference values and makes Hamburg the default again on every run; Bologna and the settings are never overwritten (D-057, D-153).
+
 ## Connecting the cloud (one time)
 
 1. `npm i -g vercel`, then `vercel login` and `vercel link`.
@@ -222,14 +266,14 @@ Migrations never run during the build. Re-run `pnpm db:migrate` against Neon bef
 
 ## Costs
 
-AI spend is the only running cost; the Vercel, Neon and Blob free tiers cover the rest. The owner has $100 of prepaid API credit (`AI_CREDIT_USD`). `MONTHLY_AI_BUDGET_USD` (default $20) is a hard stop: a call or batch is refused when month-to-date spend, plus pending batch estimates, plus the estimate for the new operation would pass the budget, and nothing is sent once the budget is used up. Calls already in flight can overshoot it by a few cents. Every attempt, including failed ones, is logged with its tokens and cost, and `/settings/usage` shows the totals.
+AI spend is the only running cost; the Vercel, Neon and Blob free tiers cover the rest. The owner has $100 of prepaid API credit (`AI_CREDIT_USD`). `MONTHLY_AI_BUDGET_USD` (default $20) is a hard stop: a call or batch is refused when month-to-date spend, plus pending batch estimates, plus the estimate for the new operation would pass the budget, and nothing is sent once the budget is used up. Calls already in flight can overshoot it by a few cents. Every attempt, including failed ones, is logged with its tokens and cost (for a streamed reply that broke off, what the stream had reported, a lower bound, D-163), and `/settings/usage` shows the totals.
 
 Expected costs (estimates, not yet measured):
 
 | Operation | Model | Estimate |
 |---|---|---|
 | Tag 100 items | Haiku 5.5, effort low | About $0.055 (the spec's "about $0.06"); about $0.028 with Batch mode |
-| Relocation analysis of 300 items | Sonnet 5.5, effort medium | About $0.30–0.50. This is above the spec's $0.20–0.30 because of thinking tokens and a reason per item. |
+| Relocation analysis of 300 items | Sonnet 5.5, effort medium | About $0.55 (likely $0.39–0.83); $0.40 at effort low, $0.77 at high. Above the spec's $0.20–0.30 because of thinking tokens and a reason per item (D-147). Sonnet 5.5 reads from the prompt cache at $0.10 per MTok (D-021). |
 
 How the tagging estimate is computed (`src/lib/ai/cost.ts`; the add page shows the same numbers):
 
@@ -240,11 +284,25 @@ How the tagging estimate is computed (`src/lib/ai/cost.ts`; the add page shows t
 
 The add page tags four items at once, so the first few calls of a run may each write the cache instead of only one; that adds well under a cent per run. These rows will be replaced by measured values after the first live runs (`pnpm ai:smoke` prints the estimated against the measured cost of one item).
 
+How the relocation estimate is computed (`src/lib/relocation/estimate.ts`; the form shows the same numbers for your wardrobe):
+
+- Input: every call's text counted the way the tagging estimate counts it (characters ÷ 3.5 × 1.3): the system prompt (about 2,600 tokens), the shared context (climate, months, constraints, budget, wardrobe summary and legend, about 1,200 tokens for 12 Hamburg months) and the item lines, once per chunk and once more for the synthesis. For a typical 300-item wardrobe that is 6 chunks and about 60,000 input tokens, priced at the standard rate with no cache discount.
+- Output: about 55 visible tokens per item plus 300 per chunk, and for the synthesis 2,600 plus 3 per item (each could be packed: 3,500 for 300 items), plus room for thinking on top: 0.3× at effort low, 1× at medium, 2× at high. About 80 % of the cost is output. A run whose synthesis would need more than its 24,000-token cap is refused before it starts (D-175).
+- The range shown is 0.7× to 1.5× the point estimate. Repair calls and cache writes are not counted; they fall inside the range.
+
+| Effort | 300 items (typical wardrobe) | Likely range |
+|---|---|---|
+| low | $0.40 | $0.28–0.60 |
+| medium (default) | $0.55 | $0.39–0.83 |
+| high | $0.77 | $0.54–1.16 |
+
+These are estimates, not measurements: no relocation run has called Claude yet. The first live run's actual cost (the sum of its `ai_calls` rows, shown on the result page next to the estimate) replaces them here and in HANDOFF.md. A finished result opened again costs nothing (the cache), and "Re-run anyway" costs a full run.
+
 ## Changing models
 
 Set `CLAUDE_TAGGING_MODEL`, `CLAUDE_ANALYSIS_MODEL` or `CLAUDE_OUTFIT_MODEL` (and `CLAUDE_ANALYSIS_EFFORT` for the analysis) in Vercel and `.env.local`. A model can only be used if it has an entry in the pricing table in `src/lib/ai/models.ts`; otherwise every AI call fails with a configuration error before anything is sent, because unpriced calls would break budget accounting. To add a model, add its id to `PRICED_MODEL_IDS` and its prices to `PRICING_PER_MTOK` in that file (input, output, cache-read and cache-write multipliers, batch multiplier, and any long-context tier, all from Anthropic's pricing page), then set the variable.
 
-A different tagging model applies to new items and to items you re-tag; existing tags stay as they are, and each item records the model and prompt version that tagged it (`ai_model`, `ai_prompt_version`). The add page's estimate and the budget check use the new model's prices automatically. After changing the tagging model, run `pnpm ai:smoke` once to check that the model accepts the structured-output schema and reads the prompt cache. Editing the tagging prompt (`src/lib/ai/tagging/prompt.ts`) requires bumping `TAG_PROMPT_VERSION`; a unit test pins the prompt's hash, so the bump cannot be forgotten. A different analysis model or effort changes the relocation cache key, so the next run calls Claude again instead of reusing the previous result.
+A different tagging model applies to new items and to items you re-tag; existing tags stay as they are, and each item records the model and prompt version that tagged it (`ai_model`, `ai_prompt_version`). The add page's estimate and the budget check use the new model's prices automatically. After changing the tagging model, run `pnpm ai:smoke` once to check that the model accepts the structured-output schema and reads the prompt cache. Editing the tagging prompt (`src/lib/ai/tagging/prompt.ts`) requires bumping `TAG_PROMPT_VERSION`; a unit test pins the prompt's hash, so the bump cannot be forgotten. A different analysis model or effort changes the relocation cache key, so the next run calls Claude again instead of reusing the previous result. Editing the relocation prompt (`src/lib/relocation/prompts.ts`) requires bumping `RELOC_PROMPT_VERSION`; a unit test pins the system prompt's hash, and the version is part of the cache key.
 
 ## Exporting data
 
@@ -267,16 +325,16 @@ A different tagging model applies to new items and to items you re-tag; existing
 | `pnpm test` | Vitest. Database tests run on an in-memory PGlite database built from the committed migrations in `drizzle/`; the Anthropic API, Blob and `fetch` are faked. Needs no Docker, no `.env` file and no network. |
 | `pnpm build` | Production build, after `pnpm vendor:bg-removal`. Cache Components violations only show up here. |
 | `pnpm vendor:bg-removal` | Copies the background-removal runtime from `onnxruntime-web` into `public/vendor/bg-removal/` and writes its `resources.json`; fails when an installed version differs from `PINNED_VERSIONS` in `src/lib/images/bg-removal-assets.ts` (which also names the asset folder) or a file hash or size differs from the pins in `scripts/bg-removal-vendor.ts`. `pnpm build` and `pnpm dev` run it first. |
-| `pnpm test:e2e` | Playwright, local only, in a visible browser, against `pnpm build && pnpm start` and the Docker `wardrobe_e2e` database. The server has no Anthropic key and no Blob token (every app variable except its own database and auth values is blanked), so the specs cover the add page's configuration errors, the review form (including filling an item in by hand), the usage page, the wardrobe grid, item page, stats and export with seeded rows, and an axe accessibility scan of every page (including `/offline` and the item page's not-found state); `add-tagging.spec.ts` answers the Blob and tag requests inside the browser to exercise the tagging bar. The smoke spec (upload to browse) skips unless the shell has a Blob token. Nothing calls Claude or Blob otherwise. |
+| `pnpm test:e2e` | Playwright, local only, in a visible browser, against `pnpm build && pnpm start` and the Docker `wardrobe_e2e` database. The server has no Anthropic key and no Blob token (every app variable except its own database and auth values is blanked), so the specs cover the add page's configuration errors, the review form (including filling an item in by hand), the usage page, the wardrobe grid, item page, stats and export with seeded rows, the relocation form, a run stopping with the configuration error and a finished plan completed in the database (overrides, apply, gaps to the shopping list, packing, print), the shopping list, the climate editor, and an axe accessibility scan of every page (including `/offline`, the not-found pages and each tab of a relocation plan); `add-tagging.spec.ts` answers the Blob and tag requests inside the browser to exercise the tagging bar. The smoke spec (upload to browse) skips unless the shell has a Blob token. Nothing calls Claude or Blob otherwise. |
 | `pnpm ai:smoke [image-path] [https-image-url]` | Live-only check against the Anthropic API (about $0.002), never part of `pnpm test`. It sends two identical base64 tagging requests and fails if the second shows no cache read; given an https URL, it also sends one request with the batch parameters (URL image, 1-hour cache). It prints usage, costs and the parsed tags, and logs to `ai_calls` only when `DATABASE_URL` is set. Run it after connecting the cloud and after changing the tagging model. |
 
 A phase is done when `pnpm typecheck && pnpm lint && pnpm test && pnpm build` passes.
 
 Before the first `pnpm test:e2e`, install the browser once with `pnpm exec playwright install chromium`, and start the database with `docker compose up -d db` before every run. The run needs no `.env.local`: `playwright.config.ts` starts the server with its own `DATABASE_URL` and `DATABASE_URL_UNPOOLED` (both `wardrobe_e2e`), a fixed test password from `e2e/constants.ts` hashed into `APP_PASSWORD_HASH`, and a new random `SESSION_SECRET` on every run. Every other app variable (`BLOB_READ_WRITE_TOKEN`, `ANTHROPIC_API_KEY`, the `CLAUDE_*` models and effort, `MONTHLY_AI_BUDGET_USD`, `AI_CREDIT_USD`, `CRON_SECRET`, `FEATURE_SHOPPING_AI`) is set to an empty value, which `src/env.ts` treats as unset and which `.env.local` cannot fill, so a real key or Blob token there never reaches the e2e server; the list lives in `test/app-env-vars.ts`, shared with Vitest. These override any values in `.env.local`. The global setup then migrates `wardrobe_e2e`, empties every table and seeds it, so each run starts from the same state. Details are in [e2e/README.md](e2e/README.md).
 
-`e2e/a11y.spec.ts` scans `/login`, `/offline`, `/wardrobe` (also at 390 px), an item page and its not-found state, `/stats`, `/settings`, `/settings/export`, `/settings/usage`, `/add` and `/add/review` with axe (WCAG 2.0 and 2.1, A and AA) and fails on any serious or critical violation. `e2e/smoke.spec.ts` runs the whole path once against a real Blob store: sign in, upload two generated photos, wait for registration, confirm them on the review page, find them in the wardrobe, filter by category, open one and change its plan. It is skipped ("needs BLOB_READ_WRITE_TOKEN in the shell") unless the shell that starts Playwright has `BLOB_READ_WRITE_TOKEN`; only then does `playwright.config.ts` pass the token to the server, and `ANTHROPIC_API_KEY` only with `E2E_TAG=1` as well (D-113). Run it on its own, because the other specs assume the server has neither: `BLOB_READ_WRITE_TOKEN=… pnpm test:e2e e2e/smoke.spec.ts`, adding `E2E_TAG=1 ANTHROPIC_API_KEY=…` to tag with Claude (about $0.002). It deletes every blob and row it created afterwards. Tests that assume no token or key skip themselves with that reason when one is passed.
+`e2e/a11y.spec.ts` scans `/login`, `/offline`, `/wardrobe` (also at 390 px), an item page and its not-found state, `/stats`, `/settings`, `/settings/export`, `/settings/usage`, `/add`, `/add/review`, `/relocate`, a finished relocation plan (each of its five tabs, and at 390 px), its print page, an unfinished run's progress page stopped by the configuration error (left out when the server has an API key, which would run its parts), the relocation not-found page, `/shopping` with entries and `/settings/climate` with axe (WCAG 2.0 and 2.1, A and AA) and fails on any serious or critical violation. `e2e/smoke.spec.ts` runs the whole path once against a real Blob store: sign in, upload two generated photos, wait for registration, confirm them on the review page, find them in the wardrobe, filter by category, open one and change its plan. It is skipped ("needs BLOB_READ_WRITE_TOKEN in the shell") unless the shell that starts Playwright has `BLOB_READ_WRITE_TOKEN`; only then does `playwright.config.ts` pass the token to the server, and `ANTHROPIC_API_KEY` only with `E2E_TAG=1` as well (D-113). Run it on its own, because the other specs assume the server has neither: `BLOB_READ_WRITE_TOKEN=… pnpm test:e2e e2e/smoke.spec.ts`, adding `E2E_TAG=1 ANTHROPIC_API_KEY=…` to tag with Claude (about $0.002). It deletes every blob and row it created afterwards. Tests that assume no token or key skip themselves with that reason when one is passed.
 
-`src/lib/auth/rate-limit.pg.test.ts` checks that parallel logins on separate connections cannot get past the limit, which PGlite cannot show because it runs one transaction at a time. It is skipped unless `TEST_DATABASE_URL` names a migrated database, for example `TEST_DATABASE_URL=postgres://wardrobe:wardrobe@localhost:5433/wardrobe_e2e pnpm exec vitest run src/lib/auth/rate-limit.pg.test.ts`. It only writes `login_attempts` rows under its own random keys and deletes them afterwards.
+`src/lib/auth/rate-limit.pg.test.ts` checks that parallel logins on separate connections cannot get past the limit, which PGlite cannot show because it runs one transaction at a time. It is skipped unless `TEST_DATABASE_URL` names a migrated database, for example `TEST_DATABASE_URL=postgres://wardrobe:wardrobe@localhost:5433/wardrobe_e2e pnpm exec vitest run src/lib/auth/rate-limit.pg.test.ts`. It only writes `login_attempts` rows under its own random keys and deletes them afterwards. `src/server/services/relocation-apply.pg.test.ts` works the same way: it applies two relocation runs with crossing decisions at once, 20 times, and expects no deadlock (D-166); it writes 300 items and two analyses under a random name and deletes them afterwards.
 
 ## Project structure
 
@@ -296,7 +354,11 @@ src/
     wardrobe/       the grid: filters hook, toolbar, chips, filter panel, virtualised grid, cards
     item-detail/    the item page: gallery, plan toggles, archive and delete, back link
     stats/ export/  stats tables and checklist; export page sections
-    relocate/ outfits/                          feature components (Phases 5-6)
+    relocate/       the relocation form and estimate, run progress and its orchestrator, the result
+                    tabs, the print checklist, per-tab change counts (D-151)
+    shopping/       the shopping list, its rows, add form, link picker and budget panel
+    climate/        the climate profile editor and its 12-month table
+    outfits/                                    feature components (Phase 6)
   lib/
     ai/             models and pricing (models.ts), structured calls, retries, cost, budget,
                     JSON Schema conversion, call logging; tagging/ holds the prompt and schemas
@@ -305,7 +367,10 @@ src/
     images/         browser pipeline, background removal, Blob upload client; server
                     pipeline (sharp) and Blob storage
     db/  auth/      Drizzle schema and client; session token, DAL, password, rate limit
-    climate/        climate profile types, Hamburg and Bologna seed data, seeder
+    climate/        climate profile types, Hamburg and Bologna seed data, seeder, the months of a
+                    stay and the climate text for the prompt (range.ts)
+    relocation/     relocation contracts and DTOs (client-safe), schemas, the item lines and
+                    snapshot hash (payload.ts), chunk plan and cache key, prompts, cost estimate
     export/         CSV format and the ZIP part planner
     weather/                                    feature libraries (Phase 6)
     result.ts       Result<T> type and error codes
@@ -322,7 +387,7 @@ scripts/            tsx scripts: seed, hash-password, auth-unlock, icons, env ch
 assets/             icon.svg (source for the generated PWA icons)
 public/             sw.js, generated icons
 test/               Vitest helpers: PGlite database (db.ts), row factories, stubs, fakes for
-                    Anthropic and Blob, generated image fixtures
+                    Anthropic and Blob, generated image fixtures, relocation fixtures (replies, results)
 e2e/                Playwright specs, global setup and fixed test constants
 ```
 

@@ -28,7 +28,7 @@ function ToastViewport({ className, ...props }: ToastPrimitive.Viewport.Props) {
       // bottom plus a gap. Toasts then start above the bar wherever it sits,
       // stuck to the bottom or higher up on a short page.
       className={cn(
-        "pointer-events-none fixed inset-x-4 bottom-[max(calc(4.5rem+env(safe-area-inset-bottom)),var(--toast-bar-top,0px))] z-50 mx-auto w-auto max-w-sm outline-none sm:right-4 sm:left-auto sm:mx-0 sm:w-full md:bottom-[max(1rem,var(--toast-bar-top,0px))]",
+        "pointer-events-none fixed inset-x-4 bottom-[max(calc(4.5rem+env(safe-area-inset-bottom)),var(--toast-bar-top,0px))] z-50 mx-auto w-auto max-w-sm outline-none sm:right-4 sm:left-auto sm:mx-0 sm:w-full md:bottom-[max(1rem,var(--toast-bar-top,0px))] print:hidden",
         className
       )}
       {...props}
@@ -114,6 +114,28 @@ function ToastAction({
   )
 }
 
+type ToastCloseRender = NonNullable<ToastPrimitive.Close.Props["render"]>
+
+function isHidden(value: boolean | "true" | "false" | undefined): boolean {
+  return value === true || value === "true"
+}
+
+/**
+ * Base UI 1.9 marks the close button aria-hidden while the stack is collapsed,
+ * so the live region does not read "Close toast" with every toast, but leaves
+ * it in the tab order: a focusable element inside aria-hidden (axe
+ * aria-hidden-focus). It leaves the tab order only while hidden; focus or the
+ * pointer entering the stack expands it first, so Tab still reaches the button
+ * (D-182). Kept here because the generated file would lose it on a
+ * `shadcn add toast --overwrite`; toast.test.tsx guards it.
+ */
+function outOfTabOrderWhileHidden(render: ToastCloseRender): ToastCloseRender {
+  return (props, state) => {
+    const next = { ...props, tabIndex: isHidden(props["aria-hidden"]) ? -1 : props.tabIndex }
+    return typeof render === "function" ? render(next, state) : React.cloneElement(render, next)
+  }
+}
+
 function ToastClose({
   className,
   children,
@@ -124,7 +146,7 @@ function ToastClose({
     <ToastPrimitive.Close
       data-slot="toast-close"
       aria-label="Close toast"
-      render={render}
+      render={outOfTabOrderWhileHidden(render)}
       className={cn(
         "relative shrink-0 text-muted-foreground after:absolute after:-inset-2 after:content-[''] hover:text-foreground",
         className

@@ -5,6 +5,7 @@
 // retry.ts sees exactly what the SDK would throw.
 
 import {
+  AnthropicError,
   APIConnectionError,
   APIConnectionTimeoutError,
   APIError,
@@ -14,6 +15,7 @@ import type {
   ContentBlock,
   Message,
   MessageCreateParamsNonStreaming,
+  MessageStreamEvent,
   RefusalStopDetails,
   StopReason,
   Usage,
@@ -164,7 +166,13 @@ export type FakeStep =
   | { kind: "message"; message: Message; requestId?: string }
   | { kind: "error"; error: unknown }
   /** Never answers; rejects with APIUserAbortError when the request's signal aborts. */
-  | { kind: "hang" };
+  | { kind: "hang" }
+  /**
+   * A streamed reply that breaks off after message_start reported this usage:
+   * the stream emits that event, then rejects with the plain AnthropicError
+   * the SDK raises for a socket closed mid-body. messages.stream only.
+   */
+  | { kind: "broken"; usage?: Partial<Usage>; requestId?: string };
 
 export type RecordedRequest = {
   method: "create" | "stream";
@@ -245,6 +253,7 @@ export function createFakeAnthropic(initial: Array<Message | Error | FakeStep> =
     method: "create" | "stream",
     params: MessageCreateParamsNonStreaming,
     options: AnthropicRequestOptions | undefined,
+    onBroken?: (step: Extract<FakeStep, { kind: "broken" }>, requestId: string) => void,
   ): Promise<{ message: Message; requestId: string }> => {
     requests.push({
       method,
@@ -260,6 +269,15 @@ export function createFakeAnthropic(initial: Array<Message | Error | FakeStep> =
         throw step.error;
       case "hang":
         return waitForAbort(options?.signal);
+      case "broken": {
+        if (onBroken === undefined) throw new Error("FakeAnthropic: a broken reply needs messages.stream");
+        requestSeq += 1;
+        const requestId = step.requestId ?? `req_fake_${requestSeq}`;
+        // Events arrive after stream() returned, once its listeners are on.
+        await Promise.resolve();
+        onBroken(step, requestId);
+        throw new AnthropicError("terminated");
+      }
       case "message":
         requestSeq += 1;
         return { message: structuredClone(step.message), requestId: step.requestId ?? `req_fake_${requestSeq}` };
@@ -288,7 +306,14 @@ export function createFakeAnthropic(initial: Array<Message | Error | FakeStep> =
       },
       stream(params, options): MessageStreamLike {
         let requestId: string | null = null;
-        const result = next("stream", params, options).then(({ message, requestId: id }) => {
+        const listeners: Array<(event: MessageStreamEvent, snapshot: Message) => void> = [];
+        const result = next("stream", params, options, (step, id) => {
+          // What message_start delivers: the message so far, with the input usage.
+          requestId = id;
+          const snapshot = fakeMessage({ noText: true, usage: { output_tokens: 1, ...step.usage } });
+          const event: MessageStreamEvent = { type: "message_start", message: snapshot };
+          for (const listener of listeners) listener(event, snapshot);
+        }).then(({ message, requestId: id }) => {
           requestId = id;
           return message;
         });
@@ -298,6 +323,10 @@ export function createFakeAnthropic(initial: Array<Message | Error | FakeStep> =
           finalMessage: () => result,
           get request_id() {
             return requestId;
+          },
+          on(_event, listener) {
+            listeners.push(listener);
+            return this;
           },
         };
       },

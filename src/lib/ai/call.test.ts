@@ -1,6 +1,8 @@
+import Anthropic from "@anthropic-ai/sdk";
 import { asc } from "drizzle-orm";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 
+import type { AnthropicLike } from "@/lib/ai/client";
 import { computeCostUsd } from "@/lib/ai/cost";
 import { toJsonSchemaFormat } from "@/lib/ai/json-schema";
 import type { AiCallRecord } from "@/lib/ai/log";
@@ -13,6 +15,7 @@ import { makeTestDb, type TestDb } from "../../../test/db";
 import { makeItem } from "../../../test/factories";
 import {
   apiError,
+  connectionError,
   createFakeAnthropic,
   fakeMessage,
   midStreamError,
@@ -269,6 +272,24 @@ describe("callStructured: retries", () => {
     expect(await rows()).toHaveLength(3);
   });
 
+  it("reports each paid attempt's cost as it is logged, also when the call gives up", async () => {
+    fake.enqueue(
+      apiError(529),
+      fakeMessage({ text: "nope", usage: { input_tokens: 1000, output_tokens: 100 } }),
+      fakeMessage({ text: "nope", usage: { input_tokens: 2000, output_tokens: 100 } }),
+    );
+    const reported: number[] = [];
+
+    const error = await appError(callStructured(tagOptions({ onAttemptCost: (usd) => void reported.push(usd) })));
+
+    expect(error.code).toBe("AI_INVALID_OUTPUT");
+    const logged = await rows();
+    expect(logged.map((row) => row.status)).toEqual(["error", "invalid_output", "invalid_output"]);
+    // The transport error had no usage, so nothing to report for it.
+    expect(reported).toEqual(logged.slice(1).map((row) => row.costUsd));
+    expect(reported.every((usd) => usd > 0)).toBe(true);
+  });
+
   it("retries max_tokens once with the cap doubled", async () => {
     fake.enqueue(fakeMessage({ stopReason: "max_tokens", text: '{"name":' }), fakeMessage({ json: VALID_TAGS }));
 
@@ -329,6 +350,383 @@ describe("callStructured: retries", () => {
     expect(sleeps).toEqual([]);
     expect(await rows()).toHaveLength(1);
     expect(fake.remaining()).toBe(1);
+  });
+});
+
+// The real SDK client reading a streamed reply from a scripted body (no
+// network): what MessageStream raises when the socket closes mid-body or the
+// body ends before message_stop is a plain AnthropicError, not an APIError.
+type StreamBody = "drop" | "truncate" | "complete" | "hang" | "overloaded";
+
+function sse(event: string, data: unknown): string {
+  return `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
+}
+
+function streamedReply(kind: StreamBody, signal: AbortSignal | null | undefined): ReadableStream<Uint8Array> {
+  const reply = JSON.stringify(VALID_TAGS);
+  const start =
+    sse("message_start", {
+      type: "message_start",
+      message: {
+        id: "msg_stream",
+        type: "message",
+        role: "assistant",
+        model: "claude-haiku-5-5",
+        content: [],
+        stop_reason: null,
+        stop_sequence: null,
+        stop_details: null,
+        container: null,
+        usage: { input_tokens: 6_000, output_tokens: 1, cache_creation_input_tokens: 2_000, cache_read_input_tokens: 0 },
+      },
+    }) +
+    sse("content_block_start", { type: "content_block_start", index: 0, content_block: { type: "text", text: "", citations: null } }) +
+    sse("content_block_delta", { type: "content_block_delta", index: 0, delta: { type: "text_delta", text: reply.slice(0, 20) } });
+  const end =
+    sse("content_block_delta", { type: "content_block_delta", index: 0, delta: { type: "text_delta", text: reply.slice(20) } }) +
+    sse("content_block_stop", { type: "content_block_stop", index: 0 }) +
+    sse("message_delta", {
+      type: "message_delta",
+      delta: { stop_reason: "end_turn", stop_sequence: null, stop_details: null },
+      usage: { output_tokens: 700 },
+    }) +
+    sse("message_stop", { type: "message_stop" });
+  const encoder = new TextEncoder();
+  return new ReadableStream({
+    start(controller) {
+      controller.enqueue(encoder.encode(start));
+    },
+    // Called once the first events were read: an error raised in start() would
+    // drop them unread.
+    pull(controller) {
+      if (kind === "drop") {
+        // What undici raises when the other side closes the socket mid-body.
+        controller.error(Object.assign(new TypeError("terminated"), { cause: new Error("other side closed") }));
+      } else if (kind === "truncate") {
+        controller.close();
+      } else if (kind === "complete") {
+        controller.enqueue(encoder.encode(end));
+        controller.close();
+      } else if (kind === "overloaded") {
+        // An SSE error event after the 200: the SDK raises an APIError with no status.
+        controller.enqueue(
+          encoder.encode(sse("error", { type: "error", error: { type: "overloaded_error", message: "Overloaded" } })),
+        );
+        controller.close();
+      } else {
+        return new Promise<void>((resolve) => {
+          signal?.addEventListener(
+            "abort",
+            () => {
+              controller.error(new DOMException("aborted", "AbortError"));
+              resolve();
+            },
+            { once: true },
+          );
+        });
+      }
+      return undefined;
+    },
+  });
+}
+
+/** `clock`, when given, moves on by each reply's latency, so a reply can take minutes of the injected clock. */
+function sdkStreaming(
+  bodies: StreamBody[],
+  clock?: { now: number; latencyMs: number[] },
+): { client: AnthropicLike; requests: () => number } {
+  let count = 0;
+  const fetchImpl = async (_url: string | URL | Request, init?: RequestInit): Promise<Response> => {
+    const kind = bodies[count] ?? "complete";
+    if (clock !== undefined) clock.now += clock.latencyMs[count] ?? 0;
+    count += 1;
+    return new Response(streamedReply(kind, init?.signal), {
+      status: 200,
+      headers: { "content-type": "text/event-stream", "request-id": `req_${count}` },
+    });
+  };
+  const client = new Anthropic({ apiKey: "test-key-not-real", maxRetries: 0, fetch: fetchImpl });
+  return { client, requests: () => count };
+}
+
+describe("callStructured: a streamed reply that breaks off (D-163)", () => {
+  it("retries a stream cut off mid-body and records the usage message_start reported", async () => {
+    const sdk = sdkStreaming(["drop", "complete"]);
+    const reported: number[] = [];
+
+    const result = await callStructured(
+      tagOptions({ deps: { ...deps(), anthropic: sdk.client }, stream: true, onAttemptCost: (usd) => void reported.push(usd) }),
+    );
+
+    expect(result.attempts).toBe(2);
+    expect(sdk.requests()).toBe(2);
+    const logged = await rows();
+    expect(logged).toHaveLength(2);
+    expect(logged[0]).toMatchObject({
+      status: "error",
+      errorCode: "stream_interrupted",
+      requestId: "req_1",
+      inputTokens: 6_000,
+      cacheCreationInputTokens: 2_000,
+    });
+    expect(logged[0]?.costUsd).toBeGreaterThan(0);
+    expect(logged[1]).toMatchObject({ status: "success", requestId: "req_2" });
+    // The column keeps 6 decimals.
+    expect(reported).toHaveLength(2);
+    reported.forEach((usd, index) => expect(usd).toBeCloseTo(logged[index]?.costUsd ?? Number.NaN, 6));
+    expect(result.costUsd).toBeCloseTo(reported.reduce((sum, usd) => sum + usd, 0), 12);
+    // Transport errors wait before the retry, as an SSE error event does.
+    expect(sleeps).toHaveLength(1);
+  });
+
+  it("retries a stream whose body ends before message_stop", async () => {
+    const sdk = sdkStreaming(["truncate", "complete"]);
+    const result = await callStructured(tagOptions({ deps: { ...deps(), anthropic: sdk.client }, stream: true }));
+    expect(result.attempts).toBe(2);
+    expect((await rows())[0]).toMatchObject({ status: "error", errorCode: "stream_interrupted", inputTokens: 6_000 });
+  });
+
+  it("gives up after 3 broken streams with AI_UNAVAILABLE, not INTERNAL", async () => {
+    const sdk = sdkStreaming(["drop", "truncate", "drop", "complete"]);
+    const error = await appError(callStructured(tagOptions({ deps: { ...deps(), anthropic: sdk.client }, stream: true })));
+    expect(error.code).toBe("AI_UNAVAILABLE");
+    expect(error.message).toBe("Claude's reply broke off. Try again shortly. (gave up after 3 attempts)");
+    expect(sdk.requests()).toBe(3);
+    expect((await rows()).map((row) => row.errorCode)).toEqual(["stream_interrupted", "stream_interrupted", "stream_interrupted"]);
+  });
+
+  it("still ends a stream the deadline aborts as a deadline timeout, without a retry", async () => {
+    const sdk = sdkStreaming(["hang", "complete"]);
+    const error = await appError(
+      callStructured(
+        tagOptions({ deps: { ...deps(), anthropic: sdk.client }, stream: true, deadlineAt: Date.now() + 300, minAttemptMs: 50 }),
+      ),
+    );
+    expect(error.code).toBe("AI_TIMEOUT");
+    expect(sdk.requests()).toBe(1);
+    expect((await rows())[0]).toMatchObject({ status: "error", errorCode: "deadline", inputTokens: 0, costUsd: 0 });
+  });
+
+  it("does not retry an error that is not the stream's, such as a TypeError from create()", async () => {
+    fake.enqueue(new TypeError("a bug on our side"), fakeMessage({ json: VALID_TAGS }));
+    const error = await appError(callStructured(tagOptions()));
+    expect(error.code).toBe("INTERNAL");
+    expect(fake.remaining()).toBe(1);
+  });
+});
+
+describe("callStructured: a retry that cannot finish before the deadline (D-164)", () => {
+  // A client whose every reply takes `ms` of the injected clock.
+  function slowClient(ms: number, clock: { now: number }): AnthropicLike {
+    return {
+      messages: {
+        ...fake.messages,
+        create: async (params, options) => {
+          clock.now += ms;
+          return fake.messages.create(params, options);
+        },
+      },
+    };
+  }
+
+  it("does not send another invalid-output attempt when the last one took longer than the time left", async () => {
+    const clock = { now: 1_000_000 };
+    fake.enqueue(fakeMessage({ text: "nope" }), fakeMessage({ json: VALID_TAGS }));
+
+    const error = await appError(
+      callStructured(
+        tagOptions({
+          deps: { ...deps(), anthropic: slowClient(30_000, clock), now: () => clock.now },
+          deadlineAt: clock.now + 50_000,
+        }),
+      ),
+    );
+
+    // The real cause, not a "Try again" timeout after a paid attempt the deadline cut off.
+    expect(error.code).toBe("AI_INVALID_OUTPUT");
+    expect(error.details).toMatchObject({ attempts: 1, reason: "no_time_for_retry" });
+    expect(fake.requests).toHaveLength(1);
+    expect(fake.remaining()).toBe(1);
+  });
+
+  it("does not send another attempt after an SSE error event late in a reply, as after a dropped connection (D-177)", async () => {
+    // An overloaded_error event 200 s into the reply, with 70 s of 270 s left.
+    const clock = { now: 1_000_000, latencyMs: [200_000] };
+    const sdk = sdkStreaming(["overloaded", "complete"], clock);
+
+    const error = await appError(
+      callStructured(
+        tagOptions({
+          deps: { ...deps(), anthropic: sdk.client, now: () => clock.now },
+          stream: true,
+          deadlineAt: clock.now + 270_000,
+        }),
+      ),
+    );
+
+    // The overload, not "Claude did not answer in time" after a paid attempt the deadline cut off.
+    expect(error.code).toBe("AI_UNAVAILABLE");
+    expect(error.message).toBe("Claude's reply broke off (overloaded_error). Try again shortly.");
+    expect(error.details).toMatchObject({ attempts: 1, reason: "no_time_for_retry" });
+    expect(sdk.requests()).toBe(1);
+    expect((await rows()).map((row) => row.errorCode)).toEqual(["stream_overloaded_error"]);
+  });
+
+  it("measures the time a retry needs by the longest reply of the call, not only the attempt that failed (D-177)", async () => {
+    // A 130 s invalid reply, then a stream that broke off after 20 s: a third
+    // attempt may take 130 s again, with 119 s of 270 s left after the backoff.
+    const clock = { now: 1_000_000 };
+    const latencies = [130_000, 20_000];
+    const slowStreams: AnthropicLike = {
+      messages: {
+        ...fake.messages,
+        stream: (params, options) => {
+          clock.now += latencies.shift() ?? 0;
+          return fake.messages.stream(params, options);
+        },
+      },
+    };
+    fake.enqueue(fakeMessage({ text: "nope" }), { kind: "broken", usage: { input_tokens: 6_000 } }, fakeMessage({ json: VALID_TAGS }));
+
+    const error = await appError(
+      callStructured(
+        tagOptions({
+          deps: { ...deps(), anthropic: slowStreams, now: () => clock.now },
+          stream: true,
+          deadlineAt: clock.now + 270_000,
+        }),
+      ),
+    );
+
+    expect(error.code).toBe("AI_UNAVAILABLE");
+    expect(error.message).toBe("Claude's reply broke off. Try again shortly.");
+    expect(error.details).toMatchObject({ attempts: 2, reason: "no_time_for_retry" });
+    expect(fake.requests).toHaveLength(2);
+    expect(fake.remaining()).toBe(1);
+  });
+
+  // A client whose replies take the next of `latencies` of the injected clock, streamed or not.
+  function timedClient(latencies: number[], clock: { now: number }): AnthropicLike {
+    return {
+      messages: {
+        ...fake.messages,
+        create: async (params, options) => {
+          clock.now += latencies.shift() ?? 0;
+          return fake.messages.create(params, options);
+        },
+        stream: (params, options) => {
+          clock.now += latencies.shift() ?? 0;
+          return fake.messages.stream(params, options);
+        },
+      },
+    };
+  }
+
+  it("does not send another attempt after an HTTP error when the time left cannot hold the call's longest reply (D-185)", async () => {
+    // A part's 130 s invalid reply, then a 529 after 1 s asking for 15 s: a
+    // third attempt would start at +146 s with 124 s left for a 130 s reply.
+    const clock = { now: 1_000_000 };
+    fake.enqueue(
+      fakeMessage({ text: "nope" }),
+      apiError(529, { headers: { "retry-after": "15" } }),
+      fakeMessage({ json: VALID_TAGS }),
+    );
+
+    const error = await appError(
+      callStructured(
+        tagOptions({
+          deps: { ...deps(), anthropic: timedClient([130_000, 1_000], clock), now: () => clock.now },
+          stream: true,
+          deadlineAt: clock.now + 270_000,
+        }),
+      ),
+    );
+
+    // The overload, not "Claude did not answer in time" after a paid attempt the deadline cut off.
+    expect(error.code).toBe("AI_UNAVAILABLE");
+    expect(error.message).toBe("Claude is overloaded right now (HTTP 529 overloaded_error). Try again shortly.");
+    expect(error.details).toMatchObject({ attempts: 2, status: 529, reason: "no_time_for_retry" });
+    expect(fake.requests).toHaveLength(2);
+    expect(fake.remaining()).toBe(1);
+    expect((await rows()).map((row) => row.errorCode)).toEqual(["invalid_output", "http_529"]);
+  });
+
+  it("does the same after a connection error that follows a long reply (D-185)", async () => {
+    const clock = { now: 1_000_000 };
+    fake.enqueue(fakeMessage({ text: "nope" }), connectionError(), fakeMessage({ json: VALID_TAGS }));
+
+    const error = await appError(
+      callStructured(
+        tagOptions({
+          deps: { ...deps(), anthropic: timedClient([133_000, 5_000], clock), now: () => clock.now },
+          stream: true,
+          deadlineAt: clock.now + 270_000,
+        }),
+      ),
+    );
+
+    expect(error.code).toBe("AI_UNAVAILABLE");
+    expect(error.message).toBe("Could not reach Claude. Check the connection and try again.");
+    expect(error.details).toMatchObject({ attempts: 2, reason: "no_time_for_retry" });
+    expect(fake.requests).toHaveLength(2);
+  });
+
+  it("applies the longest reply to tagging's 50 s too: invalid after 24 s, then after 5 s, ends after two attempts (D-177, D-185)", async () => {
+    // Not streamed, with TAG_DEADLINE_MS (tag-item.ts) of 50 s: 29 s are gone, and 21 s cannot hold another 24 s reply.
+    const clock = { now: 1_000_000 };
+    fake.enqueue(fakeMessage({ text: "nope" }), fakeMessage({ text: "still nope" }), fakeMessage({ json: VALID_TAGS }));
+
+    const error = await appError(
+      callStructured(
+        tagOptions({
+          deps: { ...deps(), anthropic: timedClient([24_000, 5_000], clock), now: () => clock.now },
+          deadlineAt: clock.now + 50_000,
+        }),
+      ),
+    );
+
+    expect(error.code).toBe("AI_INVALID_OUTPUT");
+    expect(error.details).toMatchObject({ attempts: 2, reason: "no_time_for_retry" });
+    expect(fake.requests).toHaveLength(2);
+    expect(fake.requests.every((request) => request.method === "create")).toBe(true);
+    expect(fake.remaining()).toBe(1);
+  });
+
+  it("counts a tagging reply cut off by max_tokens as the longest reply too (D-177, D-185)", async () => {
+    const clock = { now: 1_000_000 };
+    fake.enqueue(
+      fakeMessage({ text: '{"name": "Navy', stopReason: "max_tokens" }),
+      fakeMessage({ text: "nope" }),
+      fakeMessage({ json: VALID_TAGS }),
+    );
+
+    const error = await appError(
+      callStructured(
+        tagOptions({
+          deps: { ...deps(), anthropic: timedClient([25_000, 5_000], clock), now: () => clock.now },
+          deadlineAt: clock.now + 50_000,
+        }),
+      ),
+    );
+
+    expect(error.code).toBe("AI_INVALID_OUTPUT");
+    expect(error.details).toMatchObject({ attempts: 2, reason: "no_time_for_retry" });
+    expect(fake.requests).toHaveLength(2);
+    // The max_tokens retry itself went out, with the doubled cap (D-062).
+    expect(fake.requests[1]?.params.max_tokens).toBe(8192);
+    expect(fake.remaining()).toBe(1);
+  });
+
+  it("still retries an invalid reply when another attempt fits", async () => {
+    const clock = { now: 1_000_000 };
+    fake.enqueue(fakeMessage({ text: "nope" }), fakeMessage({ json: VALID_TAGS }));
+    const result = await callStructured(
+      tagOptions({
+        deps: { ...deps(), anthropic: slowClient(10_000, clock), now: () => clock.now },
+        deadlineAt: clock.now + 50_000,
+      }),
+    );
+    expect(result.attempts).toBe(2);
   });
 });
 

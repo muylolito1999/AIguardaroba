@@ -143,6 +143,14 @@
   html {
     @apply font-sans;
   }
+  /* Paper is white in either theme: with "Background graphics" on, the dark
+     theme's background would otherwise print as a sheet of ink behind the
+     packing checklist's black text. */
+  @media print {
+    body {
+      background: #fff;
+    }
+  }
   /* Honours the OS "reduce motion" setting for toasts, sheets, dialogs and spinners alike.
      Near-zero instead of none, so Base UI still sees its animations and transitions end. */
   @media (prefers-reduced-motion: reduce) {

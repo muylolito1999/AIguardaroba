@@ -1,7 +1,11 @@
 import "server-only";
 
 import Anthropic from "@anthropic-ai/sdk";
-import type { Message, MessageCreateParamsNonStreaming } from "@anthropic-ai/sdk/resources/messages";
+import type {
+  Message,
+  MessageCreateParamsNonStreaming,
+  MessageStreamEvent,
+} from "@anthropic-ai/sdk/resources/messages";
 import type {
   BatchCreateParams,
   MessageBatch,
@@ -18,6 +22,11 @@ export type MessageStreamLike = {
   finalMessage(): Promise<Message>;
   /** Available once the response headers arrived. */
   readonly request_id?: string | null | undefined;
+  /**
+   * Every SSE event with the message as streamed so far: callStructured keeps
+   * the usage message_start reported, for an attempt that breaks off (D-163).
+   */
+  on(event: "streamEvent", listener: (event: MessageStreamEvent, snapshot: Message) => void): unknown;
 };
 
 /**
