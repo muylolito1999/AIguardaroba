@@ -9,12 +9,16 @@ import { z } from "zod"
 import type { ConfidenceKey } from "@/lib/ai/tagging/schema"
 import { SEASONS, type Season } from "@/lib/db/enums"
 import {
+  HAND_TAG_DEFAULT_FIELDS,
+  HAND_TAG_DEFAULTS,
+  isHandTagDefault,
   ITEM_FIELD_SCHEMAS,
   ItemPatchFieldsSchema,
   ItemPatchSchema,
   TAG_LIMITS,
   WARMTH_LEVELS,
   type EditableTagField,
+  type HandTagDefaultField,
   type ItemCardDto,
   type ItemPatch,
   type WarmthLevel,
@@ -289,11 +293,24 @@ type ManualChoiceField = "category" | "formality" | "condition"
  * Starting values for tagging a pending item by hand. They are default values
  * rather than complete form values: category, formality and condition stay
  * unset (the selects show "Choose…") until the owner picks them, so nothing is
- * guessed for them. Every other known value is prefilled; warmth starts at the
- * middle of the scale and the switches start off.
+ * guessed for them. Every other known value is prefilled; the fields the item
+ * has no value for start at MANUAL_START_VALUES.
  */
 export type ManualTagFormDefaults = Omit<TagFormValues, ManualChoiceField> &
   Partial<Pick<TagFormValues, ManualChoiceField>>
+
+/**
+ * The hand-tagging form's own starting values (HAND_TAG_DEFAULTS) as its
+ * controls hold them: warmth in the middle of the scale, the switches off and
+ * breathable "unknown".
+ */
+export const MANUAL_START_VALUES = {
+  warmth_level: HAND_TAG_DEFAULTS.warmth_level,
+  waterproof: HAND_TAG_DEFAULTS.waterproof,
+  windproof: HAND_TAG_DEFAULTS.windproof,
+  insulated: HAND_TAG_DEFAULTS.insulated,
+  breathable: breathableChoice(HAND_TAG_DEFAULTS.breathable),
+} satisfies Pick<TagFormValues, HandTagDefaultField>
 
 /** The hand-tagging form's starting values for any item card, pending ones included. */
 export function manualTagFormDefaults(item: ItemCardDto): ManualTagFormDefaults {
@@ -304,10 +321,14 @@ export function manualTagFormDefaults(item: ItemCardDto): ManualTagFormDefaults 
     colors: item.colors.map((name, index) => ({ name, hex: item.colorHex[index] ?? "" })),
     material_guess: item.materialGuess ?? "",
     materials: [...item.materials],
-    warmth_level: item.warmthLevel !== null && isWarmthLevel(item.warmthLevel) ? item.warmthLevel : 3,
-    waterproof: item.waterproof ?? false,
-    windproof: item.windproof ?? false,
-    insulated: item.insulated ?? false,
+    warmth_level:
+      item.warmthLevel !== null && isWarmthLevel(item.warmthLevel)
+        ? item.warmthLevel
+        : MANUAL_START_VALUES.warmth_level,
+    waterproof: item.waterproof ?? MANUAL_START_VALUES.waterproof,
+    windproof: item.windproof ?? MANUAL_START_VALUES.windproof,
+    insulated: item.insulated ?? MANUAL_START_VALUES.insulated,
+    // null is "unknown", the form's own start.
     breathable: breathableChoice(item.breathable),
     seasons: sortSeasons(item.seasons),
     ...(item.formality === null ? {} : { formality: item.formality }),
@@ -324,6 +345,44 @@ export function manualTagFormDefaults(item: ItemCardDto): ManualTagFormDefaults 
     location: item.location,
     decision: item.decision,
   }
+}
+
+/**
+ * The fields that start at the hand-tagging form's own value rather than the
+ * item's (D-232): the item has none, and the owner has not set one before (a
+ * breathable "Unknown" they saved earlier stays theirs). In
+ * HAND_TAG_DEFAULT_FIELDS order.
+ */
+export function manualDefaultFields(item: ItemCardDto): HandTagDefaultField[] {
+  const edited = new Set(item.userEditedFields)
+  const missing: Record<HandTagDefaultField, boolean> = {
+    warmth_level: item.warmthLevel === null || !isWarmthLevel(item.warmthLevel),
+    waterproof: item.waterproof === null,
+    windproof: item.windproof === null,
+    insulated: item.insulated === null,
+    breathable: item.breathable === null,
+  }
+  return HAND_TAG_DEFAULT_FIELDS.filter((field) => missing[field] && !edited.has(field))
+}
+
+/** True when a control still holds the hand-tagging form's own starting value. */
+export function isAtManualStart<F extends HandTagDefaultField>(field: F, value: TagFormValues[F]): boolean {
+  return Object.is(value, MANUAL_START_VALUES[field])
+}
+
+/**
+ * The fields sent as left at the form's own starting value (D-232): of the
+ * fields that started there, those whose value is still the start and that
+ * the owner did not keep. The value decides, not the path to it: a field
+ * changed and set back counts as left there, because only "Keep" says the
+ * owner checked it.
+ */
+export function uncheckedDefaults(
+  defaultFields: readonly HandTagDefaultField[],
+  values: Pick<TagFormOutput, HandTagDefaultField>,
+  kept: ReadonlySet<HandTagDefaultField>
+): HandTagDefaultField[] {
+  return defaultFields.filter((field) => !kept.has(field) && isHandTagDefault(field, values[field]))
 }
 
 /** What the item holds now, in the form's output shape: the baseline a patch is measured against. */

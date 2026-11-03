@@ -8,9 +8,11 @@ import type { ItemPatch } from "@/lib/items/contracts";
 import { AppError } from "@/lib/result";
 
 import { makeTestDb, type TestDb } from "../../../test/db";
-import { makeItem, makeTaggedItem, TAGGED_ITEM_FIELDS } from "../../../test/factories";
+import { makeImage, makeItem, makeTaggedItem, TAGGED_ITEM_FIELDS } from "../../../test/factories";
+import { createFakeAnthropic, fakeMessage } from "../../../test/fakes/anthropic";
 import { COAT_TAGS } from "../../../test/fixtures/item-tags";
 import { confirmItem, confirmItems, missingTagFields, tagItemByHand, updateItem } from "./items";
+import { tagItem } from "./tag-item";
 
 const requireSession = vi.hoisted(() => vi.fn());
 vi.mock("@/lib/auth/dal", () => ({ requireSession }));
@@ -220,10 +222,13 @@ describe("tagItemByHand", () => {
     return makeItem(testDb.db, { taggingBatchId: batch?.id ?? null });
   }
 
-  it("tags a pending item from the owner's values and records every tag field that was set", async () => {
+  /** What the form sends for HAND_TAGS when the owner switched windproof on and left the other defaults alone. */
+  const LEFT_AT_START = ["warmth_level", "waterproof", "insulated", "breathable"] as const;
+
+  it("tags a pending item from the owner's values and records the fields they set, not the defaults they left", async () => {
     const item = await makeItem(testDb.db, { taggingError: "Claude declined to tag this photo." });
 
-    const card = await tagItemByHand(testDb.db, item.id, HAND_TAGS, { confirm: false });
+    const card = await tagItemByHand(testDb.db, item.id, HAND_TAGS, { confirm: false, uncheckedDefaults: LEFT_AT_START });
 
     expect(card).toMatchObject({
       id: item.id,
@@ -239,8 +244,26 @@ describe("tagItemByHand", () => {
     });
     const saved = await row(item.id);
     expect(saved).toMatchObject({ status: "tagged", aiRaw: null, aiModel: null, aiConfidence: null, taggingError: null });
-    // false is a value; empty optional fields and non-tag fields are not recorded.
+    // The defaults left alone are stored (the tagged CHECK needs them) but not marked (D-232).
+    expect(saved).toMatchObject({ warmthLevel: 3, waterproof: false, insulated: false, breathable: null });
+    // Empty optional fields and non-tag fields are not recorded either.
     expect(saved.userEditedFields).toEqual([
+      "name",
+      "category",
+      "colors",
+      "color_hex",
+      "windproof",
+      "seasons",
+      "formality",
+      "condition",
+    ]);
+  });
+
+  it("records the defaults the owner kept, breathable's Unknown included", async () => {
+    const item = await makeItem(testDb.db);
+    await tagItemByHand(testDb.db, item.id, HAND_TAGS, { confirm: false, uncheckedDefaults: [] });
+    // false and, for breathable, null are values once the owner kept them.
+    expect((await row(item.id)).userEditedFields).toEqual([
       "name",
       "category",
       "colors",
@@ -249,6 +272,7 @@ describe("tagItemByHand", () => {
       "waterproof",
       "windproof",
       "insulated",
+      "breathable",
       "seasons",
       "formality",
       "condition",
@@ -259,6 +283,7 @@ describe("tagItemByHand", () => {
     const item = await makeItem(testDb.db);
     await tagItemByHand(testDb.db, item.id, { ...HAND_TAGS, brand: "Hackett", breathable: true, materials: ["wool"] }, {
       confirm: false,
+      uncheckedDefaults: ["warmth_level"],
     });
     expect((await row(item.id)).userEditedFields).toEqual(
       expect.arrayContaining(["materials", "breathable", "brand"]),
@@ -267,9 +292,47 @@ describe("tagItemByHand", () => {
 
   it("confirms in the same step", async () => {
     const item = await makeItem(testDb.db);
-    const card = await tagItemByHand(testDb.db, item.id, HAND_TAGS, { confirm: true });
+    const card = await tagItemByHand(testDb.db, item.id, HAND_TAGS, { confirm: true, uncheckedDefaults: LEFT_AT_START });
     expect(card.status).toBe("confirmed");
     expect((await row(item.id)).status).toBe("confirmed");
+  });
+
+  it("keeps an earlier mark on a field now listed as a default left alone", async () => {
+    const item = await makeItem(testDb.db, { userEditedFields: ["warmth_level"] });
+    await tagItemByHand(testDb.db, item.id, HAND_TAGS, { confirm: false, uncheckedDefaults: LEFT_AT_START });
+    expect((await row(item.id)).userEditedFields).toContain("warmth_level");
+  });
+
+  it.each([
+    ["a field the form has no default for", { uncheckedDefaults: ["name"] }],
+    ["a field twice", { uncheckedDefaults: ["warmth_level", "warmth_level"] }],
+  ])("refuses a list that names %s and changes nothing", async (_label, { uncheckedDefaults }) => {
+    const item = await makeItem(testDb.db);
+    const error = await appError(
+      // Deliberately malformed: only the action's schema stands between a client and this call.
+      tagItemByHand(testDb.db, item.id, HAND_TAGS, { confirm: false, uncheckedDefaults: uncheckedDefaults as never }),
+    );
+    expect(error.code).toBe("VALIDATION");
+    expect(error.details?.issues).toEqual([expect.objectContaining({ path: expect.stringMatching(/^uncheckedDefaults/) })]);
+    expect(await row(item.id)).toMatchObject({ status: "pending_tagging", name: null, userEditedFields: [] });
+  });
+
+  it("refuses a default left alone whose value is not the form's default, and changes nothing", async () => {
+    const item = await makeItem(testDb.db);
+    const patch: ItemPatch = { ...HAND_TAGS, warmth_level: 4, breathable: true };
+    delete patch.waterproof;
+
+    const error = await appError(
+      tagItemByHand(testDb.db, item.id, patch, {
+        confirm: false,
+        uncheckedDefaults: ["warmth_level", "waterproof", "insulated", "breathable"],
+      }),
+    );
+
+    expect(error.code).toBe("VALIDATION");
+    // insulated is false in the patch, so only the other three do not match.
+    expect(error.details).toEqual({ uncheckedDefaults: ["warmth_level", "waterproof", "breathable"] });
+    expect(await row(item.id)).toMatchObject({ status: "pending_tagging", warmthLevel: null, userEditedFields: [] });
   });
 
   it("uses tag fields saved on the item earlier and keeps their marks", async () => {
@@ -278,7 +341,7 @@ describe("tagItemByHand", () => {
     const withoutName: ItemPatch = { ...HAND_TAGS };
     delete withoutName.name;
 
-    const card = await tagItemByHand(testDb.db, item.id, withoutName, { confirm: false });
+    const card = await tagItemByHand(testDb.db, item.id, withoutName, { confirm: false, uncheckedDefaults: LEFT_AT_START });
 
     expect(card).toMatchObject({ status: "tagged", name: "Scarf from Nonna" });
     expect((await row(item.id)).userEditedFields).toContain("name");
@@ -294,7 +357,7 @@ describe("tagItemByHand", () => {
     delete patch[left];
     if (left === "colors") delete patch.color_hex;
 
-    const error = await appError(tagItemByHand(testDb.db, item.id, patch, { confirm: true }));
+    const error = await appError(tagItemByHand(testDb.db, item.id, patch, { confirm: true, uncheckedDefaults: [] }));
 
     expect(error.code).toBe("VALIDATION");
     expect(error.details).toEqual({ itemId: item.id, missing });
@@ -309,7 +372,7 @@ describe("tagItemByHand", () => {
   it("refuses an invalid patch", async () => {
     const item = await makeItem(testDb.db);
     const error = await appError(
-      tagItemByHand(testDb.db, item.id, { ...HAND_TAGS, seasons: [] } as ItemPatch, { confirm: false }),
+      tagItemByHand(testDb.db, item.id, { ...HAND_TAGS, seasons: [] } as ItemPatch, { confirm: false, uncheckedDefaults: [] }),
     );
     expect(error.code).toBe("VALIDATION");
     expect((await row(item.id)).status).toBe("pending_tagging");
@@ -317,7 +380,7 @@ describe("tagItemByHand", () => {
 
   it("refuses an item that waits in a batch", async () => {
     const item = await batchedItem();
-    const error = await appError(tagItemByHand(testDb.db, item.id, HAND_TAGS, { confirm: false }));
+    const error = await appError(tagItemByHand(testDb.db, item.id, HAND_TAGS, { confirm: false, uncheckedDefaults: [] }));
     expect(error.code).toBe("CONFLICT");
     expect(error.message).toMatch(/waiting in a tagging batch/);
     expect((await row(item.id)).status).toBe("pending_tagging");
@@ -331,7 +394,7 @@ describe("tagItemByHand", () => {
     const item = await makeItem(testDb.db, overrides);
     const before = await row(item.id);
 
-    const error = await appError(tagItemByHand(testDb.db, item.id, HAND_TAGS, { confirm: false }));
+    const error = await appError(tagItemByHand(testDb.db, item.id, HAND_TAGS, { confirm: false, uncheckedDefaults: [] }));
 
     expect(error.code).toBe("CONFLICT");
     expect(error.message).toBe("This item already has tags. Reload the page to see them.");
@@ -339,10 +402,10 @@ describe("tagItemByHand", () => {
   });
 
   it("answers NOT_FOUND for an unknown or malformed id", async () => {
-    expect((await appError(tagItemByHand(testDb.db, randomUUID(), HAND_TAGS, { confirm: false }))).code).toBe(
+    expect((await appError(tagItemByHand(testDb.db, randomUUID(), HAND_TAGS, { confirm: false, uncheckedDefaults: [] }))).code).toBe(
       "NOT_FOUND",
     );
-    expect((await appError(tagItemByHand(testDb.db, "not-a-uuid", HAND_TAGS, { confirm: false }))).code).toBe(
+    expect((await appError(tagItemByHand(testDb.db, "not-a-uuid", HAND_TAGS, { confirm: false, uncheckedDefaults: [] }))).code).toBe(
       "NOT_FOUND",
     );
   });
@@ -350,10 +413,66 @@ describe("tagItemByHand", () => {
   it("checks the session before touching the database", async () => {
     const item = await makeItem(testDb.db);
     requireSession.mockRejectedValueOnce(new AppError("UNAUTHENTICATED", "Signed out."));
-    expect((await appError(tagItemByHand(testDb.db, item.id, HAND_TAGS, { confirm: true }))).code).toBe(
+    expect((await appError(tagItemByHand(testDb.db, item.id, HAND_TAGS, { confirm: true, uncheckedDefaults: [] }))).code).toBe(
       "UNAUTHENTICATED",
     );
     expect((await row(item.id)).status).toBe("pending_tagging");
+  });
+
+  // D-232 end to end: the hand-tagging service, then a Re-tag through the real
+  // tagging service, with the fake Anthropic client answering COAT_TAGS.
+  it("lets a later Re-tag replace the defaults left alone and keeps the values the owner chose or kept", async () => {
+    const item = await makeItem(testDb.db);
+    await makeImage(testDb.db, item.id, {
+      kind: "processed",
+      contentType: "image/webp",
+      blobUrl: `https://fakestore.public.blob.vercel-storage.com/items/${item.id}/processed-abc123.webp`,
+    });
+    // As the form sends it: insulated switched on (a choice), windproof left
+    // off but kept with Keep, warmth, waterproof and breathable left alone.
+    await tagItemByHand(testDb.db, item.id, { ...HAND_TAGS, windproof: false, insulated: true }, {
+      confirm: true,
+      uncheckedDefaults: ["warmth_level", "waterproof", "breathable"],
+    });
+    const edited = (await row(item.id)).userEditedFields;
+    expect(edited).toEqual(expect.arrayContaining(["windproof", "insulated"]));
+    expect(edited).not.toEqual(expect.arrayContaining(["warmth_level"]));
+
+    const fake = createFakeAnthropic([fakeMessage({ json: COAT_TAGS })]);
+    const result = await tagItem(
+      {
+        db: testDb.db,
+        anthropic: () => fake,
+        fetch: vi.fn<typeof fetch>(async () => new Response(new Uint8Array(Buffer.from("fake webp")), { status: 200 })),
+        sleep: async () => {},
+        random: () => 0.5,
+      },
+      item.id,
+      { force: true },
+    );
+
+    expect(result.cached).toBe(false);
+    expect(fake.requests).toHaveLength(1);
+    expect(await row(item.id)).toMatchObject({
+      // Left alone: Claude's values replace the form's defaults (warmth 3, breathable unknown).
+      warmthLevel: COAT_TAGS.warmth_level,
+      breathable: COAT_TAGS.breathable,
+      waterproof: COAT_TAGS.waterproof,
+      // Chosen or kept: the owner's values stay against Claude's insulated false and windproof true.
+      insulated: true,
+      windproof: false,
+      name: HAND_TAGS.name,
+      category: HAND_TAGS.category,
+      status: "confirmed",
+      aiRaw: COAT_TAGS,
+      userEditedFields: edited,
+    });
+    expect([COAT_TAGS.warmth_level, COAT_TAGS.breathable, COAT_TAGS.insulated, COAT_TAGS.windproof]).toEqual([
+      4,
+      true,
+      false,
+      true,
+    ]);
   });
 });
 

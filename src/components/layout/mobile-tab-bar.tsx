@@ -6,7 +6,7 @@ import { usePathname } from "next/navigation"
 
 import { cn } from "@/lib/utils"
 
-import { PRIMARY_NAV, isNavItemActive, tabActiveOn } from "./nav-items"
+import { PRIMARY_NAV, navItemCurrent, tabActiveOn } from "./nav-items"
 
 /** Bottom navigation below the md breakpoint; the desktop sidebar takes over above it. */
 export function MobileTabBar() {
@@ -34,12 +34,15 @@ function TabList({ pathname }: { pathname: string | null }) {
       {PRIMARY_NAV.map((item) => {
         const { href, label, icon: Icon } = item
         // Five tabs only: the daily pages mark the tab whose header links to them (D-218).
-        const active = isNavItemActive(pathname, href, tabActiveOn(item))
+        // The mark looks the same on the tab's own page and inside its section; only
+        // aria-current tells them apart, so Wardrobe is not announced as the open page on /today.
+        const current = navItemCurrent(pathname, href, tabActiveOn(item))
+        const active = current !== undefined
         return (
           <li key={href} className="flex">
             <Link
               href={href}
-              aria-current={active ? "page" : undefined}
+              aria-current={current}
               className={cn(
                 "relative flex min-h-11 min-w-0 flex-1 flex-col items-center justify-center gap-0.5 rounded-lg px-1 py-1.5 text-xs font-medium text-muted-foreground transition-colors outline-none",
                 "hover:text-foreground focus-visible:ring-2 focus-visible:ring-foreground focus-visible:ring-inset",

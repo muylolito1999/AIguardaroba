@@ -52,3 +52,26 @@ export function isNavItemActive(pathname: string | null, href: string, alsoActiv
   if (!pathname) return false
   return [href, ...alsoActiveOn].some((prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`))
 }
+
+/**
+ * The `aria-current` token of a marked link. WAI-ARIA 1.2 defines "page" as the
+ * current page in a set of pages and "true" as the current item in a set: a tab
+ * marked because the open page lies inside its section (/wardrobe/[id], /stats,
+ * /add/review, /today on a phone) is the current item, not the current page.
+ */
+export type NavCurrent = "page" | "true"
+
+/**
+ * How a link is marked, from the pathname alone, so a page reads the same however
+ * it was reached (D-218, D-230). "page" only when the link's own page is open; "true"
+ * when the link marks the section around the open page; undefined when unmarked.
+ * Either token draws the same visible mark; only assistive technology hears the difference.
+ */
+export function navItemCurrent(
+  pathname: string | null,
+  href: string,
+  alsoActiveOn: readonly string[] = []
+): NavCurrent | undefined {
+  if (!isNavItemActive(pathname, href, alsoActiveOn)) return undefined
+  return pathname === href ? "page" : "true"
+}

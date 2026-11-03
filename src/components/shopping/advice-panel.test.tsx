@@ -155,14 +155,27 @@ describe("AdvicePanel", () => {
     setup(state())
 
     expect(screen.getByRole("heading", { level: 2, name: "What to buy next" })).toBeTruthy()
-    expect(screen.getByText(/in Hamburg; Claude only orders them/)).toBeTruthy()
-    expect(screen.getByText("January, 2.1 °C, rainy:").textContent).toContain("2 outfits")
-    expect(screen.getByText(/Purchase budget €600 from your latest relocation plan/).textContent).toContain(
-      "at least €105 of it, so €495 is left. 1 bought item has no price and is not counted."
+    expect(screen.getByText(/The app estimates the outfits each purchase would add in Hamburg; Claude only orders them/)).toBeTruthy()
+    expect(
+      screen.getByText(
+        "The outfit counts are estimates from tags and descriptions: combinations that suit the month, not a measure of what a purchase is worth."
+      )
+    ).toBeTruthy()
+    expect(screen.getByText("January, 2.1 °C, rainy:").textContent).toBe("January, 2.1 °C, rainy: about 2 outfits")
+    expect(screen.getByText("Estimated remaining budget: €495")).toBeTruthy()
+    expect(screen.getByText(/Purchase budget €600 from your latest relocation plan/).textContent).toBe(
+      "Purchase budget €600 from your latest relocation plan, minus at least €105 for items bought under it. 1 bought item has no price and is not counted."
     )
+    // An older plan's gap added to the list later is not counted, so the note
+    // names only rows added by hand (D-233).
+    expect(
+      screen.getByText(
+        "It is an estimate: each bought item counts at its lowest estimated price, and only if it came from that plan or you added it by hand since."
+      )
+    ).toBeTruthy()
     expect(screen.getByRole("button", { name: "Rank 3 purchases" })).toBeTruthy()
     expect(screen.getByText("About $0.03 with Sonnet 5.5.")).toBeTruthy()
-    expect(screen.getByText("See the 3 candidates and their outfit counts")).toBeTruthy()
+    expect(screen.getByText("See the 3 candidates and their estimated outfit counts")).toBeTruthy()
     expect(screen.queryByRole("heading", { name: /^Ranked on/ })).toBeNull()
   })
 
@@ -180,17 +193,18 @@ describe("AdvicePanel", () => {
     await act(async () => answer.resolve(ok({ outcome: "ran", state: state({ latest: stored() }) })))
 
     expect(screen.getByRole("heading", { name: "Ranked on 3 Nov 2026" })).toBeTruthy()
-    expect(screen.getByText("Sonnet 5.5 · cost $0.03 · €495 budget left then")).toBeTruthy()
+    expect(screen.getByText("Sonnet 5.5 · cost $0.03 · estimated €495 left then")).toBeTruthy()
     const boots = rankedItem("Rank 1: Waterproof leather boots")
     expect(within(boots).getByText("Unlocks 3 outfits in January, where the wardrobe makes only 2.")).toBeTruthy()
     expect(within(boots).getByText("Set aside €150")).toBeTruthy()
     expect(within(boots).getByText("· estimate €100–€160")).toBeTruthy()
-    const unlocks = within(boots).getByRole("list", { name: "New outfits per season" })
+    // Every count reads as the estimate it is (D-231), a zero too.
+    const unlocks = within(boots).getByRole("list", { name: "Estimated new outfits per season" })
     expect(within(unlocks).getAllByRole("listitem").map((item) => item.textContent)).toEqual([
-      "January: unlocks 3 outfits",
-      "April: unlocks 0 outfits",
-      "July: unlocks 1 outfit",
-      "October: unlocks 2 outfits",
+      "January: about 3 new outfits",
+      "April: likely none",
+      "July: about 1 new outfit",
+      "October: about 2 new outfits",
     ])
     expect(within(boots).getByText("Gap from your plan")).toBeTruthy()
     expect(within(rankedItem("Rank 2: Waterproof rain shell")).getByText("On your list")).toBeTruthy()
@@ -283,7 +297,53 @@ describe("AdvicePanel", () => {
 
     expect(screen.getByText(/^Nothing to rank/)).toBeTruthy()
     expect(screen.queryByRole("button", { name: /Rank|Run again/ })).toBeNull()
-    expect(screen.queryByText(/candidates and their outfit counts/)).toBeNull()
+    expect(screen.queryByText(/candidates and their estimated outfit counts/)).toBeNull()
+  })
+
+  it("shows large counts as rounded estimates and a month with none as likely none", () => {
+    setup(
+      state({
+        scenarios: [
+          { key: "jan", label: "January", tmeanC: 2.1, rainy: true, outfitsNow: 0 },
+          { key: "apr", label: "April", tmeanC: 9.1, rainy: false, outfitsNow: 4763 },
+        ],
+        candidates: [candidate({ unlocks: { jan: 1, apr: 3640 } })],
+      })
+    )
+    expect(screen.getByText("January, 2.1 °C, rainy:").textContent).toBe("January, 2.1 °C, rainy: likely none")
+    expect(screen.getByText("April, 9.1 °C:").textContent).toBe("April, 9.1 °C: about 4,763 outfits")
+    const unlocks = screen.getByRole("list", { name: "Estimated new outfits per season" })
+    expect(within(unlocks).getAllByRole("listitem").map((item) => item.textContent)).toEqual([
+      "January: about 1 new outfit",
+      "April: about 3,640 new outfits",
+    ])
+  })
+
+  it("calls the advice's budget an estimate only when a plan sets one, and never says nothing was bought when unpriced items were", () => {
+    const budget = { purchaseBudgetEur: 600, boughtMinimumEur: 0, unpricedBought: 0, remainingEur: 600, relocationAnalysisId: RELOCATION_ID }
+    setup(state({ budget }))
+    expect(screen.getByText("Estimated remaining budget: €600")).toBeTruthy()
+    expect(
+      screen.getByText("Purchase budget €600 from your latest relocation plan; nothing is bought under it yet.")
+    ).toBeTruthy()
+    expect(screen.getByText(/^It is an estimate: each bought item counts at its lowest estimated price/)).toBeTruthy()
+    cleanup()
+
+    setup(state({ budget: { ...budget, unpricedBought: 2 } }))
+    expect(screen.getByText("Estimated remaining budget: €600")).toBeTruthy()
+    expect(
+      screen.getByText(
+        "Purchase budget €600 from your latest relocation plan. 2 bought items have no price and are not counted."
+      )
+    ).toBeTruthy()
+    expect(screen.queryByText(/nothing is bought/)).toBeNull()
+    cleanup()
+
+    setup(
+      state({ budget: { purchaseBudgetEur: null, boughtMinimumEur: 0, unpricedBought: 0, remainingEur: null, relocationAnalysisId: null } })
+    )
+    expect(screen.queryByText(/Estimated remaining budget/)).toBeNull()
+    expect(screen.queryByText(/^It is an estimate/)).toBeNull()
   })
 
   it("explains a missing purchase budget, where it would come from, and that the list's budget box is not used", () => {

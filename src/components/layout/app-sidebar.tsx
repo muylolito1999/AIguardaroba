@@ -20,7 +20,7 @@ import {
   SidebarMenuItem,
 } from "@/components/ui/sidebar"
 
-import { PRIMARY_NAV, SECONDARY_NAV, SECONDARY_NAV_LABEL, isNavItemActive, type NavItem } from "./nav-items"
+import { PRIMARY_NAV, SECONDARY_NAV, SECONDARY_NAV_LABEL, navItemCurrent, type NavItem } from "./nav-items"
 
 const SECONDARY_LABEL_ID = "sidebar-secondary-nav"
 
@@ -83,13 +83,15 @@ function NavMenu({ items, pathname }: { items: readonly NavItem[]; pathname: str
   return (
     <SidebarMenu className="gap-1">
       {items.map(({ href, label, icon: Icon, alsoActiveOn }) => {
-        const active = isNavItemActive(pathname, href, alsoActiveOn)
+        // Same mark on a row's own page and inside its section (/stats, /outfits/[id]);
+        // aria-current says "page" only on the former.
+        const current = navItemCurrent(pathname, href, alsoActiveOn)
         return (
           <SidebarMenuItem key={href}>
             <SidebarMenuButton
               render={<Link href={href} />}
-              isActive={active}
-              aria-current={active ? "page" : undefined}
+              isActive={current !== undefined}
+              aria-current={current}
               // 44px rows suit touch tablets at this width; the inset bar marks the
               // active item with real contrast, which the accent tint alone lacks.
               className="h-11 gap-3 focus-visible:ring-sidebar-foreground data-active:shadow-[inset_3px_0_0_var(--sidebar-foreground)]"

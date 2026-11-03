@@ -60,6 +60,13 @@ describe("ItemTagForm", () => {
     expect(describedByText(screen.getByLabelText("Category"))).not.toContain("Check this")
   })
 
+  it("has no start-value notes: Claude's tags are no form defaults", () => {
+    setup()
+
+    expect(screen.queryByText(/^Default, /)).toBeNull()
+    expect(screen.queryByRole("button", { name: /^Keep / })).toBeNull()
+  })
+
   it("hides a hint for a field the owner already edited, and marks it as edited", () => {
     setup({ userEditedFields: ["brand"] })
 
@@ -376,6 +383,8 @@ describe("ItemTagForm filled in by hand", () => {
     expect(tagItemByHand).toHaveBeenCalledWith({
       id: item.id,
       confirm: false,
+      // Nothing touched in the warmth and weather section: every start is sent as left alone.
+      uncheckedDefaults: ["warmth_level", "waterproof", "windproof", "insulated", "breathable"],
       patch: {
         name: "Olive fleece",
         category: "top",
@@ -466,6 +475,71 @@ describe("ItemTagForm filled in by hand", () => {
     )
     expect(screen.getByRole("button", { name: "Save and confirm" }).getAttribute("aria-disabled")).not.toBe("true")
     expect(onConfirmed).not.toHaveBeenCalled()
+  })
+
+  it("notes the values still at the form's own start and sends only those the owner left there (D-232)", async () => {
+    const { item, tagItemByHand } = setupManual()
+    tagItemByHand.mockResolvedValue(ok(taggedCard({ id: item.id, name: "Olive fleece" })))
+    const unchecked = () => screen.queryAllByText("Default, not checked: Re-tag may change it.")
+
+    expect(unchecked()).toHaveLength(5)
+    // The slider names its note; the Keep toggles name their field and point at theirs.
+    expect(describedByText(screen.getByRole("slider", { hidden: true }))).toContain("Default, not checked")
+    const keepWarmth = screen.getByRole("button", { name: "Keep warmth" })
+    expect(keepWarmth.getAttribute("aria-pressed")).toBe("false")
+    expect(describedByText(keepWarmth)).toBe("Default, not checked: Re-tag may change it.")
+
+    await fillRequired()
+    // A changed value is a choice: its note goes.
+    fireEvent.click(screen.getByRole("switch", { name: "Waterproof" }))
+    fireEvent.click(screen.getByRole("button", { name: "No" }))
+    await waitFor(() => expect(unchecked()).toHaveLength(3))
+    expect(screen.queryByRole("button", { name: "Keep waterproof" })).toBeNull()
+    // Switched on and off again: back at the start, so still not checked.
+    const insulated = screen.getByRole("switch", { name: "Insulated" })
+    fireEvent.click(insulated)
+    await waitFor(() => expect(unchecked()).toHaveLength(2))
+    fireEvent.click(insulated)
+    await waitFor(() => expect(unchecked()).toHaveLength(3))
+    // Keep makes the start the owner's value, and sends nothing by itself.
+    fireEvent.click(keepWarmth)
+    await waitFor(() => expect(keepWarmth.getAttribute("aria-pressed")).toBe("true"))
+    expect(screen.getByText("Default, kept: Re-tag keeps it.")).toBeTruthy()
+    expect(unchecked()).toHaveLength(2)
+    expect(tagItemByHand).not.toHaveBeenCalled()
+
+    fireEvent.click(screen.getByRole("button", { name: "Save" }))
+
+    await waitFor(() => expect(tagItemByHand).toHaveBeenCalledTimes(1))
+    const sent = tagItemByHand.mock.calls[0]?.[0]
+    expect(sent?.uncheckedDefaults).toEqual(["windproof", "insulated"])
+    expect(sent?.patch).toMatchObject({
+      warmth_level: 3,
+      waterproof: true,
+      windproof: false,
+      insulated: false,
+      breathable: false,
+    })
+  })
+
+  it("notes no start for a value the item already has", async () => {
+    const { tagItemByHand } = setupManual({ warmthLevel: 2, waterproof: false, breathable: true })
+    tagItemByHand.mockResolvedValue(ok(taggedCard()))
+
+    expect(screen.queryByRole("button", { name: "Keep warmth" })).toBeNull()
+    expect(screen.queryByRole("button", { name: "Keep waterproof" })).toBeNull()
+    expect(screen.queryByRole("button", { name: "Keep breathable" })).toBeNull()
+    expect(screen.getByRole("button", { name: "Keep windproof" })).toBeTruthy()
+    expect(screen.getByRole("button", { name: "Keep insulated" })).toBeTruthy()
+
+    await fillRequired()
+    fireEvent.click(screen.getByRole("button", { name: "Save and confirm" }))
+
+    await waitFor(() =>
+      expect(tagItemByHand).toHaveBeenCalledWith(
+        expect.objectContaining({ confirm: true, uncheckedDefaults: ["windproof", "insulated"] })
+      )
+    )
   })
 
   it("reports unsaved values and goes back on Cancel without sending anything", async () => {

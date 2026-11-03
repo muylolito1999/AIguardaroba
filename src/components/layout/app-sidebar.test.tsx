@@ -32,17 +32,42 @@ beforeAll(() => {
 
 afterEach(cleanup)
 
-function renderSidebar(pathname: string) {
-  navigation.pathname = pathname
-  render(
-    <SidebarProvider>
-      <AppSidebar />
-    </SidebarProvider>
-  )
+function sidebarLinks() {
   return {
     primary: within(screen.getByRole("navigation", { name: "Primary" })).getAllByRole("link"),
     secondary: within(screen.getByRole("navigation", { name: "Get dressed" })).getAllByRole("link"),
   }
+}
+
+function sidebar() {
+  return (
+    <SidebarProvider>
+      <AppSidebar />
+    </SidebarProvider>
+  )
+}
+
+function renderSidebar(pathname: string) {
+  navigation.pathname = pathname
+  render(sidebar())
+  return sidebarLinks()
+}
+
+/** Every row's visible mark (data-active, which draws the inset bar) and its aria-current, group by group. */
+function marking({ primary, secondary }: { primary: HTMLElement[]; secondary: HTMLElement[] }) {
+  return [...primary, ...secondary].map((link) => ({
+    name: link.textContent,
+    marked: link.hasAttribute("data-active"),
+    current: link.getAttribute("aria-current"),
+  }))
+}
+
+/** The rows marked, as name and aria-current; the visible mark must sit on the same rows. */
+function markedRows(links: { primary: HTMLElement[]; secondary: HTMLElement[] }) {
+  const rows = marking(links)
+  const marked = rows.filter((row) => row.marked)
+  expect(rows.filter((row) => row.current !== null)).toEqual(marked)
+  return marked.map(({ name, current }) => ({ name, current }))
 }
 
 describe("AppSidebar (D-218)", () => {
@@ -56,11 +81,46 @@ describe("AppSidebar (D-218)", () => {
     ])
   })
 
-  it("marks only the secondary page itself, not Wardrobe, on an outfit page", () => {
-    const { primary, secondary } = renderSidebar("/outfits/3f2a")
+  it.each([
+    ["/wardrobe", "Wardrobe"],
+    ["/add", "Add"],
+    ["/relocate", "Relocate"],
+    ["/shopping", "Shopping"],
+    ["/settings", "Settings"],
+    ["/today", "Today"],
+    ["/outfits", "Outfits"],
+  ])("marks the row whose own page %s is open as the current page, and no other", (pathname, name) => {
+    expect(markedRows(renderSidebar(pathname))).toEqual([{ name, current: "page" }])
+  })
 
-    const current = [...primary, ...secondary].filter((link) => link.getAttribute("aria-current") === "page")
-    expect(current.map((link) => link.textContent)).toEqual(["Outfits"])
+  it.each([
+    ["/wardrobe/3f2a", "Wardrobe"],
+    ["/stats", "Wardrobe"],
+    ["/add/review", "Add"],
+    ["/relocate/3f2a", "Relocate"],
+    ["/settings/climate", "Settings"],
+    ["/outfits/3f2a", "Outfits"],
+    ["/outfits/new", "Outfits"],
+  ])("marks the section's row on %s but not as the current page", (pathname, name) => {
+    expect(markedRows(renderSidebar(pathname))).toEqual([{ name, current: "true" }])
+  })
+
+  it("marks a page the same way whichever page came before it", () => {
+    const fresh = marking(renderSidebar("/outfits/3f2a"))
+    cleanup()
+    expect(fresh.filter((row) => row.marked || row.current !== null)).toEqual([
+      { name: "Outfits", marked: true, current: "true" },
+    ])
+
+    for (const previous of ["/settings", "/today", "/outfits", "/wardrobe/3f2a"]) {
+      navigation.pathname = previous
+      const { rerender } = render(sidebar())
+      navigation.pathname = "/outfits/3f2a"
+      rerender(sidebar())
+
+      expect(marking(sidebarLinks())).toEqual(fresh)
+      cleanup()
+    }
   })
 
   it("gives every row a 44px tap target", () => {

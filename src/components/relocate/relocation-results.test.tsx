@@ -191,6 +191,8 @@ describe("RelocationResults", () => {
     expect(screen.getByText(/Hamburg is cool, wet and windy/)).toBeTruthy()
     expect(screen.getByText("$0.39 (estimated $0.42)")).toBeTruthy()
     expect(screen.getByText("Sonnet 5.5 · medium effort")).toBeTruthy()
+    // The plan's budget is what was left to spend from the day it finished (D-231).
+    expect(screen.getByText("€600 to spend from 3 Nov 2026")).toBeTruthy()
     expect(screen.getByRole("tab", { name: "Items 6" })).toBeTruthy()
     expect(screen.getByRole("tab", { name: "Gaps 2" })).toBeTruthy()
     expect(screen.getByRole("tab", { name: "Warnings 1" })).toBeTruthy()

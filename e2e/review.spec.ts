@@ -222,6 +222,12 @@ test("an item filled in by hand is confirmed without Claude", async ({ page }) =
   await card.getByLabel("Condition").click()
   await page.getByRole("option", { name: "Good", exact: true }).click()
   await expect(card.getByLabel("Condition")).toContainText("Good")
+  // The form's own starting values say they are unchecked (D-232); Keep makes one the owner's.
+  await expect(card.getByText("Default, not checked: Re-tag may change it.")).toHaveCount(5)
+  await card.getByRole("button", { name: "Keep windproof" }).click()
+  await expect(card.getByRole("button", { name: "Keep windproof" })).toHaveAttribute("aria-pressed", "true")
+  await expect(card.getByText("Default, kept: Re-tag keeps it.")).toHaveCount(1)
+  await expect(card.getByText("Default, not checked: Re-tag may change it.")).toHaveCount(4)
   await card.getByRole("button", { name: "Save and confirm" }).click()
 
   await expect(cardFor(page, manualId)).toHaveCount(0)
@@ -241,10 +247,25 @@ test("an item filled in by hand is confirmed without Claude", async ({ page }) =
       return row
     })
     .toEqual({ status: "confirmed", name: HAND_TAGGED_NAME, category: "scarf", aiRaw: null, taggingError: null })
-  const [row] = await db.select({ edited: items.userEditedFields }).from(items).where(eq(items.id, manualId))
+  const [row] = await db
+    .select({
+      edited: items.userEditedFields,
+      warmth: items.warmthLevel,
+      waterproof: items.waterproof,
+      windproof: items.windproof,
+      insulated: items.insulated,
+      breathable: items.breathable,
+    })
+    .from(items)
+    .where(eq(items.id, manualId))
   expect(row?.edited).toEqual(
-    expect.arrayContaining(["name", "category", "colors", "color_hex", "seasons", "formality", "condition"]),
+    expect.arrayContaining(["name", "category", "colors", "color_hex", "seasons", "formality", "condition", "windproof"]),
   )
+  // The starting values left alone are stored, but a later Re-tag may replace them (D-232).
+  expect(row).toMatchObject({ warmth: 3, waterproof: false, windproof: false, insulated: false, breathable: null })
+  for (const field of ["warmth_level", "waterproof", "insulated", "breathable"]) {
+    expect(row?.edited).not.toContain(field)
+  }
   // Nothing was sent to Claude for it.
   const calls = await db.select({ id: aiCalls.id }).from(aiCalls).where(eq(aiCalls.itemId, manualId))
   expect(calls).toHaveLength(0)

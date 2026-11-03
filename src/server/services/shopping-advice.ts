@@ -374,7 +374,9 @@ async function buildPlan(db: Db): Promise<AdvicePlan> {
       "Nothing to rank: your shopping list has nothing left to buy and the latest relocation plan has no other gaps.";
   }
   if (blocker === null && budget.remainingEur === 0 && budget.purchaseBudgetEur !== null) {
-    blocker = `Your €${budget.purchaseBudgetEur} purchase budget is used up by what you bought since the latest relocation plan. Plan the move again with a new budget to get advice.`;
+    // A new plan states what is still left to spend, so the blocker must not
+    // read as "plan again and the money comes back" (D-219, D-231).
+    blocker = `Your €${budget.purchaseBudgetEur} purchase budget is used up by what you bought since the latest relocation plan, by the app's estimate. If you can still spend more, plan the move again and enter only what you have left.`;
   }
 
   let ready: AdvicePlan["ready"] = null;

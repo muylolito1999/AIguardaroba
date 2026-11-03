@@ -434,8 +434,12 @@ describe("getShoppingAdviceState", () => {
 
   it("subtracts only what was bought under the latest plan, not under an older one", async () => {
     await testDb.db.insert(climateProfiles).values(HAMBURG);
-    // Plan A (€300): both its gaps bought, and a row added by hand and bought before plan B.
-    const planA = await insertRelocation({ budget: 300, gaps: [SHELL_GAP, BOOTS_GAP], completedAt: new Date("2026-10-20T10:00:00Z") });
+    // Plan A (€300): two of its gaps bought, and a row added by hand and bought before plan B.
+    const planA = await insertRelocation({
+      budget: 300,
+      gaps: [SHELL_GAP, BOOTS_GAP, MERINO_GAP],
+      completedAt: new Date("2026-10-20T10:00:00Z"),
+    });
     await insertRow({ analysisId: planA, gapKey: SHELL_GAP.gap_key, itemType: SHELL_GAP.item_type, status: "bought", estPriceMinEur: 180 });
     await insertRow({ analysisId: planA, gapKey: BOOTS_GAP.gap_key, itemType: BOOTS_GAP.item_type, status: "bought", estPriceMinEur: 120 });
     await insertRow({ itemType: "Umbrella", status: "bought", estPriceMinEur: 25, createdAt: new Date("2026-10-25T10:00:00Z") });
@@ -456,6 +460,19 @@ describe("getShoppingAdviceState", () => {
     await insertRow({ analysisId: planB, gapKey: MERINO_GAP.gap_key, itemType: MERINO_GAP.item_type, status: "bought", quantity: 2, estPriceMinEur: 40 });
     await insertRow({ itemType: "Gloves", status: "bought", estPriceMinEur: 30, createdAt: new Date("2026-11-02T12:00:00Z") });
     expect((await readyState()).budget).toMatchObject({ boughtMinimumEur: 110, remainingEur: 40 });
+
+    // A gap of plan A added to the list after plan B and bought still belongs
+    // to plan A: only rows added by hand go by the day they were added, as the
+    // panel's estimate note says (D-233).
+    await insertRow({
+      analysisId: planA,
+      gapKey: MERINO_GAP.gap_key,
+      itemType: MERINO_GAP.item_type,
+      status: "bought",
+      estPriceMinEur: 40,
+      createdAt: new Date("2026-11-02T13:00:00Z"),
+    });
+    expect((await readyState()).budget).toMatchObject({ boughtMinimumEur: 110, remainingEur: 40 });
   });
 
   it("names what blocks a run: no candidates, no budget left, or no Hamburg profile", async () => {
@@ -475,7 +492,12 @@ describe("getShoppingAdviceState", () => {
     await testDb.db.insert(climateProfiles).values(HAMBURG);
     await insertRelocation({ budget: 100 });
     await insertRow({ itemType: "Parka", status: "bought", estPriceMinEur: 180 });
-    expect((await readyState()).blocker).toContain("€100 purchase budget is used up");
+    const spent = (await readyState()).blocker;
+    expect(spent).toContain("€100 purchase budget is used up");
+    // A new plan is what is still left to spend, never a way to get the money back (D-231).
+    expect(spent).toContain("by the app's estimate");
+    expect(spent).toContain("enter only what you have left");
+    expect(spent).not.toContain("with a new budget");
   });
 
   it("refuses an incomplete climate profile instead of guessing its months", async () => {

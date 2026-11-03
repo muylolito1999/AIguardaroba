@@ -90,7 +90,9 @@ export function BudgetPanel({ items, latestBudgetEur, latestAnalysisId }: Budget
                   your latest relocation plan
                 </Link>
               )}
-              . Only used for this comparison; changes are not saved.
+              {/* The plan's budget is what was left to spend when it was made
+                  (D-219), and this comparison counts only the "To buy" rows. */}
+              ; purchases since then are not subtracted. Only used for this comparison; changes are not saved.
             </>
           )}
         </p>

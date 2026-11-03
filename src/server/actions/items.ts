@@ -6,7 +6,7 @@ import { getAnthropic } from "@/lib/ai/client";
 import { getDb } from "@/lib/db";
 import { ITEM_DECISIONS, ITEM_LOCATIONS } from "@/lib/db/enums";
 import { getBlobStorage } from "@/lib/images/blob";
-import { ItemPatchSchema } from "@/lib/items/contracts";
+import { ItemPatchSchema, UncheckedDefaultsSchema } from "@/lib/items/contracts";
 import { ok } from "@/lib/result";
 import {
   BATCH_MAX_ITEMS,
@@ -53,10 +53,20 @@ export const confirmItems = authedAction(
   { name: "confirmItems" },
 );
 
-/** "Fill in by hand" on a pending card: tags the item from the form, without Claude. */
+/**
+ * "Fill in by hand" on a pending card: tags the item from the form, without
+ * Claude. uncheckedDefaults names the fields left at the form's own starting
+ * value, which the service checks and keeps out of user_edited_fields (D-232).
+ */
 export const tagItemByHand = authedAction(
-  z.strictObject({ id: z.uuid(), patch: ItemPatchSchema, confirm: z.boolean() }),
-  async ({ id, patch, confirm }) => ok(await tagItemByHandService(getDb(), id, patch, { confirm })),
+  z.strictObject({
+    id: z.uuid(),
+    patch: ItemPatchSchema,
+    confirm: z.boolean(),
+    uncheckedDefaults: UncheckedDefaultsSchema,
+  }),
+  async ({ id, patch, confirm, uncheckedDefaults }) =>
+    ok(await tagItemByHandService(getDb(), id, patch, { confirm, uncheckedDefaults })),
   { name: "tagItemByHand" },
 );
 

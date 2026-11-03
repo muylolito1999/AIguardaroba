@@ -340,6 +340,17 @@ describe("RelocationForm", () => {
     )
   })
 
+  it("describes the budget as what is still left to spend, with earlier purchases not subtracted (D-231)", async () => {
+    setup()
+    await advance(ESTIMATE_DEBOUNCE_MS)
+
+    const budget = screen.getByLabelText("Purchase budget (EUR)")
+    const hintId = budget.getAttribute("aria-describedby") ?? ""
+    expect(document.getElementById(hintId)?.textContent).toBe(
+      "What you can still spend on new clothes from now on. Earlier purchases are not subtracted, so enter only what is left. Leave it empty for no budget."
+    )
+  })
+
   it("never reads a budget it cannot parse as no budget", async () => {
     const { estimateRelocation, startRelocation } = setup()
     await advance(ESTIMATE_DEBOUNCE_MS)

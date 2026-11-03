@@ -408,8 +408,12 @@ export function RelocationForm({ profiles, defaultDates, actions }: RelocationFo
             €{EXAMPLE_BUDGET_EUR}
           </Button>
         </div>
+        {/* A plan's budget is what is left to spend from the day it is made:
+            the shopping advice subtracts only purchases made under this plan
+            (D-219), so a new plan must not repeat money already spent. */}
         <FieldDescription id={id("budget-hint")}>
-          What you can spend on new clothes. Leave it empty for no budget.
+          What you can still spend on new clothes from now on. Earlier purchases are not subtracted, so enter only what is
+          left. Leave it empty for no budget.
         </FieldDescription>
         {budgetError ? <FieldError>{budgetError}</FieldError> : null}
       </Field>

@@ -6,6 +6,7 @@ import { EDITABLE_TAG_FIELDS, TAG_FIELD_TO_COLUMN, type ItemPatch } from "@/lib/
 import { COAT_TAGS, JACKET_TAGS } from "../../../test/fixtures/item-tags";
 import {
   computeUserEditedFields,
+  handTaggedEditedFields,
   isEditableTagField,
   statusAfterTagging,
   taggedItemUpdate,
@@ -126,6 +127,78 @@ describe("computeUserEditedFields", () => {
 
   it("adds color_hex when an earlier edit recorded only colors", () => {
     expect(computeUserEditedFields(COAT_TAGS, ["colors"], {})).toEqual(["colors", "color_hex"]);
+  });
+});
+
+describe("handTaggedEditedFields", () => {
+  /** A hand-tagging patch as the form sends it: every field, the defaults at their start. */
+  const HAND_PATCH: ItemPatch = {
+    name: "Grey scarf",
+    category: "scarf",
+    subcategory: "",
+    colors: ["grey"],
+    color_hex: ["#808080"],
+    material_guess: "",
+    materials: [],
+    warmth_level: 3,
+    waterproof: false,
+    windproof: false,
+    insulated: false,
+    breathable: null,
+    seasons: ["winter"],
+    formality: "casual",
+    pattern: "",
+    fit: null,
+    condition: "good",
+    brand: null,
+    description: "",
+    notes: "gift",
+  };
+
+  it("leaves out the defaults listed as left alone and the blank optional fields", () => {
+    expect(
+      handTaggedEditedFields([], HAND_PATCH, ["warmth_level", "waterproof", "windproof", "insulated", "breathable"]),
+    ).toEqual(["name", "category", "colors", "color_hex", "seasons", "formality", "condition"]);
+  });
+
+  it("records a default that is not listed, with any value, null included for breathable", () => {
+    expect(handTaggedEditedFields([], HAND_PATCH, ["warmth_level"])).toEqual([
+      "name",
+      "category",
+      "colors",
+      "color_hex",
+      "waterproof",
+      "windproof",
+      "insulated",
+      "breathable",
+      "seasons",
+      "formality",
+      "condition",
+    ]);
+  });
+
+  it("still records only the optional fields that have a value", () => {
+    const patch: ItemPatch = { ...HAND_PATCH, brand: "Hackett", fit: "slim", materials: ["wool"] };
+    expect(handTaggedEditedFields([], patch, ["warmth_level", "waterproof", "windproof", "insulated", "breathable"])).toEqual([
+      "name",
+      "category",
+      "colors",
+      "color_hex",
+      "materials",
+      "seasons",
+      "formality",
+      "fit",
+      "condition",
+      "brand",
+    ]);
+  });
+
+  it("keeps earlier marks, also on a field listed now", () => {
+    expect(handTaggedEditedFields(["warmth_level", "pattern"], { name: "Scarf", warmth_level: 3 }, ["warmth_level"])).toEqual([
+      "name",
+      "warmth_level",
+      "pattern",
+    ]);
   });
 });
 

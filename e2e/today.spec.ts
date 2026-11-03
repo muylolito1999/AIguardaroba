@@ -25,6 +25,9 @@ import { OPEN_METEO_STUB_URL } from "./open-meteo-stub"
 // server's OPEN_METEO_BASE_URL at it), so no request leaves the machine:
 // - the weather card for the home city (Bologna, as seeded) with the
 //   Open-Meteo credit, and proof that the server asked the stub;
+// - the navigation's marks: on a phone the Wardrobe tab marks /today as its
+//   section (aria-current="true") whether Settings or the wardrobe led there,
+//   and on a desktop only the open page's own row says "page";
 // - without an API key, "Suggest outfits" shows the configuration error and
 //   no Claude call is logged;
 // - a complete suggestion for today, inserted as if Claude had answered,
@@ -174,6 +177,50 @@ test("shows today's weather for the home city with the Open-Meteo credit, from t
   // The server asked the stub, not the real API, for Bologna's day.
   const requests = await stubRequests()
   expect(requests.some((request) => request.timezone === "Europe/Rome" && request.latitude === "44.49")).toBe(true)
+})
+
+test("on a phone the Wardrobe tab marks /today as its section, the same from Settings and from the wardrobe", async ({
+  page,
+}) => {
+  // D-218 and D-230: the mark depends on the page open, never on the page before
+  // it, and only the link to the open page says aria-current="page".
+  await page.setViewportSize(PHONE)
+  const tabs = page.getByRole("navigation", { name: "Primary" })
+  const wardrobeTab = tabs.getByRole("link", { name: "Wardrobe" })
+  const today = page.getByRole("heading", { level: 1, name: "Today" })
+
+  await signIn(page, "/settings")
+  await expect(tabs.getByRole("link", { name: "Settings" })).toHaveAttribute("aria-current", "page")
+  await page.getByRole("navigation", { name: "Get dressed" }).getByRole("link", { name: "Today" }).click()
+  await expect(today).toBeVisible()
+  await expect(wardrobeTab).toHaveAttribute("aria-current", "true")
+  await expect(tabs.locator("[aria-current]")).toHaveCount(1)
+
+  await page.goto("/wardrobe")
+  await expect(wardrobeTab).toHaveAttribute("aria-current", "page")
+  await page.getByRole("navigation", { name: "Get dressed" }).getByRole("link", { name: "Today" }).click()
+  await expect(today).toBeVisible()
+  await expect(wardrobeTab).toHaveAttribute("aria-current", "true")
+  await expect(tabs.locator("[aria-current]")).toHaveCount(1)
+})
+
+test("on a desktop the sidebar says page only on the open page's own row", async ({ page }) => {
+  await signIn(page)
+  const primary = page.getByRole("navigation", { name: "Primary" })
+  const daily = page.getByRole("navigation", { name: "Get dressed" })
+
+  await expect(daily.getByRole("link", { name: "Today" })).toHaveAttribute("aria-current", "page")
+  await expect(primary.locator("[aria-current]")).toHaveCount(0)
+
+  await page.goto("/outfits/new")
+  await expect(daily.getByRole("link", { name: "Outfits" })).toHaveAttribute("aria-current", "true")
+  await expect(daily.locator("[aria-current]")).toHaveCount(1)
+  await expect(primary.locator("[aria-current]")).toHaveCount(0)
+
+  await page.goto("/stats")
+  await expect(primary.getByRole("link", { name: "Wardrobe" })).toHaveAttribute("aria-current", "true")
+  await expect(primary.locator("[aria-current]")).toHaveCount(1)
+  await expect(daily.locator("[aria-current]")).toHaveCount(0)
 })
 
 test("without an API key, Suggest outfits shows the configuration error and logs no Claude call", async ({ page }) => {

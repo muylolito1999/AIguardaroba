@@ -7,17 +7,19 @@ import type { Db } from "@/lib/db/client";
 import type { ItemStatus } from "@/lib/db/enums";
 import { items, type NewItem } from "@/lib/db/schema";
 import {
-  EDITABLE_TAG_FIELDS,
+  isHandTagDefault,
   isUuid,
   ItemPatchSchema,
   patchToItemColumns,
+  UncheckedDefaultsSchema,
   type EditableTagField,
+  type HandTagDefaultField,
   type ItemCardDto,
   type ItemPatch,
 } from "@/lib/items/contracts";
 import { AppError } from "@/lib/result";
 import { loadItemCard } from "@/server/items/dto";
-import { computeUserEditedFields } from "@/server/items/user-edited-fields";
+import { computeUserEditedFields, handTaggedEditedFields } from "@/server/items/user-edited-fields";
 
 // Edits, confirmation and tagging by hand from the review screen (spec Phase
 // 3: "Confirm sets status confirmed; edited fields are recorded in
@@ -141,12 +143,29 @@ export async function confirmItem(db: Db, id: string, patch?: ItemPatch): Promis
   return loadItemCard(db, id);
 }
 
-/** No value: the owner left the field empty. false is a value (waterproof: no). */
-function isBlank(value: unknown): boolean {
-  if (value === undefined || value === null) return true;
-  if (typeof value === "string") return value.trim() === "";
-  if (Array.isArray(value)) return value.length === 0;
-  return false;
+/**
+ * Checks which fields the form says the owner left at its starting value. The
+ * client is not trusted with what a Re-tag may replace: only fields that have
+ * a form default may be listed, and only while the patch holds that default.
+ * Any other list is refused rather than reinterpreted (D-232).
+ */
+function parseUncheckedDefaults(patch: ItemPatch, claimed: readonly HandTagDefaultField[]): HandTagDefaultField[] {
+  const parsed = UncheckedDefaultsSchema.safeParse(claimed);
+  if (!parsed.success) {
+    throw new AppError("VALIDATION", "Some fields are missing or invalid.", {
+      issues: parsed.error.issues.map((issue) => ({
+        path: ["uncheckedDefaults", ...issue.path.map(String)].join("."),
+        message: issue.message,
+      })),
+    });
+  }
+  const mismatched = parsed.data.filter((field) => !isHandTagDefault(field, patch[field]));
+  if (mismatched.length > 0) {
+    throw new AppError("VALIDATION", "The form's default values did not match. Reload the page and try again.", {
+      uncheckedDefaults: mismatched,
+    });
+  }
+  return parsed.data;
 }
 
 /**
@@ -154,20 +173,24 @@ function isBlank(value: unknown): boolean {
  * resolving D-066's dead end for items Claude refuses, and catalogues items without AI
  * spend). The merged row must have every required tag and a season, as for
  * any tagged item. Every tag field the owner set is recorded in
- * user_edited_fields, so a later Re-tag keeps it; ai_raw, ai_model and
+ * user_edited_fields, so a later Re-tag keeps it; the fields in
+ * `uncheckedDefaults`, left at the form's own starting value, are stored but
+ * not recorded, so a Re-tag may replace them (D-232). ai_raw, ai_model and
  * ai_confidence stay null and tagging_error is cleared. The item becomes
  * tagged, or confirmed with `confirm`. CONFLICT when the item waits in a batch
- * or already has tags; VALIDATION when a required tag is missing.
+ * or already has tags; VALIDATION when a required tag is missing or the list
+ * of unchecked defaults does not match the patch.
  */
 export async function tagItemByHand(
   db: Db,
   id: string,
   patch: ItemPatch,
-  options: { confirm: boolean },
+  options: { confirm: boolean; uncheckedDefaults: readonly HandTagDefaultField[] },
 ): Promise<ItemCardDto> {
   await requireSession();
   if (!isUuid(id)) throw notFound(id);
   const validated = parsePatch(patch);
+  const uncheckedDefaults = parseUncheckedDefaults(validated, options.uncheckedDefaults);
 
   await db.transaction(async (tx) => {
     const [row] = await tx.select().from(items).where(eq(items.id, id)).for("update");
@@ -195,12 +218,7 @@ export async function tagItemByHand(
       });
     }
 
-    // Only fields with a value count as set; an empty optional field was not tagged.
-    const setFields: ItemPatch = { ...validated };
-    for (const field of EDITABLE_TAG_FIELDS) {
-      if (isBlank(setFields[field])) delete setFields[field];
-    }
-    const userEditedFields = computeUserEditedFields(null, row.userEditedFields, setFields);
+    const userEditedFields = handTaggedEditedFields(row.userEditedFields, validated, uncheckedDefaults);
 
     await tx
       .update(items)

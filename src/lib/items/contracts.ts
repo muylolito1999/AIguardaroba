@@ -282,6 +282,44 @@ export function patchToItemColumns(patch: ItemPatch): ItemPatchColumns {
 }
 
 // ---------------------------------------------------------------------------
+// Tagging by hand
+// ---------------------------------------------------------------------------
+
+/**
+ * The values the "Fill in by hand" form starts with in tag fields the item has
+ * no value for (D-093). Every other field starts empty or unset. A value left
+ * at its start is not a choice the owner made (D-232): the form lists such
+ * fields, and the server leaves them out of user_edited_fields, so a later
+ * Re-tag may replace them.
+ */
+export const HAND_TAG_DEFAULTS = {
+  warmth_level: 3,
+  waterproof: false,
+  windproof: false,
+  insulated: false,
+  /** "Unknown" in the form. */
+  breathable: null,
+} as const satisfies { [K in EditableTagField]?: ItemPatch[K] };
+
+export type HandTagDefaultField = keyof typeof HAND_TAG_DEFAULTS;
+
+export const HAND_TAG_DEFAULT_FIELDS = Object.keys(HAND_TAG_DEFAULTS) as HandTagDefaultField[];
+
+/** True when `value` is the hand-tagging form's starting value for `field`. */
+export function isHandTagDefault(field: HandTagDefaultField, value: unknown): boolean {
+  return Object.is(value, HAND_TAG_DEFAULTS[field]);
+}
+
+/**
+ * The fields a hand-tagging request says the owner left at the form's starting
+ * value: only fields that have one, each once. Whether the patch still holds
+ * that value is checked by the service, which sees both.
+ */
+export const UncheckedDefaultsSchema = z
+  .array(z.enum(HAND_TAG_DEFAULT_FIELDS))
+  .refine((fields) => !hasDuplicates(fields), "List each field once.");
+
+// ---------------------------------------------------------------------------
 // Item card DTO
 // ---------------------------------------------------------------------------
 

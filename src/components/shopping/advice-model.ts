@@ -127,6 +127,7 @@ export type ShoppingAdviceRunDto = z.infer<typeof ShoppingAdviceRunSchema>
 
 const EUR = new Intl.NumberFormat("en-US", { maximumFractionDigits: 2 })
 const ONE_DECIMAL = new Intl.NumberFormat("en-US", { minimumFractionDigits: 1, maximumFractionDigits: 1 })
+const WHOLE = new Intl.NumberFormat("en-US", { maximumFractionDigits: 0 })
 
 export function formatAdviceEur(value: number): string {
   return `€${EUR.format(value)}`
@@ -137,10 +138,22 @@ export function scenarioCaption(scenario: Pick<AdviceScenarioDto, "label" | "tme
   return `${scenario.label}, ${ONE_DECIMAL.format(scenario.tmeanC)} °C${scenario.rainy ? ", rainy" : ""}`
 }
 
-/** "1 outfit", "4 outfits". */
-export function outfitCount(count: number): string {
-  return `${count} ${count === 1 ? "outfit" : "outfits"}`
+/**
+ * An outfit count worded as the estimate it is: "about 4 outfits", "about 1
+ * new outfit", "likely none". The counts follow fixed rules, but over tags
+ * and over attributes guessed from a purchase's description (D-191, D-225),
+ * so a number shown as exact would claim more than it knows (D-231).
+ */
+export function estimatedOutfits(count: number, kind: "total" | "new"): string {
+  if (count === 0) return "likely none"
+  const noun = count === 1 ? "outfit" : "outfits"
+  const words = kind === "new" ? ["about", WHOLE.format(count), "new", noun] : ["about", WHOLE.format(count), noun]
+  return words.join(" ")
 }
+
+/** The section's one note on what the outfit counts are and are not (D-231). */
+export const OUTFIT_COUNT_NOTE =
+  "The outfit counts are estimates from tags and descriptions: combinations that suit the month, not a measure of what a purchase is worth."
 
 /** "€120–€200 each", "€80", or null when unpriced; per item, as the list shows prices. */
 export function candidatePrice(candidate: Pick<AdviceCandidateDto, "estPriceMinEur" | "estPriceMaxEur" | "quantity">): string | null {
@@ -155,6 +168,30 @@ export function candidatePrice(candidate: Pick<AdviceCandidateDto, "estPriceMinE
 const LIST_BUDGET_NOTE = `The "Budget for new purchases" box on this page only compares the list's prices and is not used here.`
 
 /**
+ * Why the remaining budget is an estimate (D-219, D-231): the app records
+ * neither what a purchase cost nor when it was made, so a bought row counts
+ * at its lowest estimated price, and belongs to the plan it came from or, for
+ * a row added by hand, to the plan by the day it was added. An older plan's
+ * gap added to the list later stays that plan's, so the note names only rows
+ * added by hand (D-233).
+ */
+export const REMAINING_BUDGET_NOTE =
+  "It is an estimate: each bought item counts at its lowest estimated price, and only if it came from that plan or you added it by hand since."
+
+/** " 1 bought item has no price and is not counted.", or "" when every bought item has a price. */
+function unpricedNote(count: number): string {
+  if (count === 0) return ""
+  if (count === 1) return " 1 bought item has no price and is not counted."
+  return ` ${count} bought items have no price and are not counted.`
+}
+
+/** The budget the ranking works with, as the figure it is: "Estimated remaining budget: €495"; null with no budget. */
+export function remainingBudgetHeadline(budget: AdviceBudgetDto): string | null {
+  if (budget.purchaseBudgetEur === null || budget.remainingEur === null) return null
+  return `Estimated remaining budget: ${formatAdviceEur(budget.remainingEur)}`
+}
+
+/**
  * The budget line above the button. It names where the budget comes from, the
  * latest relocation plan, because the list's own budget box on the same page
  * is not used for the ranking.
@@ -167,13 +204,12 @@ export function budgetSummary(budget: AdviceBudgetDto): string {
         : "Your latest relocation plan sets no purchase budget"
     return `${source}, so only what the climate makes necessary is recommended. ${LIST_BUDGET_NOTE}`
   }
-  const spent =
-    budget.boughtMinimumEur > 0
-      ? ` Items bought under that plan take at least ${formatAdviceEur(budget.boughtMinimumEur)} of it, so ${formatAdviceEur(budget.remainingEur)} is left.`
-      : ` Nothing is bought under that plan yet, so all of it is left.`
-  const unpriced =
-    budget.unpricedBought > 0
-      ? ` ${budget.unpricedBought === 1 ? "1 bought item has" : `${budget.unpricedBought} bought items have`} no price and ${budget.unpricedBought === 1 ? "is" : "are"} not counted.`
-      : ""
-  return `Purchase budget ${formatAdviceEur(budget.purchaseBudgetEur)} from your latest relocation plan.${spent}${unpriced}`
+  const plan = `Purchase budget ${formatAdviceEur(budget.purchaseBudgetEur)} from your latest relocation plan`
+  const unpriced = unpricedNote(budget.unpricedBought)
+  if (budget.boughtMinimumEur > 0) {
+    return `${plan}, minus at least ${formatAdviceEur(budget.boughtMinimumEur)} for items bought under it.${unpriced}`
+  }
+  // Bought rows that all lack a price are not "nothing bought": say only that they are not counted.
+  if (budget.unpricedBought > 0) return `${plan}.${unpriced}`
+  return `${plan}; nothing is bought under it yet.`
 }

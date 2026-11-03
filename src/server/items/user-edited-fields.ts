@@ -3,7 +3,14 @@ import "server-only";
 import { TAG_FIELD_TO_TAGS_KEY, tagsToItemColumns, type ItemTags } from "@/lib/ai/tagging/schema";
 import type { ItemStatus } from "@/lib/db/enums";
 import type { Item, NewItem } from "@/lib/db/schema";
-import { EDITABLE_TAG_FIELDS, TAG_FIELD_TO_COLUMN, type EditableTagField, type ItemPatch } from "@/lib/items/contracts";
+import {
+  EDITABLE_TAG_FIELDS,
+  HAND_TAG_DEFAULTS,
+  TAG_FIELD_TO_COLUMN,
+  type EditableTagField,
+  type HandTagDefaultField,
+  type ItemPatch,
+} from "@/lib/items/contracts";
 
 // Which tags the owner has changed, and how a new tagging result is applied
 // around them (spec: "edited fields are recorded in user_edited_fields";
@@ -78,6 +85,40 @@ export function computeUserEditedFields(
   }
   coupleColors(edited);
   return EDITABLE_TAG_FIELDS.filter((field) => edited.has(field));
+}
+
+/** No value: the owner left the field empty. false is a value (waterproof: no). */
+function isBlank(value: unknown): boolean {
+  if (value === undefined || value === null) return true;
+  if (typeof value === "string") return value.trim() === "";
+  if (Array.isArray(value)) return value.length === 0;
+  return false;
+}
+
+const HAS_HAND_TAG_DEFAULT: ReadonlySet<string> = new Set(Object.keys(HAND_TAG_DEFAULTS));
+
+/**
+ * The user_edited_fields after tagging a pending item by hand (D-093, refined
+ * by D-232): the previous list plus the tag fields of the patch the owner
+ * chose. A field the form starts with a value of its own (HAND_TAG_DEFAULTS)
+ * counts unless it is listed in `uncheckedDefaults`, null included, because
+ * "Unknown" kept for breathable is a choice; a listed one is stored but left
+ * unmarked, so a later Re-tag may replace it. Any other field counts when it
+ * is not blank: an empty optional field was not tagged. Earlier marks stay,
+ * even on a listed field. The caller has checked the list against the patch.
+ */
+export function handTaggedEditedFields(
+  previous: readonly string[],
+  patch: ItemPatch,
+  uncheckedDefaults: readonly HandTagDefaultField[],
+): EditableTagField[] {
+  const unchecked: ReadonlySet<string> = new Set(uncheckedDefaults);
+  const chosen: ItemPatch = { ...patch };
+  for (const field of EDITABLE_TAG_FIELDS) {
+    const leftAtStart = HAS_HAND_TAG_DEFAULT.has(field) ? unchecked.has(field) : isBlank(chosen[field]);
+    if (leftAtStart) delete chosen[field];
+  }
+  return computeUserEditedFields(null, previous, chosen);
 }
 
 /** pending_tagging becomes tagged; tagged, confirmed and archived items keep their status. */

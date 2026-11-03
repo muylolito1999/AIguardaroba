@@ -25,6 +25,7 @@ import {
 import { Button } from "@/components/ui/button"
 import { FieldDescription, FieldLegend, FieldSet } from "@/components/ui/field"
 import { Textarea } from "@/components/ui/textarea"
+import { Toggle } from "@/components/ui/toggle"
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group"
 import {
   FORMALITIES,
@@ -35,7 +36,13 @@ import {
   SEASONS,
 } from "@/lib/db/enums"
 import { NETWORK_ERROR_MESSAGE } from "@/lib/images/blob-upload-client"
-import { ItemPatchSchema, TAG_LIMITS, type EditableTagField, type ItemCardDto } from "@/lib/items/contracts"
+import {
+  ItemPatchSchema,
+  TAG_LIMITS,
+  type EditableTagField,
+  type HandTagDefaultField,
+  type ItemCardDto,
+} from "@/lib/items/contracts"
 import { noteWardrobeChangeIfOk } from "@/lib/items/wardrobe-changes"
 import { err, type AppErrorPayload, type Result } from "@/lib/result"
 import { toastError } from "@/lib/toast-result"
@@ -57,17 +64,20 @@ import {
   BREATHABLE_CHOICES,
   diffPatch,
   hasTags,
+  isAtManualStart,
   isEmptyPatch,
   isSeason,
   isTagFormField,
   itemTitle,
   lowConfidenceFields,
+  manualDefaultFields,
   manualTagFormDefaults,
   sortSeasons,
   tagFormBaseline,
   tagFormDefaults,
   tagFormErrorMap,
   tagFormSchema,
+  uncheckedDefaults,
   type BreathableChoice,
   type HintField,
   type TagFormOutput,
@@ -545,7 +555,9 @@ const NOT_EDITED = (): boolean => false
  * form schema requires them, a name, a colour and a season before anything is
  * sent. Save stores the tags (the item becomes tagged and shows the review
  * form); Save and confirm moves it to the wardrobe. The server records every
- * tag field with a value as the owner's own and keeps ai_raw empty.
+ * tag field with a value as the owner's own and keeps ai_raw empty, except the
+ * fields still at the form's own starting value, which the form marks with a
+ * note and a Keep toggle and sends as uncheckedDefaults (D-232).
  */
 function ManualTagForm({
   item,
@@ -559,6 +571,19 @@ function ManualTagForm({
   const { form, busy, status, setStatus, ids, run, fail } = useTagForm(item, manualTagFormDefaults, onDirtyChange)
   const introId = `${ids("manual").control}-intro`
   const focusedOnOpenRef = useRef(false)
+  const defaultFields = manualDefaultFields(item)
+  // Fields the owner pressed Keep on, held apart from the form values, which
+  // must parse to a plain ItemPatch.
+  const [kept, setKept] = useState<ReadonlySet<HandTagDefaultField>>(() => new Set())
+
+  function setFieldKept(field: HandTagDefaultField, keep: boolean) {
+    setKept((previous) => {
+      const next = new Set(previous)
+      if (keep) next.add(field)
+      else next.delete(field)
+      return next
+    })
+  }
 
   // Opening replaces the button that had focus; start at the first field. A
   // ref, so showing the page again after a navigation does not move focus.
@@ -571,8 +596,9 @@ function ManualTagForm({
   async function store(values: TagFormOutput, confirm: boolean) {
     // Every field: the server keeps those with a value and checks the required ones again.
     const patch = ItemPatchSchema.parse(showPlans ? values : withoutPlans(values))
+    const unchecked = uncheckedDefaults(defaultFields, values, kept)
     const result = await run(confirm ? "confirm" : "save", confirm ? "Saving and confirming…" : "Saving…", () =>
-      tagItemByHand({ id: item.id, patch, confirm })
+      tagItemByHand({ id: item.id, patch, confirm, uncheckedDefaults: unchecked })
     )
     if (!result.ok) return fail(confirm ? "Not confirmed" : "Not saved", result.error)
     setStatus(confirm ? "Confirmed." : "Saved.")
@@ -612,6 +638,7 @@ function ManualTagForm({
         hintFor={NO_HINT}
         isEdited={NOT_EDITED}
         showPlans={showPlans}
+        startValues={{ fields: defaultFields, kept, onKeptChange: setFieldKept }}
       />
 
       <div className="flex flex-col gap-3 border-t pt-4">
@@ -661,13 +688,88 @@ type TagFormSectionsProps = {
   isEdited: (field: keyof TagFormValues) => boolean
   /** Shows the location and decision choices; the detail page has its own toggles for them. */
   showPlans?: boolean
+  /** Hand-tagging only: marks the fields still at the form's own starting value (D-232). */
+  startValues?: StartValues
+}
+
+type StartValues = {
+  /** Fields that started at the form's own value because the item had none. */
+  fields: readonly HandTagDefaultField[]
+  /** Fields the owner pressed Keep on. */
+  kept: ReadonlySet<HandTagDefaultField>
+  onKeptChange: (field: HandTagDefaultField, kept: boolean) => void
+}
+
+type StartValueNoteProps = {
+  id: string
+  /** The field's label, which names the Keep toggle for screen readers. */
+  label: string
+  kept: boolean
+  onKeptChange: (kept: boolean) => void
+  disabled: boolean
+}
+
+/**
+ * Under a control that still holds the hand-tagging form's own starting value
+ * (D-232). A plain note rather than a warning, so the form does not nag: it
+ * says Re-tag may replace the value, and Keep makes the value the owner's.
+ * Changing the value removes the note, because a changed value is a choice.
+ */
+function StartValueNote({ id, label, kept, onKeptChange, disabled }: StartValueNoteProps) {
+  return (
+    <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+      <p id={id} className="min-w-0 flex-1 basis-48 text-xs text-muted-foreground text-pretty">
+        {kept ? "Default, kept: Re-tag keeps it." : "Default, not checked: Re-tag may change it."}
+      </p>
+      <Toggle
+        variant="outline"
+        size="touch"
+        pressed={kept}
+        onPressedChange={(pressed) => onKeptChange(pressed)}
+        // Five toggles read "Keep"; the name says which field, and starts with the visible word.
+        aria-label={`Keep ${label.toLowerCase()}`}
+        aria-describedby={id}
+        disabled={disabled}
+        className={PRESSED_CLASSES}
+      >
+        {kept ? <Check aria-hidden /> : null}
+        Keep
+      </Toggle>
+    </div>
+  )
 }
 
 /**
  * Every field section of the tag form; the modes share them and differ only
  * in the footer, apart from the detail mode leaving out the plans choices.
  */
-function TagFormSections({ control, ids, disabled, hintFor, isEdited, showPlans = true }: TagFormSectionsProps) {
+function TagFormSections({
+  control,
+  ids,
+  disabled,
+  hintFor,
+  isEdited,
+  showPlans = true,
+  startValues,
+}: TagFormSectionsProps) {
+  /** True when the field started at the form's own value and still holds it. */
+  function atStart<F extends HandTagDefaultField>(field: F, value: TagFormValues[F]): boolean {
+    return startValues !== undefined && startValues.fields.includes(field) && isAtManualStart(field, value)
+  }
+
+  function startValueNote(field: HandTagDefaultField, id: string, label: string) {
+    if (startValues === undefined) return null
+    return (
+      <StartValueNote
+        id={id}
+        label={label}
+        kept={startValues.kept.has(field)}
+        onKeptChange={(keep) => startValues.onKeptChange(field, keep)}
+        disabled={disabled}
+      />
+    )
+  }
+
   return (
     <>
       <FieldSet disabled={disabled}>
@@ -810,6 +912,8 @@ function TagFormSections({ control, ids, disabled, hintFor, isEdited, showPlans 
           render={({ field, fieldState }) => {
             const fieldIdSet = ids("warmth")
             const confidence = hintFor("warmth_level")
+            const noteId = `${fieldIdSet.control}-start`
+            const atStartValue = atStart("warmth_level", field.value)
             return (
               <TagField
                 ids={fieldIdSet}
@@ -824,9 +928,10 @@ function TagFormSections({ control, ids, disabled, hintFor, isEdited, showPlans 
                   onChange={field.onChange}
                   onBlur={field.onBlur}
                   inputRef={field.ref}
-                  describedBy={joinIds(confidence !== undefined && fieldIdSet.hint)}
+                  describedBy={joinIds(confidence !== undefined && fieldIdSet.hint, atStartValue && noteId)}
                   disabled={disabled}
                 />
+                {atStartValue ? startValueNote("warmth_level", noteId, "Warmth") : null}
               </TagField>
             )
           }}
@@ -837,20 +942,29 @@ function TagFormSections({ control, ids, disabled, hintFor, isEdited, showPlans 
               key={name}
               control={control}
               name={name}
-              render={({ field }) => (
-                <SwitchRow
-                  ids={ids(name)}
-                  label={SWITCH_COPY[name].label}
-                  description={SWITCH_COPY[name].description}
-                  checked={field.value}
-                  onCheckedChange={field.onChange}
-                  onBlur={field.onBlur}
-                  inputRef={field.ref}
-                  confidence={hintFor(name)}
-                  edited={isEdited(name)}
-                  disabled={disabled}
-                />
-              )}
+              render={({ field }) => {
+                const fieldIdSet = ids(name)
+                return (
+                  // The note sits under its switch's row, which has no slot for it.
+                  <div className="flex flex-col gap-1">
+                    <SwitchRow
+                      ids={fieldIdSet}
+                      label={SWITCH_COPY[name].label}
+                      description={SWITCH_COPY[name].description}
+                      checked={field.value}
+                      onCheckedChange={field.onChange}
+                      onBlur={field.onBlur}
+                      inputRef={field.ref}
+                      confidence={hintFor(name)}
+                      edited={isEdited(name)}
+                      disabled={disabled}
+                    />
+                    {atStart(name, field.value)
+                      ? startValueNote(name, `${fieldIdSet.control}-start`, SWITCH_COPY[name].label)
+                      : null}
+                  </div>
+                )
+              }}
             />
           ))}
         </div>
@@ -873,6 +987,9 @@ function TagFormSections({ control, ids, disabled, hintFor, isEdited, showPlans 
                 buttonRef={field.ref}
                 disabled={disabled}
               />
+              {atStart("breathable", field.value)
+                ? startValueNote("breathable", `${ids("breathable").control}-start`, "Breathable")
+                : null}
             </TagField>
           )}
         />

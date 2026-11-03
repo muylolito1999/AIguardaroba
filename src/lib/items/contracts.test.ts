@@ -9,6 +9,9 @@ import {
   DRY_RUN_ITEM_DETAIL,
   dryRunItemIdFrom,
   EDITABLE_TAG_FIELDS,
+  HAND_TAG_DEFAULT_FIELDS,
+  HAND_TAG_DEFAULTS,
+  isHandTagDefault,
   isUuid,
   ITEM_API,
   ITEM_PATCH_FIELD_TO_COLUMN,
@@ -31,6 +34,7 @@ import {
   taggedItemIdFrom,
   TagBodySchema,
   TagDataSchema,
+  UncheckedDefaultsSchema,
   type ItemCardDto,
 } from "./contracts";
 
@@ -161,6 +165,32 @@ describe("ItemPatchSchema", () => {
 
   it("keeps the unrefined fields schema usable for pick", () => {
     expect(ItemPatchFieldsSchema.pick({ name: true }).parse({ name: "Coat" })).toEqual({ name: "Coat" });
+  });
+});
+
+describe("hand-tagging defaults", () => {
+  it("are valid tag values of editable fields, listed in field order", () => {
+    expect(ItemPatchSchema.parse(HAND_TAG_DEFAULTS)).toEqual(HAND_TAG_DEFAULTS);
+    expect(HAND_TAG_DEFAULT_FIELDS).toEqual(["warmth_level", "waterproof", "windproof", "insulated", "breathable"]);
+    for (const field of HAND_TAG_DEFAULT_FIELDS) expect(EDITABLE_TAG_FIELDS).toContain(field);
+  });
+
+  it("tells a default from any other value, a missing one included", () => {
+    expect(HAND_TAG_DEFAULT_FIELDS.every((field) => isHandTagDefault(field, HAND_TAG_DEFAULTS[field]))).toBe(true);
+    expect(isHandTagDefault("warmth_level", 4)).toBe(false);
+    expect(isHandTagDefault("waterproof", true)).toBe(false);
+    expect(isHandTagDefault("breathable", false)).toBe(false);
+    expect(isHandTagDefault("breathable", undefined)).toBe(false);
+    expect(isHandTagDefault("insulated", undefined)).toBe(false);
+  });
+
+  it("accepts a list of default fields, each once, and nothing else", () => {
+    expect(UncheckedDefaultsSchema.parse([])).toEqual([]);
+    expect(UncheckedDefaultsSchema.parse(["breathable", "warmth_level"])).toEqual(["breathable", "warmth_level"]);
+    expect(UncheckedDefaultsSchema.safeParse(["name"]).success).toBe(false);
+    expect(UncheckedDefaultsSchema.safeParse(["seasons"]).success).toBe(false);
+    expect(UncheckedDefaultsSchema.safeParse(["waterproof", "waterproof"]).success).toBe(false);
+    expect(UncheckedDefaultsSchema.safeParse("warmth_level").success).toBe(false);
   });
 });
 

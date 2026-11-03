@@ -42,6 +42,19 @@ function Fact({ label, children }: { label: string; children: ReactNode }) {
   )
 }
 
+/**
+ * "€600 to spend from 3 Nov 2026": a plan's budget is what was left to spend
+ * from the day it finished, so two plans read as two statements of what was
+ * left then, not as money that came back (D-219, D-231).
+ */
+function purchaseBudgetFact(view: RelocationViewDto): string {
+  const budget = view.params.purchaseBudgetEur
+  if (budget === null) return "None given"
+  return view.completedAt === null
+    ? formatEur(budget)
+    : `${formatEur(budget)} to spend from ${formatDay(view.completedAt)}`
+}
+
 function SummaryCard({ view }: { view: RelocationViewDto }) {
   const meta = view.result.meta
   return (
@@ -65,9 +78,7 @@ function SummaryCard({ view }: { view: RelocationViewDto }) {
             {formatMonths(view.months)}
           </Fact>
           <Fact label="Items analysed">{plural(meta.item_count, "item", "items")}</Fact>
-          <Fact label="Purchase budget">
-            {view.params.purchaseBudgetEur === null ? "None given" : formatEur(view.params.purchaseBudgetEur)}
-          </Fact>
+          <Fact label="Purchase budget">{purchaseBudgetFact(view)}</Fact>
           <Fact label="Model">
             {modelLabel(view.model)}
             {view.effort === null ? "" : ` · ${view.effort} effort`}

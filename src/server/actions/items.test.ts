@@ -99,30 +99,74 @@ describe("item actions", () => {
   it("tags a pending item by hand, and confirms it when asked", async () => {
     const first = await makeItem(testDb.db);
     const second = await makeItem(testDb.db);
-    expect(await actions.tagItemByHand({ id: first.id, patch: HAND_TAGS, confirm: false })).toMatchObject({
+    expect(
+      await actions.tagItemByHand({ id: first.id, patch: HAND_TAGS, confirm: false, uncheckedDefaults: [] }),
+    ).toMatchObject({
       ok: true,
       data: { id: first.id, status: "tagged", name: "Grey wool scarf", aiModel: null },
     });
-    expect(await actions.tagItemByHand({ id: second.id, patch: HAND_TAGS, confirm: true })).toMatchObject({
+    expect(
+      await actions.tagItemByHand({ id: second.id, patch: HAND_TAGS, confirm: true, uncheckedDefaults: [] }),
+    ).toMatchObject({
       ok: true,
       data: { id: second.id, status: "confirmed" },
     });
     expect(mocks.getAnthropic).not.toHaveBeenCalled();
   });
 
+  it("stores the defaults left alone without marking them as the owner's", async () => {
+    const item = await makeItem(testDb.db);
+    const result = await actions.tagItemByHand({
+      id: item.id,
+      patch: HAND_TAGS,
+      confirm: false,
+      uncheckedDefaults: ["warmth_level", "waterproof", "insulated"],
+    });
+    expect(result).toMatchObject({ ok: true, data: { warmthLevel: 3, waterproof: false, insulated: false } });
+    expect((await row(item.id)).userEditedFields).toEqual([
+      "name",
+      "category",
+      "colors",
+      "color_hex",
+      "windproof",
+      "seasons",
+      "formality",
+      "condition",
+    ]);
+  });
+
   it("validates the hand-tagging input before calling the service", async () => {
     const item = await makeItem(testDb.db);
     const malformed: unknown[] = [
-      { id: "nope", patch: HAND_TAGS, confirm: false },
-      { id: item.id, patch: HAND_TAGS },
-      { id: item.id, patch: { ...HAND_TAGS, status: "tagged" }, confirm: false },
-      { id: item.id, patch: { ...HAND_TAGS, warmth_level: 9 }, confirm: false },
+      { id: "nope", patch: HAND_TAGS, confirm: false, uncheckedDefaults: [] },
+      { id: item.id, patch: HAND_TAGS, uncheckedDefaults: [] },
+      { id: item.id, patch: HAND_TAGS, confirm: false },
+      { id: item.id, patch: HAND_TAGS, confirm: false, uncheckedDefaults: ["name"] },
+      { id: item.id, patch: HAND_TAGS, confirm: false, uncheckedDefaults: ["warmth_level", "warmth_level"] },
+      { id: item.id, patch: { ...HAND_TAGS, status: "tagged" }, confirm: false, uncheckedDefaults: [] },
+      { id: item.id, patch: { ...HAND_TAGS, warmth_level: 9 }, confirm: false, uncheckedDefaults: [] },
     ];
     for (const input of malformed) {
       // Deliberately malformed: the client could send anything.
       expect(await actions.tagItemByHand(input as never)).toMatchObject({ ok: false, error: { code: "VALIDATION" } });
     }
-    expect((await actions.tagItemByHand({ id: item.id, patch: {}, confirm: true })).ok).toBe(false);
+    expect((await actions.tagItemByHand({ id: item.id, patch: {}, confirm: true, uncheckedDefaults: [] })).ok).toBe(false);
+    expect((await row(item.id)).status).toBe("pending_tagging");
+  });
+
+  it("refuses a default left alone that the patch does not hold", async () => {
+    const item = await makeItem(testDb.db);
+    // windproof is true in HAND_TAGS, not the form's false.
+    expect(
+      await actions.tagItemByHand({ id: item.id, patch: HAND_TAGS, confirm: true, uncheckedDefaults: ["windproof"] }),
+    ).toEqual({
+      ok: false,
+      error: {
+        code: "VALIDATION",
+        message: "The form's default values did not match. Reload the page and try again.",
+        details: { uncheckedDefaults: ["windproof"] },
+      },
+    });
     expect((await row(item.id)).status).toBe("pending_tagging");
   });
 
@@ -130,12 +174,16 @@ describe("item actions", () => {
     const item = await makeItem(testDb.db);
     const noSeason: ItemPatchInput = { ...HAND_TAGS };
     delete noSeason.seasons;
-    expect(await actions.tagItemByHand({ id: item.id, patch: noSeason, confirm: true })).toEqual({
+    expect(
+      await actions.tagItemByHand({ id: item.id, patch: noSeason, confirm: true, uncheckedDefaults: [] }),
+    ).toEqual({
       ok: false,
       error: { code: "VALIDATION", message: "Fill in seasons first.", details: { itemId: item.id, missing: ["seasons"] } },
     });
     const tagged = await makeTaggedItem(testDb.db, { aiRaw: COAT_TAGS });
-    expect(await actions.tagItemByHand({ id: tagged.id, patch: HAND_TAGS, confirm: false })).toMatchObject({
+    expect(
+      await actions.tagItemByHand({ id: tagged.id, patch: HAND_TAGS, confirm: false, uncheckedDefaults: [] }),
+    ).toMatchObject({
       ok: false,
       error: { code: "CONFLICT" },
     });
@@ -190,7 +238,9 @@ describe("item actions", () => {
     });
     expect(await actions.pollTaggingBatches()).toMatchObject({ ok: false, error: { code: "UNAUTHENTICATED" } });
     const pending = await makeItem(testDb.db);
-    expect(await actions.tagItemByHand({ id: pending.id, patch: HAND_TAGS, confirm: true })).toMatchObject({
+    expect(
+      await actions.tagItemByHand({ id: pending.id, patch: HAND_TAGS, confirm: true, uncheckedDefaults: [] }),
+    ).toMatchObject({
       ok: false,
       error: { code: "UNAUTHENTICATED" },
     });

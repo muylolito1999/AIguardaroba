@@ -1,20 +1,24 @@
 import { describe, expect, it } from "vitest"
 
-import { ItemPatchSchema } from "@/lib/items/contracts"
+import { HAND_TAG_DEFAULT_FIELDS, HAND_TAG_DEFAULTS, isHandTagDefault, ItemPatchSchema } from "@/lib/items/contracts"
 
 import {
   cardPhoto,
   diffPatch,
   hasTags,
+  isAtManualStart,
   isEmptyPatch,
   isUntouched,
   lowConfidenceFields,
+  MANUAL_START_VALUES,
+  manualDefaultFields,
   manualTagFormDefaults,
   sortSeasons,
   tagFormBaseline,
   tagFormDefaults,
   tagFormErrorMap,
   tagFormSchema,
+  uncheckedDefaults,
   type TagFormValues,
   type TaggedItemCard,
 } from "./tag-form-model"
@@ -276,5 +280,68 @@ describe("manualTagFormDefaults", () => {
     expect(result.success).toBe(false)
     const paths = new Set(result.error?.issues.map((issue) => issue.path[0]))
     expect([...paths].sort()).toEqual(["category", "colors", "condition", "formality", "name", "seasons"])
+  })
+})
+
+describe("the hand-tagging form's own starting values (D-232)", () => {
+  /** A pending card's form, completed with the required choices and parsed to what Save sends. */
+  function completed(item = pendingCard()) {
+    return parse({
+      ...manualTagFormDefaults(item),
+      name: "Grey scarf",
+      category: "scarf",
+      colors: [{ name: "grey", hex: "#808080" }],
+      seasons: ["winter"],
+      formality: "casual",
+      condition: "good",
+    })
+  }
+
+  it("start where HAND_TAG_DEFAULTS say, as the controls and as the patch hold them", () => {
+    expect(manualTagFormDefaults(pendingCard())).toMatchObject(MANUAL_START_VALUES)
+    const output = completed()
+    expect(HAND_TAG_DEFAULT_FIELDS.every((field) => isHandTagDefault(field, output[field]))).toBe(true)
+    expect(output).toMatchObject(HAND_TAG_DEFAULTS)
+  })
+
+  it("are the form's own only where the item has no value and the owner set none", () => {
+    expect(manualDefaultFields(pendingCard())).toEqual([...HAND_TAG_DEFAULT_FIELDS])
+    expect(
+      manualDefaultFields(
+        pendingCard({ warmthLevel: 2, waterproof: false, windproof: true, insulated: null, breathable: false })
+      )
+    ).toEqual(["insulated"])
+    // A breathable "Unknown" the owner saved earlier is theirs; an off-scale warmth is replaced by the start.
+    expect(manualDefaultFields(pendingCard({ userEditedFields: ["breathable"], warmthLevel: 9 }))).toEqual([
+      "warmth_level",
+      "waterproof",
+      "windproof",
+      "insulated",
+    ])
+  })
+
+  it("tells a control at its start from one that moved", () => {
+    expect(isAtManualStart("warmth_level", 3)).toBe(true)
+    expect(isAtManualStart("warmth_level", 4)).toBe(false)
+    expect(isAtManualStart("insulated", false)).toBe(true)
+    expect(isAtManualStart("insulated", true)).toBe(false)
+    expect(isAtManualStart("breathable", "unknown")).toBe(true)
+    expect(isAtManualStart("breathable", "no")).toBe(false)
+  })
+
+  it("are sent as left alone while they hold the start and the owner did not keep them", () => {
+    const fields = manualDefaultFields(pendingCard())
+    const atStart = completed()
+    expect(uncheckedDefaults(fields, atStart, new Set())).toEqual([...HAND_TAG_DEFAULT_FIELDS])
+    expect(uncheckedDefaults(fields, atStart, new Set(["warmth_level", "breathable"]))).toEqual([
+      "waterproof",
+      "windproof",
+      "insulated",
+    ])
+    // A changed value is a choice; the value decides, so one set back to the start is left alone again.
+    const changed = { ...atStart, warmth_level: 4 as const, waterproof: true, breathable: false }
+    expect(uncheckedDefaults(fields, changed, new Set())).toEqual(["windproof", "insulated"])
+    // Only fields that started at the form's own value can be sent.
+    expect(uncheckedDefaults(["insulated"], atStart, new Set())).toEqual(["insulated"])
   })
 })

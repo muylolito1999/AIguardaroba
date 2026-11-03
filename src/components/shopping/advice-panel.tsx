@@ -18,9 +18,13 @@ import { postShoppingAdvice, type RequestShoppingAdvice } from "./advice-api"
 import {
   budgetSummary,
   candidatePrice,
+  estimatedOutfits,
   formatAdviceEur,
-  outfitCount,
+  OUTFIT_COUNT_NOTE,
+  REMAINING_BUDGET_NOTE,
+  remainingBudgetHeadline,
   scenarioCaption,
+  type AdviceBudgetDto,
   type AdviceCandidateDto,
   type AdviceRecommendationDto,
   type AdviceScenarioDto,
@@ -65,12 +69,13 @@ function UnlockList({
     )
   }
   return (
-    <ul className="flex flex-wrap gap-x-4 gap-y-1 text-sm" aria-label="New outfits per season">
+    <ul className="flex flex-wrap gap-x-4 gap-y-1 text-sm" aria-label="Estimated new outfits per season">
       {scenarios.map((scenario) => {
         const count = candidate.unlocks[scenario.key] ?? 0
         return (
           <li key={scenario.key} className={count === 0 ? "text-muted-foreground" : undefined}>
-            {scenario.label}: <span className={count > 0 ? "font-medium" : undefined}>unlocks {outfitCount(count)}</span>
+            {scenario.label}:{" "}
+            <span className={count > 0 ? "font-medium" : undefined}>{estimatedOutfits(count, "new")}</span>
           </li>
         )
       })}
@@ -139,12 +144,30 @@ function RecommendationCard({
   )
 }
 
+/**
+ * The budget the ranking must stay within. With a plan budget, its figure is
+ * named an estimate and the note says why (D-219, D-231); without one, only
+ * where a budget would come from.
+ */
+function BudgetLines({ budget }: Readonly<{ budget: AdviceBudgetDto }>) {
+  const headline = remainingBudgetHeadline(budget)
+  if (headline === null) return <p className="text-sm text-pretty">{budgetSummary(budget)}</p>
+  return (
+    <div className="flex flex-col gap-1 text-sm text-pretty">
+      <p className="font-medium">{headline}</p>
+      <p>{budgetSummary(budget)}</p>
+      <p className="text-muted-foreground">{REMAINING_BUDGET_NOTE}</p>
+    </div>
+  )
+}
+
 function CandidateList({ state }: Readonly<{ state: ShoppingAdviceReadyDto }>) {
   if (state.candidates.length === 0) return null
   return (
     <details className="group rounded-xl border bg-card text-card-foreground">
       <summary className="flex min-h-11 cursor-pointer items-center px-4 text-sm font-medium">
-        See the {state.candidates.length} {state.candidates.length === 1 ? "candidate" : "candidates"} and their outfit counts
+        See the {state.candidates.length} {state.candidates.length === 1 ? "candidate" : "candidates"} and their estimated
+        outfit counts
       </summary>
       <ul className="flex flex-col gap-3 border-t p-4">
         {state.candidates.map((candidate) => (
@@ -186,7 +209,7 @@ function LatestRanking({
         <h3 className="font-heading text-base font-semibold">Ranked on {formatDay(latest.completedAt)}</h3>
         <p className="text-sm text-muted-foreground">
           {modelLabel(latest.model)} · cost {formatUsd(latest.costUsd)}
-          {latest.remainingBudgetEur === null ? "" : ` · ${formatAdviceEur(latest.remainingBudgetEur)} budget left then`}
+          {latest.remainingBudgetEur === null ? "" : ` · estimated ${formatAdviceEur(latest.remainingBudgetEur)} left then`}
         </p>
         {latest.stale ? (
           <p className="text-sm text-pretty">
@@ -302,10 +325,11 @@ export function AdvicePanel({
           What to buy next
         </h2>
         <p className="text-sm text-pretty text-muted-foreground">
-          Claude ranks your open shopping list and the gaps of your latest relocation plan. The app counts the outfits each
-          purchase would add{state.climate !== null ? ` in ${state.climate.city}` : ""}; Claude only orders them and explains
-          why.
+          Claude ranks your open shopping list and the gaps of your latest relocation plan. The app estimates the outfits
+          each purchase would add{state.climate !== null ? ` in ${state.climate.city}` : ""}; Claude only orders them and
+          explains why.
         </p>
+        <p className="text-sm text-pretty text-muted-foreground">{OUTFIT_COUNT_NOTE}</p>
       </div>
 
       {state.scenarios.length > 0 ? (
@@ -314,14 +338,15 @@ export function AdvicePanel({
           <ul className="flex flex-wrap gap-x-4 gap-y-1 text-sm text-muted-foreground">
             {state.scenarios.map((scenario) => (
               <li key={scenario.key}>
-                {scenarioCaption(scenario)}: <span className="text-foreground">{outfitCount(scenario.outfitsNow)}</span>
+                {scenarioCaption(scenario)}:{" "}
+                <span className="text-foreground">{estimatedOutfits(scenario.outfitsNow, "total")}</span>
               </li>
             ))}
           </ul>
         </div>
       ) : null}
 
-      <p className="text-sm text-pretty">{budgetSummary(state.budget)}</p>
+      <BudgetLines budget={state.budget} />
 
       {state.blocker !== null ? (
         <p className="rounded-lg border bg-muted/40 px-3 py-2 text-sm text-pretty">{state.blocker}</p>

@@ -1,7 +1,7 @@
 import { Layers, Luggage, Plus, Settings, Shirt, ShoppingBag, Sun } from "lucide-react"
 import { describe, expect, it } from "vitest"
 
-import { PRIMARY_NAV, SECONDARY_NAV, SECONDARY_NAV_TAB, isNavItemActive, tabActiveOn } from "./nav-items"
+import { PRIMARY_NAV, SECONDARY_NAV, SECONDARY_NAV_TAB, isNavItemActive, navItemCurrent, tabActiveOn } from "./nav-items"
 
 describe("PRIMARY_NAV", () => {
   it("lists exactly the five primary destinations in tab order", () => {
@@ -73,5 +73,40 @@ describe("isNavItemActive", () => {
 
   it("matches nothing while the pathname is unknown", () => {
     expect(isNavItemActive(null, "/wardrobe")).toBe(false)
+  })
+})
+
+describe("navItemCurrent (D-218, D-230)", () => {
+  const wardrobeTab = PRIMARY_NAV.find((item) => item.href === "/wardrobe")
+  const wardrobeOn = wardrobeTab ? tabActiveOn(wardrobeTab) : []
+
+  it("says page only when the link's own page is open", () => {
+    expect(navItemCurrent("/wardrobe", "/wardrobe", wardrobeOn)).toBe("page")
+    expect(navItemCurrent("/add", "/add")).toBe("page")
+    expect(navItemCurrent("/today", "/today")).toBe("page")
+    expect(navItemCurrent("/outfits", "/outfits")).toBe("page")
+  })
+
+  it.each([
+    ["/wardrobe/3f2a", "/wardrobe"],
+    ["/stats", "/wardrobe"],
+    ["/today", "/wardrobe"],
+    ["/outfits", "/wardrobe"],
+    ["/outfits/new", "/wardrobe"],
+    ["/add/review", "/add"],
+    ["/relocate/0f8c", "/relocate"],
+    ["/relocate/0f8c/print", "/relocate"],
+    ["/settings/usage", "/settings"],
+    ["/outfits/3f2a", "/outfits"],
+  ])("says true, not page, on %s, inside the section of %s", (pathname, href) => {
+    const item = [...PRIMARY_NAV, ...SECONDARY_NAV].find((entry) => entry.href === href)
+    const alsoActiveOn = href === "/wardrobe" ? wardrobeOn : (item?.alsoActiveOn ?? [])
+    expect(navItemCurrent(pathname, href, alsoActiveOn)).toBe("true")
+  })
+
+  it("leaves a link unmarked outside its section and while the pathname is unknown", () => {
+    expect(navItemCurrent("/settings", "/wardrobe", wardrobeOn)).toBeUndefined()
+    expect(navItemCurrent("/wardrobex", "/wardrobe", wardrobeOn)).toBeUndefined()
+    expect(navItemCurrent(null, "/wardrobe", wardrobeOn)).toBeUndefined()
   })
 })
