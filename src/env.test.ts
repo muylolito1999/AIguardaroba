@@ -266,6 +266,35 @@ describe("flagsEnv", () => {
   });
 });
 
+describe("weatherEnv", () => {
+  it("defaults to the public Open-Meteo API, also for a blank value", () => {
+    expect(createEnv({}).weatherEnv().OPEN_METEO_BASE_URL).toBe("https://api.open-meteo.com");
+    expect(createEnv({ OPEN_METEO_BASE_URL: "  " }).weatherEnv().OPEN_METEO_BASE_URL).toBe(
+      "https://api.open-meteo.com",
+    );
+  });
+
+  it.each(["http://127.0.0.1:3901", "https://example.test/open-meteo/"])("accepts %s (a local stub)", (url) => {
+    expect(createEnv({ OPEN_METEO_BASE_URL: url }).weatherEnv().OPEN_METEO_BASE_URL).toBe(url);
+  });
+
+  it.each(["ftp://example.test", "localhost:3901", "https://example.test/?key=1", "https://example.test/#x"])(
+    "rejects %s",
+    (url) => {
+      const error = captureError(() => createEnv({ OPEN_METEO_BASE_URL: url }).weatherEnv());
+      expect(error.code).toBe("CONFIG");
+      expect(error.message).toContain("OPEN_METEO_BASE_URL must be an http:// or https:// URL");
+      expect(error.details).toEqual({ group: "weather", variables: ["OPEN_METEO_BASE_URL"] });
+    },
+  );
+
+  it("needs nothing from the other groups", () => {
+    const env = createEnv({ OPEN_METEO_BASE_URL: "http://127.0.0.1:3901" });
+    expect(env.weatherEnv().OPEN_METEO_BASE_URL).toBe("http://127.0.0.1:3901");
+    expect(() => env.dbEnv()).toThrow(AppError);
+  });
+});
+
 describe("error messages never contain values", () => {
   const cases: Array<[string, EnvSource, keyof ReturnType<typeof createEnv>]> = [
     ["DATABASE_URL", { DATABASE_URL: `mysql://${SECRET_MARKER}@host/db` }, "dbEnv"],
@@ -275,6 +304,7 @@ describe("error messages never contain values", () => {
     ["BLOB_READ_WRITE_TOKEN", { BLOB_READ_WRITE_TOKEN: SECRET_MARKER }, "blobEnv"],
     ["CRON_SECRET", { CRON_SECRET: SECRET_MARKER.slice(0, 10) }, "cronEnv"],
     ["FEATURE_SHOPPING_AI", { FEATURE_SHOPPING_AI: SECRET_MARKER }, "flagsEnv"],
+    ["OPEN_METEO_BASE_URL", { OPEN_METEO_BASE_URL: `ftp://${SECRET_MARKER}` }, "weatherEnv"],
     [
       "AI group",
       {
@@ -301,7 +331,8 @@ describe("serverEnvReport", () => {
   it("reports every group without throwing", () => {
     const report = serverEnvReport({ SESSION_SECRET: "short", FEATURE_SHOPPING_AI: "true" });
 
-    expect(Object.keys(report).sort()).toEqual(["ai", "blob", "cron", "db", "flags", "password", "session"]);
+    expect(Object.keys(report).sort()).toEqual(["ai", "blob", "cron", "db", "flags", "password", "session", "weather"]);
+    expect(report.weather).toEqual({ ok: true, problems: [] });
     expect(report.flags).toEqual({ ok: true, problems: [] });
     expect(report.session).toEqual({ ok: false, problems: ["SESSION_SECRET must be at least 32 characters long"] });
     expect(report.db.problems).toEqual(["DATABASE_URL is not set"]);

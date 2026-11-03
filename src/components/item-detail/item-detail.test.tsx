@@ -55,6 +55,8 @@ function fakeActions(): { [K in keyof ItemDetailActions]: ReturnType<typeof vi.f
     archiveItem: vi.fn<ItemDetailActions["archiveItem"]>(),
     unarchiveItem: vi.fn<ItemDetailActions["unarchiveItem"]>(),
     deleteItem: vi.fn<ItemDetailActions["deleteItem"]>(),
+    logWear: vi.fn<ItemDetailActions["logWear"]>(),
+    undoWear: vi.fn<ItemDetailActions["undoWear"]>(),
   }
 }
 

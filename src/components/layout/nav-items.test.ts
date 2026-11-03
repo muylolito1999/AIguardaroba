@@ -1,7 +1,7 @@
-import { Luggage, Plus, Settings, Shirt, ShoppingBag } from "lucide-react"
+import { Layers, Luggage, Plus, Settings, Shirt, ShoppingBag, Sun } from "lucide-react"
 import { describe, expect, it } from "vitest"
 
-import { PRIMARY_NAV, isNavItemActive } from "./nav-items"
+import { PRIMARY_NAV, SECONDARY_NAV, SECONDARY_NAV_TAB, isNavItemActive, tabActiveOn } from "./nav-items"
 
 describe("PRIMARY_NAV", () => {
   it("lists exactly the five primary destinations in tab order", () => {
@@ -22,6 +22,32 @@ describe("PRIMARY_NAV", () => {
       ShoppingBag,
       Settings,
     ])
+  })
+})
+
+describe("SECONDARY_NAV (D-218)", () => {
+  it("lists Today and Outfits with their icons", () => {
+    expect(SECONDARY_NAV.map(({ href, label, icon }) => ({ href, label, icon }))).toEqual([
+      { href: "/today", label: "Today", icon: Sun },
+      { href: "/outfits", label: "Outfits", icon: Layers },
+    ])
+  })
+
+  it("adds no tab: the phone keeps five", () => {
+    const primary = PRIMARY_NAV.map((item) => item.href)
+    for (const item of SECONDARY_NAV) expect(primary).not.toContain(item.href)
+    expect(PRIMARY_NAV).toHaveLength(5)
+  })
+
+  it("marks the Wardrobe tab, whose header links to them, on the secondary pages", () => {
+    expect(SECONDARY_NAV_TAB).toBe("/wardrobe")
+    const wardrobe = PRIMARY_NAV.find((item) => item.href === "/wardrobe")
+    expect(wardrobe && tabActiveOn(wardrobe)).toEqual(["/stats", "/today", "/outfits"])
+    // Its sidebar row keeps only its own sections; the sidebar lists the secondary pages itself.
+    expect(wardrobe?.alsoActiveOn).toEqual(["/stats"])
+    for (const item of PRIMARY_NAV.filter((entry) => entry.href !== "/wardrobe")) {
+      expect(tabActiveOn(item)).toEqual(item.alsoActiveOn ?? [])
+    }
   })
 })
 

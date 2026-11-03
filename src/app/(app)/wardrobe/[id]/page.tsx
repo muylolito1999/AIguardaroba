@@ -20,6 +20,7 @@ import {
   unarchiveItem,
   updateItemTags,
 } from "@/server/actions/items"
+import { logWear, undoWear } from "@/server/actions/wear"
 import { loadItemDetail } from "@/server/items/detail"
 
 // Static: the title cannot name the item, because reading it needs the
@@ -59,6 +60,8 @@ async function ItemDetailContent({ params }: Pick<PageProps<"/wardrobe/[id]">, "
         archiveItem,
         unarchiveItem,
         deleteItem,
+        logWear,
+        undoWear,
       }}
     />
   )

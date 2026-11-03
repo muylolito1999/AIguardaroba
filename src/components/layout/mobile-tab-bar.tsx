@@ -6,7 +6,7 @@ import { usePathname } from "next/navigation"
 
 import { cn } from "@/lib/utils"
 
-import { PRIMARY_NAV, isNavItemActive } from "./nav-items"
+import { PRIMARY_NAV, isNavItemActive, tabActiveOn } from "./nav-items"
 
 /** Bottom navigation below the md breakpoint; the desktop sidebar takes over above it. */
 export function MobileTabBar() {
@@ -31,8 +31,10 @@ function ActiveTabList() {
 function TabList({ pathname }: { pathname: string | null }) {
   return (
     <ul className="grid grid-cols-5">
-      {PRIMARY_NAV.map(({ href, label, icon: Icon, alsoActiveOn }) => {
-        const active = isNavItemActive(pathname, href, alsoActiveOn)
+      {PRIMARY_NAV.map((item) => {
+        const { href, label, icon: Icon } = item
+        // Five tabs only: the daily pages mark the tab whose header links to them (D-218).
+        const active = isNavItemActive(pathname, href, tabActiveOn(item))
         return (
           <li key={href} className="flex">
             <Link

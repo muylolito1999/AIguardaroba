@@ -3,6 +3,7 @@
 // so these client components never import the action module themselves and
 // tests can hand in fakes.
 
+import type { LogWearAction, UndoWearAction } from "@/components/outfits/outfit-actions"
 import type {
   ConfirmItemAction,
   TagItemByHandAction,
@@ -35,4 +36,7 @@ export type ItemDetailActions = {
   archiveItem: ArchiveItemAction
   unarchiveItem: UnarchiveItemAction
   deleteItem: DeleteItemAction
+  /** "+1 worn today" and its Undo. */
+  logWear: LogWearAction
+  undoWear: UndoWearAction
 }

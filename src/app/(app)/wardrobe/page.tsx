@@ -4,6 +4,7 @@ import { Suspense } from "react"
 import { Plus } from "lucide-react"
 
 import { PageHeader } from "@/components/layout/page-header"
+import { SecondaryNavLinks } from "@/components/layout/secondary-nav-links"
 import { buttonVariants } from "@/components/ui/button"
 import { WardrobeSkeleton } from "@/components/wardrobe/grid-skeleton"
 import { WardrobeResults } from "@/components/wardrobe/wardrobe-results"
@@ -26,13 +27,17 @@ export default function WardrobePage({ searchParams }: PageProps<"/wardrobe">) {
         title="Wardrobe"
         description="Everything you own, tagged and searchable."
         actions={
-          // A styled Link rather than Button render={<Link />}: Base UI's Button
-          // would add a button role to the anchor. The Stats link sits in the
-          // toolbar next to Sort.
-          <Link href="/add" className={buttonVariants({ size: "touch" })}>
-            <Plus aria-hidden />
-            Add items
-          </Link>
+          <>
+            {/* Phones only: the sidebar lists Today and Outfits from md up (D-218). */}
+            <SecondaryNavLinks className="md:hidden" />
+            {/* A styled Link rather than Button render={<Link />}: Base UI's Button
+                would add a button role to the anchor. The Stats link sits in the
+                toolbar next to Sort. */}
+            <Link href="/add" className={buttonVariants({ size: "touch" })}>
+              <Plus aria-hidden />
+              Add items
+            </Link>
+          </>
         }
       />
       {/* No key: a filter change keeps the current results on screen (a

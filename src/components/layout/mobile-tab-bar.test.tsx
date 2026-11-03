@@ -43,6 +43,16 @@ describe("MobileTabBar", () => {
     expect(links.some((link) => link.hasAttribute("aria-current"))).toBe(false)
   })
 
+  it.each(["/today", "/outfits", "/outfits/3f2a", "/outfits/new"])(
+    "marks Wardrobe on %s, which has no tab of its own (D-218)",
+    (pathname) => {
+      const links = renderTabs(pathname)
+
+      const current = links.filter((link) => link.getAttribute("aria-current") === "page")
+      expect(current).toEqual([screen.getByRole("link", { name: "Wardrobe" })])
+    }
+  )
+
   it("gives every tab at least a 44px tap target", () => {
     const links = renderTabs("/wardrobe")
 

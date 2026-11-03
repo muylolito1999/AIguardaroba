@@ -87,6 +87,15 @@ describe("describeClimateForPrompt", () => {
     expect(() => describeClimateForPrompt(HAMBURG, [13])).toThrow(RangeError);
   });
 
+  it("heads the table as the stay's months unless another heading is given", () => {
+    expect(describeClimateForPrompt(HAMBURG, [7, 8])).toContain(
+      "\nMonthly normals for the stay, in order (arrival month first):\n",
+    );
+    const text = describeClimateForPrompt(HAMBURG, [1, 2], { heading: "Monthly normals, January to December:" });
+    expect(text).toContain("\nMonthly normals, January to December:\n");
+    expect(text).not.toContain("arrival month");
+  });
+
   it("names the months in English abbreviations", () => {
     expect(MONTH_NAMES).toHaveLength(12);
     expect(MONTH_NAMES[0]).toBe("Jan");

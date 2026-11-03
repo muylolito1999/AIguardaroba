@@ -4,6 +4,7 @@ import { z } from "zod";
 
 import { safeResolveModels, type ResolvedModels } from "@/lib/ai/models";
 import { AppError } from "@/lib/result";
+import { OPEN_METEO_DEFAULT_BASE_URL } from "@/lib/weather/open-meteo";
 
 // Each concern validates on first use and is memoized, so a build or a page
 // that never touches the AI layer does not need AI credentials. Failures name
@@ -11,7 +12,7 @@ import { AppError } from "@/lib/result";
 
 export type EnvSource = Record<string, string | undefined>;
 
-export const ENV_GROUPS = ["db", "session", "password", "blob", "ai", "cron", "flags"] as const;
+export const ENV_GROUPS = ["db", "session", "password", "blob", "ai", "cron", "flags", "weather"] as const;
 export type EnvGroup = (typeof ENV_GROUPS)[number];
 
 type ParseOutcome<T> =
@@ -170,6 +171,27 @@ const parseFlags = fromSchema(
   }),
 );
 
+// Open-Meteo needs no key. The base URL is configurable only so the e2e run can
+// point the server at a local stub instead of the real API; unset, the
+// public API is used.
+const parseWeather = fromSchema(
+  z.object({
+    OPEN_METEO_BASE_URL: envVar(
+      z
+        .string({ error: "must be a string" })
+        .refine(
+          (value) => {
+            if (!URL.canParse(value)) return false;
+            const url = new URL(value);
+            return (url.protocol === "https:" || url.protocol === "http:") && url.search === "" && url.hash === "";
+          },
+          { error: "must be an http:// or https:// URL without a query or fragment" },
+        )
+        .default(OPEN_METEO_DEFAULT_BASE_URL),
+    ),
+  }),
+);
+
 const PARSERS = {
   db: parseDb,
   session: parseSession,
@@ -178,6 +200,7 @@ const PARSERS = {
   ai: parseAi,
   cron: parseCron,
   flags: parseFlags,
+  weather: parseWeather,
 } satisfies Record<EnvGroup, (source: EnvSource) => ParseOutcome<unknown>>;
 
 type ValueOf<G extends EnvGroup> = ReturnType<(typeof PARSERS)[G]> extends ParseOutcome<infer T> ? T : never;
@@ -188,6 +211,7 @@ export type PasswordEnv = ValueOf<"password">;
 export type BlobEnv = ValueOf<"blob">;
 export type CronEnv = ValueOf<"cron">;
 export type FlagsEnv = ValueOf<"flags">;
+export type WeatherEnv = ValueOf<"weather">;
 
 function configError(group: EnvGroup, variables: string[], problems: string[]): AppError {
   return new AppError(
@@ -221,6 +245,7 @@ export function createEnv(source: EnvSource = process.env) {
     aiSettingsEnv: memoized("ai", parseAiSettings, source),
     cronEnv: memoized("cron", PARSERS.cron, source),
     flagsEnv: memoized("flags", PARSERS.flags, source),
+    weatherEnv: memoized("weather", PARSERS.weather, source),
   };
 }
 
@@ -249,3 +274,5 @@ export const aiEnv = env.aiEnv;
 export const aiSettingsEnv = env.aiSettingsEnv;
 export const cronEnv = env.cronEnv;
 export const flagsEnv = env.flagsEnv;
+/** The Open-Meteo base URL (a local stub in e2e runs). */
+export const weatherEnv = env.weatherEnv;

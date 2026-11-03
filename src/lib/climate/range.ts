@@ -99,19 +99,29 @@ function annualLine(months: readonly ClimateMonth[]): string | null {
   );
 }
 
+/** The relocation prompt's heading for the month table: its first month is the arrival month. */
+export const STAY_MONTHS_HEADING = "Monthly normals for the stay, in order (arrival month first):";
+
 /**
  * The climate block of the relocation prompt: a compact table of the given
  * months in the given order (the first is the arrival month; unknown values
  * are ?), the yearly line when all 12 months are complete, then the wind
  * notes and notes verbatim, and a PLACEHOLDER DATA line for placeholder
  * profiles. Deterministic, because it is part of the run's cache key.
+ * `heading` replaces the table's heading for a prompt that is not about a
+ * stay (the shopping advice lists January to December); the default keeps
+ * the relocation prompt, and its cache keys, as they are.
  */
-export function describeClimateForPrompt(profile: ClimatePromptProfile, months: readonly number[]): string {
+export function describeClimateForPrompt(
+  profile: ClimatePromptProfile,
+  months: readonly number[],
+  options: { heading?: string } = {},
+): string {
   const byMonth = new Map(profile.months.map((entry) => [entry.month, entry]));
   const lines = [`Destination: ${profile.city}, ${profile.country}`, `Source: ${profile.source}`];
   if (profile.isPlaceholder) lines.push(PLACEHOLDER_LINE);
 
-  lines.push(`Monthly normals for the stay, in order (arrival month first):`, COLUMNS);
+  lines.push(options.heading ?? STAY_MONTHS_HEADING, COLUMNS);
   const monthNotes: string[] = [];
   for (const month of months) {
     const name = MONTH_NAMES[month - 1];

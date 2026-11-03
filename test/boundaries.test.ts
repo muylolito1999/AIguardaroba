@@ -35,6 +35,10 @@ const CLIENT_FORBIDDEN = [
   "@/lib/relocation/chunks",
   "@/lib/relocation/prompts",
   "@/lib/relocation/estimate",
+  // The outfit and shopping-advice prompts and estimates; the client-safe
+  // stored-result schemas are suggestion-result.ts and advice-result.ts (D-187).
+  "@/lib/outfits/suggestion",
+  "@/lib/shopping/advice",
   "@/server",
 ];
 // Exceptions: actions are passed to the client as references, the shared enum
@@ -91,6 +95,8 @@ const SERVER_CODE_FILES = ["src/lib/images/blob.ts", "src/lib/images/server-pipe
 // (the item card and detail reads), checks the session itself. The exceptions
 // run before a session can exist; each needs a reason here.
 const SESSION_CHECKED_DIRS = ["src/server/services", "src/server/items"];
+// Single server read modules outside those directories.
+const SESSION_CHECKED_FILES = ["src/server/weather.ts"];
 const SESSION_CHECKS = ["requireSession", "verifySession"];
 const SESSIONLESS_SERVICE_FUNCTIONS: Record<string, readonly string[]> = {
   // The password check that creates the session.
@@ -219,6 +225,68 @@ function exportedAsyncWithout(fileName: string, source: string, checks: readonly
     }
   }
   return missing;
+}
+
+type CachedFunction = {
+  name: string;
+  exported: boolean;
+  /** Each call of it in its module: the calling top-level function, and whether a session check runs before the call there. */
+  calls: Array<{ caller: string; checkedBefore: boolean }>;
+};
+
+function bodyDirectives(body: ts.Block | undefined): string[] {
+  const directives: string[] = [];
+  for (const statement of body?.statements ?? []) {
+    if (!ts.isExpressionStatement(statement) || !ts.isStringLiteral(statement.expression)) break;
+    directives.push(statement.expression.text);
+  }
+  return directives;
+}
+
+/**
+ * The module's 'use cache' functions (D-041, D-203). A cached function may
+ * not read cookies or headers, so it cannot check the session itself: it is
+ * safe only while nothing outside its module can call it and every call in
+ * the module comes after the caller's own session check.
+ */
+function cachedFunctions(fileName: string, source: string, checks: readonly string[]): CachedFunction[] {
+  const file = ts.createSourceFile(fileName, source, ts.ScriptTarget.Latest, true);
+  const cached = file.statements.filter(
+    (statement): statement is ts.FunctionDeclaration =>
+      ts.isFunctionDeclaration(statement) && statement.name !== undefined && bodyDirectives(statement.body).includes("use cache"),
+  );
+  const topLevel: Array<{ name: string; body: ts.Node }> = [];
+  for (const statement of file.statements) {
+    if (ts.isFunctionDeclaration(statement) && statement.body) {
+      topLevel.push({ name: statement.name?.text ?? "default", body: statement.body });
+    } else if (ts.isVariableStatement(statement)) {
+      for (const declaration of statement.declarationList.declarations) {
+        const init = declaration.initializer;
+        if (init && (ts.isArrowFunction(init) || ts.isFunctionExpression(init))) {
+          topLevel.push({ name: declaration.name.getText(), body: init.body });
+        }
+      }
+    }
+  }
+  return cached.map((declaration) => {
+    const name = declaration.name?.text ?? "default";
+    const calls: CachedFunction["calls"] = [];
+    for (const caller of topLevel) {
+      if (caller.name === name) continue;
+      const checkAt: number[] = [];
+      const callAt: number[] = [];
+      const visit = (node: ts.Node): void => {
+        if (ts.isCallExpression(node) && ts.isIdentifier(node.expression)) {
+          if (checks.includes(node.expression.text)) checkAt.push(node.getStart());
+          if (node.expression.text === name) callAt.push(node.getStart());
+        }
+        ts.forEachChild(node, visit);
+      };
+      visit(caller.body);
+      for (const at of callAt) calls.push({ caller: caller.name, checkedBefore: checkAt.some((check) => check < at) });
+    }
+    return { name, exported: hasModifier(declaration, ts.SyntaxKind.ExportKeyword), calls };
+  });
 }
 
 function toPosix(p: string): string {
@@ -372,6 +440,13 @@ describe("source analysis", () => {
     ["@/lib/relocation/contracts", false],
     ["@/lib/relocation/schemas", false],
     ["@/lib/climate/range", false],
+    ["@/lib/outfits/suggestion", true],
+    ["@/lib/outfits/suggestion-result", false],
+    ["@/lib/outfits/contracts", false],
+    ["@/lib/shopping/advice", true],
+    ["@/lib/shopping/advice-result", false],
+    ["@/lib/shopping/combinatorics", false],
+    ["@/lib/weather/open-meteo", false],
   ])("isForbiddenInClient(%s) is %s", (id, expected) => {
     expect(isForbiddenInClient(id)).toBe(expected);
   });
@@ -389,6 +464,29 @@ describe("source analysis", () => {
       "export async function nested(db) { const check = () => requireSession(); await check(); return db }",
     ].join("\n");
     expect(exportedAsyncWithout("s.ts", source, SESSION_CHECKS)).toEqual(["leaky", "promised", "arrowLeak"]);
+  });
+
+  it("finds 'use cache' functions and whether each call follows a session check", () => {
+    const source = [
+      "async function cached(a) { 'use cache'; return a }",
+      "export async function checked(db) { await requireSession(); return cached(1) }",
+      "export async function late(db) { const v = await cached(2); await requireSession(); return v }",
+      "export const arrow = async () => cached(3)",
+      "export async function plain() { 'use strict'; return 1 }",
+    ].join("\n");
+    expect(cachedFunctions("w.ts", source, SESSION_CHECKS)).toEqual([
+      {
+        name: "cached",
+        exported: false,
+        calls: [
+          { caller: "checked", checkedBefore: true },
+          { caller: "late", checkedBefore: false },
+          { caller: "arrow", checkedBefore: false },
+        ],
+      },
+    ]);
+    const exported = cachedFunctions("e.ts", "export async function c() { 'use cache'; return 1 }", SESSION_CHECKS);
+    expect(exported.map((cached) => cached.exported)).toEqual([true]);
   });
 
   it("follows shared helpers but not server actions or type-only imports", () => {
@@ -472,6 +570,12 @@ describe("client/server boundaries", () => {
       "src/server/services/relocation.ts",
       "src/server/services/climate.ts",
       "src/server/services/shopping.ts",
+      "src/server/weather.ts",
+      "src/server/services/outfits.ts",
+      "src/server/services/wear.ts",
+      "src/server/services/settings.ts",
+      "src/server/services/outfit-suggestions.ts",
+      "src/server/services/shopping-advice.ts",
     ]) {
       expect(checked).toContain(expected);
     }
@@ -501,9 +605,10 @@ describe("client/server boundaries", () => {
   });
 
   it("checks the session in every exported async service and read function (D-013)", () => {
-    const serviceFiles = SESSION_CHECKED_DIRS.flatMap((dir) => walk(path.join(ROOT, dir))).filter(
-      (file) => !TEST_FILE.test(file),
-    );
+    const serviceFiles = [
+      ...SESSION_CHECKED_DIRS.flatMap((dir) => walk(path.join(ROOT, dir))),
+      ...SESSION_CHECKED_FILES.map((rel) => path.join(ROOT, rel)),
+    ].filter((file) => !TEST_FILE.test(file));
     // Guards against the walk silently finding nothing.
     for (const expected of [
       "src/server/items/detail.ts",
@@ -511,6 +616,12 @@ describe("client/server boundaries", () => {
       "src/server/services/relocation.ts",
       "src/server/services/climate.ts",
       "src/server/services/shopping.ts",
+      "src/server/services/outfits.ts",
+      "src/server/services/wear.ts",
+      "src/server/services/settings.ts",
+      "src/server/services/outfit-suggestions.ts",
+      "src/server/services/shopping-advice.ts",
+      "src/server/weather.ts",
     ]) {
       expect(serviceFiles.map((file) => toPosix(path.relative(ROOT, file)))).toContain(expected);
     }
@@ -534,5 +645,26 @@ describe("client/server boundaries", () => {
       const exported = exportedAsyncWithout(file, readFileSync(file, "utf8"), []);
       for (const name of names) expect(exported, `${rel}: ${name}`).toContain(name);
     }
+  });
+
+  it("calls a 'use cache' function only after the caller checked the session (D-013, D-203)", () => {
+    const found = walk(SRC)
+      .filter((file) => !TEST_FILE.test(file))
+      .flatMap((file) => {
+        const rel = toPosix(path.relative(ROOT, file));
+        return cachedFunctions(file, readFileSync(file, "utf8"), SESSION_CHECKS).map((cached) => ({ rel, ...cached }));
+      });
+    // The forecast helper is the only cached function so far. It is exempt from
+    // the session check only because loadTodayWeather checks before calling it.
+    expect(found.map(({ rel, name }) => `${rel}: ${name}`)).toEqual(["src/server/weather.ts: fetchForecast"]);
+    for (const { rel, name, exported, calls } of found) {
+      expect(exported, `${rel}: ${name} must not be exported, or callers elsewhere could skip the check`).toBe(false);
+      expect(calls.length, `${rel}: ${name} is never called`).toBeGreaterThan(0);
+      for (const call of calls) {
+        expect(call.checkedBefore, `${rel}: ${call.caller} calls ${name} before requireSession()`).toBe(true);
+      }
+    }
+    const weather = found.find(({ name }) => name === "fetchForecast");
+    expect(weather?.calls.map((call) => call.caller)).toEqual(["loadTodayWeather"]);
   });
 });

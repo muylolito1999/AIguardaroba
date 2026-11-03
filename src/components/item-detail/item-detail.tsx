@@ -23,6 +23,7 @@ import { ItemGallery } from "./item-gallery"
 import { ItemMeta } from "./item-meta"
 import { PendingTags } from "./pending-tags"
 import { PlanToggles } from "./plan-toggles"
+import { WornToday } from "./worn-today"
 
 const STATUS_BADGE: Record<ItemStatus, "default" | "secondary" | "outline"> = {
   pending_tagging: "secondary",
@@ -98,6 +99,11 @@ export function ItemDetail({ item: serverItem, actions, tagRequest = requestTagg
     },
     [patchItem]
   )
+
+  // The wear logger already noted the change (D-107); only the counts shown here follow.
+  const applyWearCounts = useCallback((counts: Pick<ItemDetailDto, "wearCount" | "lastWornAt">) => {
+    setItem((previous) => ({ ...previous, ...counts }))
+  }, [])
 
   function handleTagged(card: ItemCardDto) {
     focusTagsRef.current = true
@@ -205,6 +211,13 @@ export function ItemDetail({ item: serverItem, actions, tagRequest = requestTagg
               Details
             </h2>
             <ItemMeta item={item} />
+            <WornToday
+              item={item}
+              name={name}
+              logWear={actions.logWear}
+              undoWear={actions.undoWear}
+              onCountsChange={applyWearCounts}
+            />
           </section>
 
           <section

@@ -13,13 +13,16 @@ import {
   SidebarFooter,
   SidebarGroup,
   SidebarGroupContent,
+  SidebarGroupLabel,
   SidebarHeader,
   SidebarMenu,
   SidebarMenuButton,
   SidebarMenuItem,
 } from "@/components/ui/sidebar"
 
-import { PRIMARY_NAV, isNavItemActive } from "./nav-items"
+import { PRIMARY_NAV, SECONDARY_NAV, SECONDARY_NAV_LABEL, isNavItemActive, type NavItem } from "./nav-items"
+
+const SECONDARY_LABEL_ID = "sidebar-secondary-nav"
 
 /** Desktop navigation from the md breakpoint up; the mobile tab bar covers smaller screens. */
 export function AppSidebar() {
@@ -41,8 +44,23 @@ export function AppSidebar() {
             <nav aria-label="Primary">
               {/* usePathname suspends on routes with unknown dynamic params under
                   Cache Components; the shell then shows the menu without an active item. */}
-              <Suspense fallback={<NavMenu pathname={null} />}>
-                <ActiveNavMenu />
+              <Suspense fallback={<NavMenu items={PRIMARY_NAV} pathname={null} />}>
+                <ActiveNavMenu items={PRIMARY_NAV} />
+              </Suspense>
+            </nav>
+          </SidebarGroupContent>
+        </SidebarGroup>
+        {/* The daily pages, a group of their own so the five primary rows match the
+            phone's tab bar (D-218). Full-strength text: the dimmed default label
+            would fall short of 4.5:1 at this size. */}
+        <SidebarGroup>
+          <SidebarGroupLabel id={SECONDARY_LABEL_ID} className="text-sidebar-foreground">
+            {SECONDARY_NAV_LABEL}
+          </SidebarGroupLabel>
+          <SidebarGroupContent>
+            <nav aria-labelledby={SECONDARY_LABEL_ID}>
+              <Suspense fallback={<NavMenu items={SECONDARY_NAV} pathname={null} />}>
+                <ActiveNavMenu items={SECONDARY_NAV} />
               </Suspense>
             </nav>
           </SidebarGroupContent>
@@ -57,14 +75,14 @@ export function AppSidebar() {
   )
 }
 
-function ActiveNavMenu() {
-  return <NavMenu pathname={usePathname()} />
+function ActiveNavMenu({ items }: { items: readonly NavItem[] }) {
+  return <NavMenu items={items} pathname={usePathname()} />
 }
 
-function NavMenu({ pathname }: { pathname: string | null }) {
+function NavMenu({ items, pathname }: { items: readonly NavItem[]; pathname: string | null }) {
   return (
     <SidebarMenu className="gap-1">
-      {PRIMARY_NAV.map(({ href, label, icon: Icon, alsoActiveOn }) => {
+      {items.map(({ href, label, icon: Icon, alsoActiveOn }) => {
         const active = isNavItemActive(pathname, href, alsoActiveOn)
         return (
           <SidebarMenuItem key={href}>

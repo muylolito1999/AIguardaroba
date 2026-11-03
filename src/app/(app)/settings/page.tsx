@@ -1,10 +1,15 @@
 import type { Metadata } from "next"
 import Link from "next/link"
+import { Suspense } from "react"
 import { CloudSun, Download, Gauge } from "lucide-react"
 
 import { LogoutButton } from "@/components/auth/logout-button"
+import { SECONDARY_NAV_LABEL } from "@/components/layout/nav-items"
 import { PageHeader } from "@/components/layout/page-header"
+import { SecondaryNavLinks } from "@/components/layout/secondary-nav-links"
 import { IosInstallHint } from "@/components/pwa/ios-install-hint"
+import { FeatureFlags, FeatureFlagsSkeleton } from "@/components/settings/feature-flags"
+import { HomeProfile, HomeProfileSkeleton } from "@/components/settings/home-profile"
 import { ThemeToggle } from "@/components/theme/theme-toggle"
 import { buttonVariants } from "@/components/ui/button"
 import { Separator } from "@/components/ui/separator"
@@ -16,8 +21,22 @@ export const metadata: Metadata = {
 export default function SettingsPage() {
   return (
     <>
-      <PageHeader title="Settings" description="Appearance, installation and your account." />
+      <PageHeader title="Settings" description="Your home city, appearance, data and account." />
       <div className="flex max-w-2xl flex-col gap-8">
+        {/* The way to Today and Outfits on a phone, where the tab bar has no tab for them (D-218);
+            AI usage, climate profiles and the export each have a link in their section below. */}
+        <section className="flex flex-col gap-3">
+          <div className="flex flex-col gap-1">
+            <h2 className="font-heading text-base font-semibold">{SECONDARY_NAV_LABEL}</h2>
+            <p className="text-sm text-muted-foreground">
+              Today&rsquo;s weather with three outfit ideas, and the outfits you saved.
+            </p>
+          </div>
+          <SecondaryNavLinks />
+        </section>
+
+        <Separator />
+
         <section className="flex flex-col gap-3">
           <div className="flex flex-col gap-1">
             <h2 className="font-heading text-base font-semibold">Appearance</h2>
@@ -27,6 +46,12 @@ export default function SettingsPage() {
           </div>
           <ThemeToggle />
         </section>
+
+        <Separator />
+
+        <Suspense fallback={<HomeProfileSkeleton />}>
+          <HomeProfile />
+        </Suspense>
 
         <Separator />
 
@@ -81,6 +106,12 @@ export default function SettingsPage() {
             Export your data
           </Link>
         </section>
+
+        <Separator />
+
+        <Suspense fallback={<FeatureFlagsSkeleton />}>
+          <FeatureFlags />
+        </Suspense>
 
         <Separator />
 

@@ -210,12 +210,12 @@ Each entry records one decision and the reason for it. "Deviates from spec" comp
 - Why: Base layers are central to dressing for Hamburg. A list avoids hitting the structured-output union limit.
 
 ### D-039 Weather from Open-Meteo, cached
-- Date: 2026-11-01 · Status: accepted · Deviates from spec: no
+- Date: 2026-11-01 · Status: accepted; refined by D-190 (the snapshot), D-202 (the base URL for e2e) and D-203 (the cache) · Deviates from spec: no
 - Decision: The `/today` forecast is fetched server-side in a `'use cache'` function (about 30 minutes), validated with zod, and shown with the attribution "Weather data by Open-Meteo.com".
 - Why: Free and keyless. Its licence requires attribution, and caching protects against per-IP limits on Vercel's shared IPs.
 
 ### D-040 Shopping AI behind a flag
-- Date: 2026-11-01 · Status: accepted · Deviates from spec: no
+- Date: 2026-11-01 · Status: accepted; refined by D-191 (the counting) and D-215 (the flag off) · Deviates from spec: no
 - Decision: The shopping list is always on. The "What to buy next" analysis is behind `FEATURE_SHOPPING_AI` (default false). How many outfits an item would unlock is computed deterministically in TypeScript; Claude only ranks and explains.
 - Why: The spec allows a flag. Deterministic counts are testable and keep the numbers honest.
 
@@ -573,7 +573,7 @@ Each entry records one decision and the reason for it. "Deviates from spec" comp
 ## Added in Phase 4
 
 ### D-107 Pages kept by Next read themselves again after an item changes, and Back restores the wardrobe's scroll position
-- Date: 2026-11-02 · Status: accepted; refined by D-123 (also while shown, the item page, batch results), D-129 (the review page), D-130 (bursts of changes), D-134 (the back link without the Navigation API), D-138 (the export page) and D-151 (the relocation and shopping pages) · Deviates from spec: no
+- Date: 2026-11-02 · Status: accepted; refined by D-123 (also while shown, the item page, batch results), D-129 (the review page), D-130 (bursts of changes), D-134 (the back link without the Navigation API), D-138 (the export page), D-151 (the relocation and shopping pages) and D-200 (wears, outfits and /today) · Deviates from spec: no
 - Decision: With Cache Components, Next keeps `/wardrobe` and `/stats` in a hidden `<Activity>` and serves browser back/forward from its client cache without a server request (`node_modules/next/dist/docs/01-app/02-guides/preserving-ui-state.md`; glossary, "Client Cache"), so Back after a change on an item page would show the item as it was. `src/lib/items/wardrobe-changes.ts` keeps a per-tab change count: every client call site that saves an item change calls `noteWardrobeChange` (the item page's patches for the toggles, tags, cut-out, archive and unarchive, and its delete; the tag form's requests on the review and item pages; `requestTagging`; bulk confirm; the add page's register and tag calls). `shownDataIsStale(data)` records the count when a server data object is first shown (a `WeakMap` keyed by the object the server sent, so data restored from the back/forward cache keeps its count) and says whether a change was noted since. `WardrobeResults` checks its list in an effect, which runs again whenever Next shows the page, and calls `router.refresh()` inside the filter transition (the list shows "Updating…"); `/stats` does the same through `RefreshAfterItemChanges` (`src/components/items/refresh-after-item-changes.tsx`, given the stats totals object), so Back from an item opened from the checklist shows the new figures. A fresh navigation (the tab, a link) already brings new data and is not read twice. The item page's "Back to wardrobe" goes back in history whenever the previous entry is the list, whether or not something was saved, so the filters and scroll position come back and the list refreshes itself; otherwise it is a plain link to `/wardrobe`. Telling that the previous entry is the list needs the Navigation API (D-134). After a delete the item page is replaced by `/wardrobe`. `VirtualizedGrid` records the window's scroll position while the grid is displayed and puts it back when the page is shown again, before the virtualizer re-subscribes: Next shows the page before the popstate event, when the window is still where the item page left it, and only the browser's own restoration, which differs between browsers, would have fixed it. A fresh navigation still starts at the top, because Next scrolls the page into view after its children's layout effects.
 - Why: Refreshing on every return would re-read up to 2,000 rows each time the owner looks at an item; a `bfcacheId` key would throw away the list's state and scroll position, which the Next docs advise against; calling `refresh()` in the Server Actions would re-render the item page on every toggle and render the not-found page after a delete, and would not cover the tag and register route handlers. Checked in a visible browser on 2026-11-02 against the production build: with both refresh calls disabled, Back after a plan change showed the old badge on `/wardrobe` and the donated item still linked on `/stats`, and the browser sent no request for either page; with them, a plan change, a rename, and archive and unarchive all showed on the list after Back, and the donated item left the checklist.
 
@@ -982,3 +982,227 @@ Each entry records one decision and the reason for it. "Deviates from spec" comp
 - Date: 2026-11-03 · Status: accepted · Deviates from spec: no
 - Decision: `planNextAttempt` ends the call with the failure's own error and `details.reason` "no_time_for_retry" when the failure is retryable and not a max_tokens stop, the call has had a reply (`longestReplyMs` above 0), and the time left after the wait cannot hold the longest reply. The check runs after the wait-past-deadline check, so a `retry-after` past the deadline still ends with "Claude is busy. Try again in about N s." and `retryAfterSeconds`. `longestReplyMs` still counts only attempts that had a reply under way, so an HTTP or connection error's own latency never counts, and before any reply such errors keep the 2 s minimum. It applies to tagging (50 s) as to the relocation parts (270 s).
 - Why: The round-4 review reproduced, with the real `callStructured`, fake timers and the default sleep: a part's 130 s invalid reply, then a 529 with retry-after 15 after 1 s, sent a third attempt at +146 s with 124 s left. The deadline cut it off at 270 s and the part failed with "Claude did not answer in time. Try again.", hiding the invalid output and the overload, the outcome D-164 and D-177 exist to prevent; a connection error in the second place did the same. D-177 exempted these errors because their own latency is not a reply's length, but the check uses the longest reply, which the earlier attempts give whatever failed last.
+
+## Added in Phase 6
+
+### D-186 Outfit suggestions and shopping advice run at effort low, with one output cap and a 110 s deadline
+- Date: 2026-11-03 · Status: accepted · Deviates from spec: no
+- Decision: `OUTFIT_CALL_PARAMS` is `{ purpose: "outfit_suggestion", effort: "low", maxTokens: 8000, maxTokensCeiling: 8000 }` and `SHOPPING_CALL_PARAMS` `{ purpose: "shopping", effort: "low", maxTokens: 6000, maxTokensCeiling: 6000 }`. Each runs in its own Route Handler (`POST /api/outfits/suggest`, `POST /api/shopping/advice`, both `maxDuration` 120, D-035) with `deadlineAt` = request start + 110 s (`OUTFIT_DEADLINE_MS`, `SHOPPING_DEADLINE_MS`), and neither is streamed. The outfit model is `MODELS.outfits` (`CLAUDE_OUTFIT_MODEL`, defaulting to the analysis model); the advice model is the analysis model, read with `aiSettingsEnv()` so the section renders without an API key.
+- Why: Both answers are short lists that need little thinking, so low effort keeps the cost at a few cents (README, Costs). A cap equal to its ceiling means a max_tokens stop is not retried with a larger cap (D-062), which could not finish within the deadline anyway; 110 s leaves time to store the result inside the 120 s function and follows D-164's rule that a retry must fit before the deadline.
+
+### D-187 The stored-result schemas live in client-safe modules, the prompts stay off the client (as D-156)
+- Date: 2026-11-03 · Status: accepted · Deviates from spec: no
+- Decision: `OutfitSuggestionResultSchema` and the suggestion limits are in `src/lib/outfits/suggestion-result.ts`, and `ShoppingAdviceResultSchema` in `src/lib/shopping/advice-result.ts`. `suggestion.ts` and `advice.ts` re-export them, so server code imports either. Client code imports only the `-result` modules: `test/boundaries.test.ts` forbids `@/lib/outfits/suggestion` and `@/lib/shopping/advice` in client bundles.
+- Why: `suggestion.ts` and `advice.ts` hold the system prompts and import the relocation payload helpers (node:crypto) and the server's pricing table. The browser needs only the shape of a stored result.
+
+### D-188 How the outfit prompt lists the items
+- Date: 2026-11-03 · Status: accepted; refined by D-227 (what worn:N means, version `outfit-v2`) · Deviates from spec: no
+- Decision: Each item is the relocation line (D-141) under an alias plus `|worn:N|last:YYYY-MM-DD` (or `last:never`), the day taken in the forecast's time zone. Aliases `i1..iN` follow the slots' category order, and within a category the most recently worn come last. Above `MAX_SUGGESTION_ITEMS` (400) each category first keeps its 10 best-suited items (`MIN_KEPT_PER_CATEGORY`), then the best-suited items overall fill the rest; suitability is `weatherFitScore` against today's feels-like range and rain, and the result stores how many were left out. Category `other` is not eligible, because no slot can hold it. The system prompt (`OUTFIT_SYSTEM_PROMPT`, version `outfit-v1`, `outfit-v2` since D-227, about 1,960 tokens so it caches) is pinned by a sha256 test together with its version, and a second pin covers the instruction template and the wire schema.
+- Why: The wear count and last day let Claude prefer rested items, as the spec's wear tracking intends, without a separate field per item. A deterministic cut keeps the request small and the cache key stable.
+
+### D-189 A suggestion is refused before any paid call unless three different valid outfits are possible
+- Date: 2026-11-03 · Status: accepted · Deviates from spec: no
+- Decision: `canSuggestOutfits(snapshot)` counts the outfits the eligible items can make under the slot rules. Below three, `suggestOutfits` answers VALIDATION before the budget check and before any call, and `/today` disables "Suggest outfits" with the reason.
+- Why: The strict check needs three different valid outfits; with fewer possible, every attempt would be paid and then fail as invalid output.
+
+### D-190 The weather snapshot: one day in the home time zone, the higher rain chance, and no partial weather (refines D-039)
+- Date: 2026-11-03 · Status: accepted · Deviates from spec: no
+- Decision: `buildForecastUrl` asks `/v1/forecast` for one day (`forecast_days=1`) in the profile's IANA time zone (not `timezone=auto`), in °C and km/h, for the daily `weather_code`, `temperature_2m_max/min`, `apparent_temperature_max/min`, `precipitation_sum`, `precipitation_probability_max` and `wind_gusts_10m_max`, the hourly `precipitation_probability` and the current `temperature_2m` (every name checked against open-meteo.com/en/docs). The rain chance is the higher of the daily and the hourly maximum. `toWeatherSnapshot` throws UPSTREAM "Weather is unavailable right now." when the body does not match, including a null in any of today's core values. `wmoCodeLabel` maps the WMO codes Open-Meteo uses (97 is "Heavy thunderstorm", as the docs now list it; an unknown code is "Unknown").
+- Why: Dressing for the wrong day or with half the numbers would be invented weather, which the owner's rules forbid. The hourly maximum catches a shower the daily figure underrates.
+
+### D-191 How outfits are counted for the shopping advice (refines D-040)
+- Date: 2026-11-03 · Status: accepted; refined by D-225 (each piece checked against the month) · Deviates from spec: no
+- Decision: `src/lib/shopping/combinatorics.ts`. An outfit is a top or a dress, a bottom unless it is a dress, shoes, and optional outerwear. Formality levels must be within one step of each other (unknown matches any). The summed warmth of top, bottom and outerwear must fall in the scenario's band by mean temperature: freezing 10–15, cold 7–13 (8–13 until D-225), chilly 6–11, cool 5–10, mild 3–7, warm 2–5 (`WARMTH_BANDS`), and since D-225 each piece must also suit the month on its own; a dress counts twice, and an unknown warmth fits when any allowed level would. In a rainy scenario the outerwear or the shoes must be waterproof (unknown counts as not). Identical items are grouped and their counts multiplied; the cap (50,000) limits the combinations examined. `unlockCount` is the number of outfits that contain the candidate, so base layers, hats, gloves, scarves, bags and accessories always unlock 0. `candidateFromShoppingRow` infers a candidate's attributes from its category, type and spec keywords; this is approximate, and what it cannot tell stays unknown.
+- Why: The spec's "this item would unlock N new outfits" needs a number that is the same every time and testable; Claude only ranks and explains (D-040).
+
+### D-192 The shopping scenarios need a complete climate profile
+- Date: 2026-11-03 · Status: accepted · Deviates from spec: no
+- Decision: `scenariosFromProfile` builds January, April, July and October from the profile's monthly mean temperature, rainy when the month has 15 or more rain days. A profile missing any of those values is refused with VALIDATION naming the months, so the Bologna placeholder is refused; the advice uses the Hamburg profile.
+- Why: No guessed numbers: a scenario built from placeholder data would give unlock counts that look exact and are not.
+
+### D-193 The shopping strict check
+- Date: 2026-11-03 · Status: accepted; refined by D-226 (version `shop-v2`) · Deviates from spec: no
+- Decision: `makeShoppingAdviceStrictSchema(candidateKeys, remainingBudgetEur)` accepts 1 to min(candidates, 10) recommendations with ranks exactly 1..n, known and unique keys (compared ignoring case, D-165, and returned in their listed form, sorted by rank), a `why` of 1 to 300 characters and whole-euro `budget_eur` values whose sum stays within the remaining budget when one is set. Unknown keys and budgets over what is left are retryable invalid output. The instruction shows each scenario with the outfits the wardrobe makes now (`outfitsNow`), so Claude sees where the wardrobe is thin. The stored result's `meta` holds the prompt version (`shop-v1`, `shop-v2` since D-226), model, effort, candidate count, remaining budget and scenarios.
+- Why: The owner's budget is a hard limit, and a ranking that names items not on offer cannot be shown.
+
+### D-194 Wear dates: today in the home time zone, never in the future, last worn at noon
+- Date: 2026-11-03 · Status: accepted · Deviates from spec: no
+- Decision: `logWear` takes today from the home profile's time zone (`calendarDayIn`); a given `wornOn` after that is refused with VALIDATION. `last_worn_at` becomes the later of its current value and noon on the worn day in that zone (`noonOn`), so it never moves back. With no home city set, logging answers VALIDATION (`no_home_profile`): there is no fallback time zone.
+- Why: A wear is a calendar day, and the owner lives in one city at a time. Noon keeps the day the same in any nearby zone.
+
+### D-195 The outfit form's rules
+- Date: 2026-11-03 · Status: accepted · Deviates from spec: no
+- Decision: `OutfitInputSchema`: a name of 1 to 80 characters; an occasion of up to 80, stored as null when empty; temperatures from −40 to 50 °C with at most one decimal, min not above max; rain OK; a rating of 1 to 5 or none; notes up to 1,000; 1 to 12 items. Every field is sent, with no defaults. `validateOutfit` checks the slot rules on the server inside the save's transaction, with the items read there: exactly one item in the top slot, a bottom unless that item is a dress, one item per slot except up to three accessories, each item's category allowed in its slot (`SLOT_CATEGORIES`), no archived, missing or repeated item, at most 12 items. The browser runs the same checks first and shows them per slot.
+- Why: The same rules everywhere, enforced where the data is; the database has no constraint that could express them.
+
+### D-196 Logging a wear locks its items, and Undo works on the logs a press created
+- Date: 2026-11-03 · Status: accepted; refined by D-222 (a saved suggestion takes over the card's wear) · Deviates from spec: yes (the design's "undo the latest log")
+- Decision: `logWear` runs in one transaction that locks the items in id order, inserts one `wear_logs` row per item not already logged that day for the same target (the outfit, or no outfit), adds 1 to `wear_count` per inserted row and returns the new counts and the log ids. A repeat for the same day and target logs nothing and says so (`alreadyLogged`). `undoWear({ logIds })` deletes exactly those logs, only while all of them are younger than `WEAR_UNDO_WINDOW_MS` (10 minutes, measured with the server clock from the logs' `created_at`), subtracts 1 per log (never below 0) and recomputes `last_worn_at` from the item's remaining logs (null when none). One log older than the window refuses the whole undo (VALIDATION `undo_window_passed`); logs already undone answer NOT_FOUND.
+- Why: Two taps, or two tabs, must never count one wear twice or deadlock, and Undo must take back exactly what its toast reported, not whatever was logged last.
+
+### D-197 A wear is not an edit
+- Date: 2026-11-03 · Status: accepted · Deviates from spec: no
+- Decision: Logging or undoing a wear changes `wear_count`, `last_worn_at` and `wear_logs` only; the item's "Last changed" date (`updated_at`) stays.
+- Why: "Last changed" tells the owner when the item's tags or plans were edited; wearing it is not one.
+
+### D-198 Archived items cannot be worn, and an outfit with no items left cannot be logged
+- Date: 2026-11-03 · Status: accepted · Deviates from spec: no
+- Decision: `logWear` refuses an archived item with VALIDATION and a missing one with NOT_FOUND, and an outfit whose items are all gone with VALIDATION. The item page hides "+1 worn today" for an archived item.
+- Why: An archived item is out of the wardrobe; counting wears for it would distort "most worn" and the stats.
+
+### D-199 Deleting an outfit keeps the wear history
+- Date: 2026-11-03 · Status: accepted · Deviates from spec: no
+- Decision: `deleteOutfit` first detaches the outfit's item logs (`wear_logs.outfit_id` set to null where `item_id` is set), then deletes the outfit, whose `outfit_items` cascade. The logs stay with their items, so `wear_count`, `last_worn_at` and the logs keep agreeing. Deleting an item still removes its logs (the schema's cascade).
+- Why: The owner did wear the items; deleting a saved combination should not make them look less worn, and the foreign key's cascade alone would have deleted the logs while the counts stayed.
+
+### D-200 Outfit changes have their own count, and every page that shows wear counts re-reads after a wear or an Undo (refines D-107)
+- Date: 2026-11-03 · Status: accepted; refined by D-223 (an answer after the button's page was left) · Deviates from spec: no
+- Decision: `src/components/outfits/outfit-changes.ts` keeps a per-tab count of outfit changes (saved, deleted, logged as worn), separate from the item count. Every wear button logs through `useWearLogger`, which notes an item change after each confirmed log and Undo, plus an outfit change for an outfit's wear, and shows the toast with Undo for the 10 minutes. The wardrobe cards, the item page and `/stats` follow through the item count (the item page shows the new count at once); `/outfits` and `/outfits/[id]` check both counts, while shown and when shown again, with one shared read; `/outfits/new` re-reads its slot pickers, which show wear counts, after an item change (added during integration); `/today` checks both and the home-city count when shown again (its own saves and wears show through its overlay, D-180). `test/item-freshness.test.ts` guards this wiring.
+- Why: Next keeps visited pages in a hidden `<Activity>` (D-107), so a kept list would show the old counts or a deleted outfit. A separate count keeps an outfit save from making the wardrobe list read up to 2,000 items.
+
+### D-201 The outfit builder
+- Date: 2026-11-03 · Status: accepted · Deviates from spec: no
+- Decision: One responsive Dialog per slot (not a Drawer on phones) lists that slot's items with a search box, their photo, wear count and last worn day. The page reads every slot's items once when it renders and filters them in the browser; `listSlotCandidates` exists but no page calls it. "New outfit" starts empty again after a save, because Next may keep the page. The temperature fields accept a comma as the decimal point. A same-day repeat of a wear shows "Already logged" without Undo.
+- Why: A wardrobe of a few hundred items is a small payload, and a read action per picker would queue behind other Server Actions (D-035).
+
+### D-202 OPEN_METEO_BASE_URL, an optional variable for the e2e stub (refines D-039)
+- Date: 2026-11-03 · Status: accepted · Deviates from spec: no
+- Decision: A new env group `weather` holds `OPEN_METEO_BASE_URL`: an http(s) URL with no query or fragment, default `https://api.open-meteo.com`, blank counts as unset. It is meant for e2e only and listed in `.env.example` and `test/app-env-vars.ts` (so the e2e server gets it blank unless set). `playwright.config.ts` starts `e2e/open-meteo-stub.ts` (port 3901) as a second web server, which answers `/v1/forecast` with the saved Hamburg forecast moved to today in the requested zone, and gives the app server `OPEN_METEO_BASE_URL` pointing at it; `today.spec.ts` checks the stub's `/__requests`, so it fails if the server asked the real API.
+- Why: The e2e run must not depend on the network or on a third party's rate limit, and the app refuses a forecast for another day (D-203), so a fixed fixture would not do.
+
+### D-203 The forecast is cached per place and day, and failures are never cached (refines D-039 and D-041)
+- Date: 2026-11-03 · Status: accepted · Deviates from spec: no
+- Decision: `src/server/weather.ts` has a module-private `'use cache'` function `fetchForecast(baseUrl, lat, lon, timezone, day)` with `cacheLife({ stale: 900, revalidate: 1800, expire: 3600 })`, `cacheTag("weather")` and an 8-second timeout. `day` (today in the home zone) is part of the cache key, so a forecast cached before midnight is not served the next day, and an answer for another day is refused as UPSTREAM. Next's default cache handler stores only entries whose function returned, so a failure is not cached. `loadTodayWeather(db)` checks the session, reads the home profile (NOT_FOUND "Choose your home city in Settings first." without one), then calls the cached function; any error from it that is not one of Next's own becomes UPSTREAM, because production hides the message of an error leaving a cached function. The cached function reads no cookies, env or database. `test/boundaries.test.ts` asserts that it is the only `'use cache'` function, is not exported and is called only after `requireSession()`.
+- Why: Open-Meteo rate-limits per IP and Vercel's IPs are shared (D-039). A cached function cannot check the session itself, so the guard keeps it unreachable except through a caller that does.
+
+### D-204 How a suggestion run is recorded
+- Date: 2026-11-03 · Status: accepted; refined by D-221 (the stored suggestion checked again under the lock) · Deviates from spec: no
+- Decision: `suggestOutfits` checks, in order: the eligible items (`isEligibleForToday`: tagged or confirmed, located in the home city or unknown, not marked donate or sell, with a category), that three outfits are possible (D-189), the reuse key (D-205), the monthly budget against `estimateOutfitSuggestionUsd`, the API key, and that no other run is under way. It then inserts an `analyses` row (kind `outfit_suggestion`, status running) before the call, so every `ai_calls` row links to it; while another run is less than 130 s old (`SUGGESTION_LEASE_MS`) a new request gets CONFLICT, a check that holds a lock on the settings row. Each paid attempt's cost is added to the row as it is logged (D-168, D-178). A complete run stores the result (three outfits with item ids, the weather snapshot and meta), the model, effort, prompt version and estimated cost; a failed one is marked failed and keeps its cost.
+- Why: The same accounting as the relocation parts, so the usage page and the row agree, and two tabs cannot both pay for today's outfits.
+
+### D-205 A suggestion is reused unless "Suggest again" asks for a new one
+- Date: 2026-11-03 · Status: accepted; refined by D-221 · Deviates from spec: no
+- Decision: The cache key is a sha256 of the prompt version, the model, the home profile, the forecast day and the snapshot hash (which covers every line, wear counts included). A request without `force` answers the newest complete suggestion with that key at no cost. "Suggest again" always sends `force`. Only a click starts a call, guarded by a ref, so StrictMode or Next showing a kept page again cannot start a paid call (tested).
+- Why: A second click on an unchanged day should cost nothing, and a wear logged since changes the lines, so it gets new suggestions.
+
+### D-206 Today's suggestion
+- Date: 2026-11-03 · Status: accepted; refined by D-228 (a suggestion the tab asked for) · Deviates from spec: no
+- Decision: `/today` shows the newest complete `outfit_suggestion` row for the current home profile whose `date_from` is today in the home zone, or none.
+- Why: Yesterday's outfits were for yesterday's weather; after a change of home city the old city's outfits do not apply.
+
+### D-207 Saving a suggested outfit
+- Date: 2026-11-03 · Status: accepted · Deviates from spec: no
+- Decision: `saveSuggestedOutfit({ analysisId, index })` creates an outfit with source `ai`, the title as its name and the `why` as `ai_reasoning`, through the builder's `saveOutfit` inside the same transaction, so `validateOutfit` runs on the items as they are now. Its weather range is the suggestion's feels-like range (null outside −40 to 50 °C) and rain OK is the outfit's `rain_ok`. `analyses.params.savedOutfitIds[i]` records what Save made, and saving again returns that outfit while it exists ("Already saved"). An item deleted or archived since, or another slot-rule failure, is CONFLICT with the issues; the page then reads itself again.
+- Why: One saved copy per suggestion, and no outfit saved with an item the owner no longer has.
+
+### D-208 "Wore this today" on a suggestion
+- Date: 2026-11-03 · Status: accepted; refined by D-222 · Deviates from spec: no
+- Decision: It logs the outfit's items with today's weather snapshot, or, once the suggestion is saved, the saved outfit as itself. The button is disabled once every item of that outfit has a log for today, so logging the items and then the saved outfit never counts the same wear twice; since D-222 Save also moves such a wear to the new outfit, so the outfit's own page does not count it again either.
+- Why: A wear is per item and day (D-196); the saved outfit only adds where it came from.
+
+### D-209 The home city is a setting, and /today follows it
+- Date: 2026-11-03 · Status: accepted; refined by D-224 (Try again on the weather error) and D-228 · Deviates from spec: no
+- Decision: Settings, Home city, chooses `app_settings.home_profile_id` among the profiles that can be one (Bologna and Hamburg; `homeLocationOf` refuses other slugs with VALIDATION). `/today` reads the weather, the eligible items and the suggestion for it. When the settings row is missing, `getAppSettings` reports no home city and `setHomeProfile` answers CONFIG ("run pnpm db:seed"), as uploads already do, instead of creating the row. A change is noted in a per-tab count (`src/components/today/today-changes.ts`), so a kept `/today` reads itself again when shown. Without a home city, `/today` says so and links to Settings; when the weather cannot be read it shows the error with Try again and no suggestions.
+- Why: The owner moves from Bologna to Hamburg; the spec's "my city" changes with the move, and nothing may be guessed when it is unknown.
+
+### D-210 The purchase budget left for the shopping advice
+- Date: 2026-11-03 · Status: accepted; refined by D-219 (only what was bought under that plan) · Deviates from spec: no
+- Decision: The latest complete relocation run's purchase budget minus the lowest estimate of every shopping row marked bought under that plan (since D-219; minimum price, else maximum, times the quantity), rounded down to whole euros and never below 0. Bought rows with no price count as 0 and are reported. With no budget set, there is no limit (null).
+- Why: The owner records purchases as Bought, not with their actual price; the low end never overstates what was spent.
+
+### D-211 The shopping advice's candidates
+- Date: 2026-11-03 · Status: accepted · Deviates from spec: no
+- Decision: Shopping rows still to buy (keyed by row id) and the gaps of the latest complete relocation run that have no shopping row in any status (keyed by `gap_key`), sorted by priority, list rows before gaps, then their own order, at most 50 (`MAX_ADVICE_CANDIDATES`). The prompt names them `c1..cN`; the stored result uses the real keys and the stored input keeps the candidates. A candidate with no category is counted under the category its item type suggests.
+- Why: Short keys keep the prompt small and cannot be confused with ids; a gap the owner already bought or skipped is not offered again.
+
+### D-212 The wardrobe the unlock counts use
+- Date: 2026-11-03 · Status: accepted · Deviates from spec: no
+- Decision: Items that are tagged or confirmed, have a category, are not marked donate or sell, and are not marked leave unless they are already in Hamburg or on the way. The Hamburg profile is found by its slug.
+- Why: The advice is for life in Hamburg: what stays behind cannot be combined there.
+
+### D-213 Shopping advice is reused while nothing changed
+- Date: 2026-11-03 · Status: accepted · Deviates from spec: no
+- Decision: The cache key is a sha256 of the prompt version, model, effort, candidate keys and the full instruction. A request without `force` returns the latest complete advice with the same key; "Run again" forces a call. Older advice whose key no longer matches is shown marked out of date.
+- Why: As D-205: a second look costs nothing.
+
+### D-214 What the shopping advice checks before paying
+- Date: 2026-11-03 · Status: accepted; refined by D-220 (one run at a time) · Deviates from spec: no
+- Decision: First the flag (NOT_FOUND when off). Then three blockers, each VALIDATION: the Hamburg profile missing or incomplete (D-192), no candidates, nothing left of the purchase budget. Then the reuse check, the monthly budget, the API key. Only then is an `analyses` row (kind `shopping`) inserted as running; a failure is stored as failed with the summed cost of its calls, and only complete runs are shown.
+- Why: Every refusal that can be known for free comes before the paid call, as for the outfit suggestion.
+
+### D-215 With FEATURE_SHOPPING_AI off, nothing of the advice runs (refines D-040)
+- Date: 2026-11-03 · Status: accepted · Deviates from spec: no
+- Decision: `getShoppingAdviceState` reads nothing but the flag and answers `{ enabled: false }`; `/shopping` then renders no "What to buy next" section, and `POST /api/shopping/advice` answers 404 NOT_FOUND before it reads the body, the database or the key. Settings shows a read-only Features row: Shopping advice On, Off or Unreadable, with how to change it. An unusable value shows the generic configuration message there and in the section; the details go to the server log only (D-053).
+- Why: A switched-off feature should cost nothing and leak nothing, and the owner changes it in the server environment, not in the app.
+
+### D-216 Deviations from design.md Phase 6
+- Date: 2026-11-03 · Status: accepted · Deviates from spec: no
+- Decision: Recorded so the design is not read as the code: the slot rules are in `src/lib/outfits/contracts.ts` (`SLOT_CATEGORIES`, `validateOutfit`), not `slots.ts`, and the suggestion schemas in `suggestion.ts` and `suggestion-result.ts`, not `suggestion-schema.ts` (tests named after them). `src/lib/weather/open-meteo.ts` is pure (URL, schema, snapshot, labels); the cached fetch is in `src/server/weather.ts` and sends the profile's time zone, not `auto` (D-190, D-203). The wire keys are `why` and `rain_ok`; the design's `reasoning` would break D-022 and its `weather_fit` was dropped. The shopping wire names candidates `key`, not `gap_key`, because open list rows are candidates too (D-211). Undo takes the log ids a press created, not the latest log (D-196). The home city is a Settings section of its own, not "Settings > Location". The picker is a Dialog on every screen (D-201).
+- Why: The shared contract the four implementation runs coded against overrode the design where they differ.
+
+### D-217 Shopping advice is one plain request
+- Date: 2026-11-03 · Status: accepted · Deviates from spec: no
+- Decision: The advice call is not streamed, with its 6,000-token cap (D-186); the panel shows the estimate first and the reused result when nothing changed. "Add to shopping list" reuses the relocation action `addGapsToShoppingList`, notes a shopping-list change and refreshes the page.
+- Why: A short reply fits in one request well inside the deadline; streaming would add the broken-stream handling of D-163 for no gain.
+
+### D-218 Today and Outfits: a second sidebar group on desktop, links from the wardrobe and Settings on a phone
+- Date: 2026-11-03 · Status: accepted · Deviates from spec: no
+- Decision: `nav-items.ts` stays the single source: `PRIMARY_NAV` keeps the five tabs, and `SECONDARY_NAV` lists Today (`/today`) and Outfits (`/outfits`) under the heading "Get dressed". The desktop sidebar shows them as a second group with its own navigation landmark. The phone's tab bar keeps five tabs; there the wardrobe header shows Today and Outfits as buttons (below `md` only), Settings has a "Get dressed" section with both links at the top (next to its existing links to AI usage, Climate profiles and the export), and the Wardrobe tab stays marked on `/today` and `/outfits/*` (`tabActiveOn`), since its header leads there. Tested in `nav-items.test.ts`, `mobile-tab-bar.test.tsx` and `app-sidebar.test.tsx`.
+- Why: A sixth tab would make every tab narrower than a comfortable 44 px target at 390 px with its label; the wardrobe is where the owner looks at clothes, and Settings is already the phone's index of secondary pages.
+
+## Added in the Phase 6 review
+
+### D-219 The advice's remaining budget counts only what was bought under the latest plan (refines D-210)
+- Date: 2026-11-03 · Status: accepted · Deviates from spec: no
+- Decision: `adviceBudget` subtracts a bought row's lowest estimate only when the row belongs to the latest complete relocation run, or was added by hand at or after that run finished. Rows have no bought-at date, so the day a row was added stands in for it; a row whose run was deleted counts as added by hand. Bought rows of older plans were paid from those plans' budgets. With no finished plan, every row added by hand counts (there is no budget to subtract from then). The panel's budget line names its source: "Items bought under that plan take at least …", and with no budget "Your latest relocation plan sets no purchase budget" (or "No relocation plan sets a purchase budget"), adding that the list's "Budget for new purchases" box only compares prices and is not used here. The blocker reads "… used up by what you bought since the latest relocation plan."
+- Why: After planning again with a fresh budget, as the blocker advised, purchases made under the old plan were subtracted again: plan A €300 all bought, plan B €150, and the section said B's €150 was used up (reproduced on PGlite). The relocation prompt already tells each plan's Claude that its budget is for all new purchases. With no budget set, the line contradicted a filled-in budget box on the same page without saying where the advice's budget comes from.
+
+### D-220 Shopping rankings run one at a time (refines D-214)
+- Date: 2026-11-03 · Status: accepted · Deviates from spec: no
+- Decision: `runShoppingAdvice` creates its running row in `startAdviceRun`: one transaction under a transaction-scoped advisory lock (`pg_advisory_xact_lock(0x10618, 1)`, a first key apart from the login limit's `0x10617`). A `shopping` row still running and younger than 130 s (`SHOPPING_LEASE_MS`: the route's 120 s plus a margin) refuses the request with CONFLICT ("Purchases are already being ranked in another tab or window. Try again in a minute.", reason `running`), with `force` too, since a second tab's "Run again" sends it. Without `force`, a complete row with the same cache key stored meanwhile is answered as reused. Running rows are read before complete ones, so under Read Committed a run that completes between the two reads shows as complete. The rest of D-214's order stays: flag, blockers, reuse, budget, key, then this guarded insert. A run killed mid-call frees itself when its lease ends.
+- Why: Nothing stopped a reload or a second tab from paying for the same ranking while the first was still at Claude (reproduced: three concurrent requests, three paid calls), against the rule that two tabs never pay twice (D-204). The advice reads no row that always exists, so the outfit suggestion's settings-row lock would not do. `src/server/services/shopping-advice.pg.test.ts` (opt-in, real Postgres) starts six requests at once and expects one paid call and five CONFLICT answers; with the running check but without the lock, all six paid.
+
+### D-221 A suggestion run looks for a stored suggestion again under its lock (refines D-204 and D-205)
+- Date: 2026-11-03 · Status: accepted · Deviates from spec: no
+- Decision: `startRun` locks the settings row, refuses while another suggestion runs, and then, when `force` is not set, looks again for a complete suggestion with the same cache key and answers it instead of inserting a run. The running check comes first, for the reason in D-220. The first look, before the budget check, stays, so a reused suggestion still needs no budget check or API key (D-064). "Suggest again" (force) always makes a new call.
+- Why: A request that found nothing stored while another one was at Claude, and reached the lock just after that one completed, paid again for exactly the same inputs (reproduced step by step on PGlite). In that narrow window the second request may still get BUDGET_EXCEEDED rather than the stored suggestion; the next click reuses it.
+
+### D-222 Saving a suggestion already worn that day moves that wear to the new outfit (refines D-196 and D-208)
+- Date: 2026-11-03 · Status: accepted · Deviates from spec: no
+- Decision: When Save makes an outfit from a suggestion and every item of it has a log with no outfit on the suggestion's day (the card's "Wore this today"), `saveSuggestedOutfit` sets those logs' `outfit_id` to the new outfit in the same transaction, after `saveOutfit`, whose item locks wait for a wear being logged. Counts, last worn dates, log ids and weather snapshots stay, so the card's Undo still works. When only some items have such a log, they came from "+1 worn today", a target of its own (D-196), and nothing is attached.
+- Why: Right after the card logged it, the saved outfit's page read "Never worn" and offered "Wore this today", which counted the day's wear again (+2 per item; reproduced in a visible browser), against D-208. Now the outfit reads "Worn once" and its button answers "Already logged".
+
+### D-223 A wear or Undo that answers after its page was left re-reads the page shown (refines D-200)
+- Date: 2026-11-03 · Status: accepted · Deviates from spec: no
+- Decision: `useWearLogger` knows whether its button's page is shown (an effect whose cleanup runs when Next hides or unmounts it). When a log or an Undo is confirmed while it is not, the logger calls `router.refresh()`, which reads the page shown then. `onCounts` receives `{ shown }`, and `/today` refreshes itself from it only when shown, so the shown page is read once. While the button's page is shown nothing changes: it shows its own counts, and pages that listen while shown re-read through the noted change.
+- Why: The item page and `/today` do not re-read for item changes while shown (D-123, D-200), so the toast's Undo pressed there, for a wear logged on another page, left the old count on screen (reproduced in a visible browser).
+
+### D-224 Try again on the weather error moves focus to the forecast and says what happened
+- Date: 2026-11-03 · Status: accepted · Deviates from spec: no
+- Decision: `/today` renders `TodayWeatherFrame` (`src/components/today/today-weather-frame.tsx`) in the same place around the weather error and around the view, so it stays mounted when Try again brings the forecast. The frame holds a status region that stays in the page ("Checking the weather again…", "Forecast loaded.", "The forecast is still unavailable."), and when the forecast replaces the error after a press it moves focus to the weather card's heading (`tabIndex={-1}`), only if focus was lost (`focusWasLost`). Next hiding the page forgets the press, so a later show never moves focus.
+- Why: A working Try again removed the focused button and its status region with it: focus fell to `<body>` and nothing was announced (seen in a visible browser and in jsdom), unlike Save on `/today` and the Phase 5 Try again.
+
+### D-225 The unlock counts check each piece of an outfit against the month (refines D-191)
+- Date: 2026-11-03 · Status: accepted · Deviates from spec: no
+- Decision: Each `WARMTH_BANDS` row also has `pieceMin` (the least warmth of the bottom or dress and of the shoes), `outerRequired` and `outerMax`. Freezing (below 0 °C mean) 10–15 and cold (0 to 5) 7–13, the cold minimum lowered from 8, both with outerwear required; chilly 6–11 and cool 5–10; in those four bands the bottom, the dress and the shoes need warmth 2 or more. Mild 3–7 and warm 2–5 allow warmth-1 pieces but no outerwear above 3. An unknown warmth fits when some allowed level would. `unlockCount` is still the outfits with the candidate minus those without.
+- Why: The sum alone let a heavy coat make up for linen shorts or sandals in January (on the 300-item demo wardrobe, Hamburg January: linen shorts unlocked 4,763 outfits, sandals 3,640, and a down parka 781 in July), while a waterproof shell over a mid-layer knit and jeans (3 + 2 + 2 = 7) never counted, so the numbers Claude is told to trust favoured shorts over the spec's main Hamburg gap. The tagging rubric's scale (1 = summer or very light) makes warmth 1 the natural cut. Now, on the fixture wardrobe, shorts and sandals unlock 0 in January and October, the shell 2 in January, and a down parka 0 in July.
+
+### D-226 The shopping prompt shop-v2: the whole year's climate, and the per-piece rule (refines D-193)
+- Date: 2026-11-03 · Status: accepted · Deviates from spec: no
+- Decision: The advice's `<climate>` block is `describeAdviceClimate(profile)`: the relocation climate text for January to December under the heading "Monthly normals, January to December:". `describeClimateForPrompt` gained an optional heading; the relocation prompt keeps "Monthly normals for the stay, in order (arrival month first):", so its pins and cache keys are unchanged. The system prompt's description of an outfit adds that each piece must suit the month (D-225). `SHOPPING_PROMPT_VERSION` is `shop-v2`, with both hashes pinned; the template pin now renders the real climate block.
+- Why: Every request told Claude the stay starts in January, false context that leans the ranking towards winter gear. Advice stored under `shop-v1` shows as out of date, because the cache key holds the version and the instruction.
+
+### D-227 The outfit prompt outfit-v2: worn:N counts logs (refines D-188)
+- Date: 2026-11-03 · Status: accepted · Deviates from spec: no
+- Decision: The system prompt says "worn:N, how many times the item was logged as worn (one day can count more than once)" instead of "the number of days the item was logged as worn". `OUTFIT_PROMPT_VERSION` is `outfit-v2`; the system hash is pinned, and the template hash is unchanged.
+- Why: `wear_count` counts logs, and one day can hold an item's own log and an outfit's (D-196), so "days" overstated how worn an item is. The new version changes the reuse key (D-205), so the first "Suggest outfits" after it makes a paid call; none was paid under `outfit-v1`.
+
+### D-228 /today shows a suggestion the tab asked for only for the home city and day it shows (refines D-206)
+- Date: 2026-11-03 · Status: accepted · Deviates from spec: no
+- Decision: `TodaySuggestionDto` carries `profileId` (the analysis's climate profile, null once that profile is deleted). The view ignores a suggestion this tab asked for when its profile or day differs from the page's, and announces "Three outfits for today are ready." only for one it shows. A run started for Bologna that answers after the home city became Hamburg is not shown under Hamburg's weather, never replaces Hamburg's own stored suggestion, and leaves "Suggest outfits" as the free first press there.
+- Why: Changing the home city during a run showed Bologna's outfits under "Weather in Hamburg", with Save and "Wore this today" enabled, until a reload (reproduced in a visible browser), against D-206.
+
+### D-229 /today keeps room for the toasts under the last cards
+- Date: 2026-11-03 · Status: accepted · Deviates from spec: no
+- Decision: The list of suggested outfits has 8 rem of bottom padding (none in print), so at any width the last cards' Save and "Wore this today" can scroll above the toast stack, where a wear's Undo stays for 10 minutes. `e2e/today.spec.ts` wears the third card at 1280 × 720, 1440 × 900 and 390 × 844 and checks that its Save can still be clicked.
+- Why: The Undo toast of a wear on the last card covered that card's Save for the whole window, and the page could not scroll it clear (reproduced at those three sizes). Closing the toast to reach Save would have lost the Undo.

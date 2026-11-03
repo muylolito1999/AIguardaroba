@@ -1,0 +1,117 @@
+{
+  "latitude": 53.62,
+  "longitude": 9.98,
+  "generationtime_ms": 0.413060188293457,
+  "utc_offset_seconds": 3600,
+  "timezone": "Europe/Berlin",
+  "timezone_abbreviation": "GMT+1",
+  "elevation": 11,
+  "current_units": {
+    "time": "iso8601",
+    "interval": "seconds",
+    "temperature_2m": "°C"
+  },
+  "current": {
+    "time": "2026-11-03T14:15",
+    "interval": 900,
+    "temperature_2m": 9.4
+  },
+  "hourly_units": {
+    "time": "iso8601",
+    "precipitation_probability": "%"
+  },
+  "hourly": {
+    "time": [
+      "2026-11-03T00:00",
+      "2026-11-03T01:00",
+      "2026-11-03T02:00",
+      "2026-11-03T03:00",
+      "2026-11-03T04:00",
+      "2026-11-03T05:00",
+      "2026-11-03T06:00",
+      "2026-11-03T07:00",
+      "2026-11-03T08:00",
+      "2026-11-03T09:00",
+      "2026-11-03T10:00",
+      "2026-11-03T11:00",
+      "2026-11-03T12:00",
+      "2026-11-03T13:00",
+      "2026-11-03T14:00",
+      "2026-11-03T15:00",
+      "2026-11-03T16:00",
+      "2026-11-03T17:00",
+      "2026-11-03T18:00",
+      "2026-11-03T19:00",
+      "2026-11-03T20:00",
+      "2026-11-03T21:00",
+      "2026-11-03T22:00",
+      "2026-11-03T23:00"
+    ],
+    "precipitation_probability": [
+      35,
+      38,
+      42,
+      45,
+      47,
+      50,
+      55,
+      62,
+      70,
+      76,
+      80,
+      74,
+      66,
+      58,
+      49,
+      41,
+      36,
+      33,
+      30,
+      28,
+      25,
+      22,
+      20,
+      18
+    ]
+  },
+  "daily_units": {
+    "time": "iso8601",
+    "weather_code": "wmo code",
+    "temperature_2m_max": "°C",
+    "temperature_2m_min": "°C",
+    "apparent_temperature_max": "°C",
+    "apparent_temperature_min": "°C",
+    "precipitation_sum": "mm",
+    "precipitation_probability_max": "%",
+    "wind_gusts_10m_max": "km/h"
+  },
+  "daily": {
+    "time": [
+      "2026-11-03"
+    ],
+    "weather_code": [
+      61
+    ],
+    "temperature_2m_max": [
+      10.8
+    ],
+    "temperature_2m_min": [
+      5.9
+    ],
+    "apparent_temperature_max": [
+      7.6
+    ],
+    "apparent_temperature_min": [
+      2.1
+    ],
+    "precipitation_sum": [
+      3.4
+    ],
+    "precipitation_probability_max": [
+      78
+    ],
+    "wind_gusts_10m_max": [
+      52.9
+    ]
+  }
+}

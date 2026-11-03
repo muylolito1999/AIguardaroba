@@ -12,6 +12,8 @@ import {
   analysisParts,
   climateProfiles,
   items,
+  outfitItems,
+  outfits,
   packingChecklistItems,
   shoppingListItems,
   type Item,
@@ -40,7 +42,10 @@ import { NEEDS_NO_API_KEY, SHELL_TAGGING } from "./live-env"
 // configuration error because the e2e server has no API key. With E2E_TAG=1
 // and a key in the shell the server has one, and opening that page would run
 // the parts against the real API, so the unfinished run is neither inserted
-// nor scanned then (D-113). Every row is deleted again in afterAll.
+// nor scanned then (D-113). One outfit of the coat and the boots is inserted
+// for /outfits and its page; /today shows the seeded home city's (Bologna)
+// forecast from the local Open-Meteo stub that playwright.config.ts starts.
+// Every row is deleted again in afterAll.
 
 const WCAG_TAGS = ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"]
 const FAILING_IMPACTS = new Set(["serious", "critical"])
@@ -54,7 +59,9 @@ const db = drizzle({ client: pool, relations })
 const createdItemIds: string[] = []
 const createdAnalysisIds: string[] = []
 const createdShoppingIds: string[] = []
+const createdOutfitIds: string[] = []
 let coatId = ""
+let outfitId = ""
 let finishedRunId = ""
 let unfinishedRunId = ""
 
@@ -195,6 +202,17 @@ test.beforeAll(async ({ baseURL }) => {
     createdItemIds.push(item.id)
   }
   coatId = coat.id
+  const [outfit] = await db
+    .insert(outfits)
+    .values({ name: "E2E a11y rainy commute", occasion: "Work", weatherMinC: 2, weatherMaxC: 9, rainOk: true, rating: 4 })
+    .returning({ id: outfits.id })
+  if (outfit === undefined) throw new Error("The outfit was not inserted")
+  outfitId = outfit.id
+  createdOutfitIds.push(outfit.id)
+  await db.insert(outfitItems).values([
+    { outfitId, itemId: coat.id, slot: "outerwear" },
+    { outfitId, itemId: boots.id, slot: "shoes" },
+  ])
   finishedRunId = await insertRelocationRun([coat, boots], true)
   // Not inserted when the server has an API key: no page may resume it.
   if (!SHELL_TAGGING) unfinishedRunId = await insertRelocationRun([coat, boots], false)
@@ -203,6 +221,8 @@ test.beforeAll(async ({ baseURL }) => {
 test.afterAll(async () => {
   try {
     if (createdShoppingIds.length > 0) await db.delete(shoppingListItems).where(inArray(shoppingListItems.id, createdShoppingIds))
+    // Its outfit_items rows cascade.
+    if (createdOutfitIds.length > 0) await db.delete(outfits).where(inArray(outfits.id, createdOutfitIds))
     // Parts and packing rows cascade.
     if (createdAnalysisIds.length > 0) await db.delete(analyses).where(inArray(analyses.id, createdAnalysisIds))
     // Image rows cascade.
@@ -297,6 +317,10 @@ test("every signed-in page has no serious or critical violations", async ({ page
     },
     { label: "shopping", path: "/shopping", ready: (p) => p.getByText(SOCKS, { exact: true }) },
     { label: "settings-climate", path: "/settings/climate", ready: (p) => p.getByRole("region", { name: "Hamburg" }) },
+    { label: "today", path: "/today", ready: (p) => p.getByRole("region", { name: "Weather in Bologna" }) },
+    { label: "outfits", path: "/outfits", ready: (p) => p.getByRole("list", { name: "Outfits" }) },
+    { label: "outfits-new", path: "/outfits/new", ready: (p) => p.getByRole("form", { name: "Outfit" }) },
+    { label: "outfit-detail", path: `/outfits/${outfitId}`, ready: (p) => p.getByRole("form", { name: "Outfit" }) },
   ]
   if (SHELL_TAGGING) testInfo.annotations.push({ type: "skip", description: `relocate-progress: ${NEEDS_NO_API_KEY}` })
   for (const { label, path, ready } of pages) {
@@ -322,6 +346,28 @@ test("each tab of a finished relocation plan has no serious or critical violatio
   }
 })
 
+test("the outfit builder's slot messages after an empty Save have no serious or critical violations", async ({
+  page,
+}, testInfo) => {
+  await signIn(page)
+  for (const { label, size, colorScheme } of [
+    { label: "outfits-new-errors", size: { width: 1440, height: 900 }, colorScheme: "light" as const },
+    { label: "outfits-new-errors-390-dark", size: { width: 390, height: 844 }, colorScheme: "dark" as const },
+  ]) {
+    await test.step(label, async () => {
+      await page.setViewportSize(size)
+      await page.emulateMedia({ colorScheme })
+      await page.goto("/outfits/new")
+      const form = page.getByRole("form", { name: "Outfit" })
+      await waitForContent(page, form)
+      await form.getByRole("button", { name: "Save outfit" }).click()
+      await expect(form.getByRole("group", { name: "Top or dress" })).toContainText("Choose a top or a dress.")
+      await expect(form.getByRole("group", { name: "Bottom" })).toContainText("Choose a bottom, or a dress as the top.")
+      await expectNoSeriousViolations(page, testInfo, label)
+    })
+  }
+})
+
 test.describe("at phone width", () => {
   test.use({ viewport: { width: 390, height: 844 } })
 
@@ -337,5 +383,20 @@ test.describe("at phone width", () => {
     await page.goto(`/relocate/${finishedRunId}`)
     await waitForContent(page, page.getByRole("tab", { name: "Items 2" }))
     await expectNoSeriousViolations(page, testInfo, "relocate-result-390")
+  })
+
+  test("today and the outfits have no serious or critical violations", async ({ page }, testInfo) => {
+    await signIn(page)
+    for (const { label, path, ready } of [
+      { label: "today-390", path: "/today", ready: (p: Page) => p.getByRole("region", { name: "Weather in Bologna" }) },
+      { label: "outfits-390", path: "/outfits", ready: (p: Page) => p.getByRole("list", { name: "Outfits" }) },
+      { label: "outfit-detail-390", path: `/outfits/${outfitId}`, ready: (p: Page) => p.getByRole("form", { name: "Outfit" }) },
+    ]) {
+      await test.step(label, async () => {
+        await page.goto(path)
+        await waitForContent(page, ready(page))
+        await expectNoSeriousViolations(page, testInfo, label)
+      })
+    }
   })
 })

@@ -5,6 +5,7 @@ import { hashSync } from "bcryptjs";
 
 import { E2E_DATABASE_URL, E2E_PASSWORD } from "./e2e/constants";
 import { liveServerEnv } from "./e2e/live-env";
+import { OPEN_METEO_STUB_URL } from "./e2e/open-meteo-stub";
 import { APP_ENV_VARS } from "./test/app-env-vars";
 
 // Every app variable starts blank on the e2e server. `next build` and
@@ -43,22 +44,34 @@ export default defineConfig({
   },
   // Chromium accepts the Secure session cookie on http://localhost.
   projects: [{ name: "chromium", use: { ...devices["Desktop Chrome"] } }],
-  webServer: {
-    command: "pnpm build && pnpm start",
-    url: "http://localhost:3000",
-    reuseExistingServer: false,
-    timeout: 240_000,
-    // Merged over process.env; NODE_ENV is left to `next build` and `next start`.
-    env: {
-      ...BLANK_APP_ENV,
-      DATABASE_URL: E2E_DATABASE_URL,
-      DATABASE_URL_UNPOOLED: E2E_DATABASE_URL,
-      APP_PASSWORD_HASH,
-      SESSION_SECRET,
-      // Only what the runner's shell set (D-113): BLOB_READ_WRITE_TOKEN when it
-      // is set there, ANTHROPIC_API_KEY only with E2E_TAG=1 as well. Otherwise
-      // both stay blank as above. Never read from .env.local.
-      ...liveServerEnv(),
+  webServer: [
+    // A local Open-Meteo stand-in, so /today never reaches the real API in a run
+    // (D-202). Importing its URL above does not start it; this command does.
+    {
+      command: "node e2e/open-meteo-stub.ts",
+      url: `${OPEN_METEO_STUB_URL}/health`,
+      reuseExistingServer: false,
+      timeout: 30_000,
     },
-  },
+    {
+      command: "pnpm build && pnpm start",
+      url: "http://localhost:3000",
+      reuseExistingServer: false,
+      timeout: 240_000,
+      // Merged over process.env; NODE_ENV is left to `next build` and `next start`.
+      env: {
+        ...BLANK_APP_ENV,
+        DATABASE_URL: E2E_DATABASE_URL,
+        DATABASE_URL_UNPOOLED: E2E_DATABASE_URL,
+        APP_PASSWORD_HASH,
+        SESSION_SECRET,
+        // The forecast comes from the stub above, never from the network.
+        OPEN_METEO_BASE_URL: OPEN_METEO_STUB_URL,
+        // Only what the runner's shell set (D-113): BLOB_READ_WRITE_TOKEN when it
+        // is set there, ANTHROPIC_API_KEY only with E2E_TAG=1 as well. Otherwise
+        // both stay blank as above. Never read from .env.local.
+        ...liveServerEnv(),
+      },
+    },
+  ],
 });

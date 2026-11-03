@@ -22,5 +22,6 @@ export const APP_ENV_VARS = [
   "SESSION_SECRET",
   "CRON_SECRET",
   "FEATURE_SHOPPING_AI",
+  "OPEN_METEO_BASE_URL",
   "E2E_TAG",
 ] as const;

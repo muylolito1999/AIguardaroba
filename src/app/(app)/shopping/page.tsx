@@ -2,6 +2,7 @@ import type { Metadata } from "next"
 import { Suspense } from "react"
 
 import { PageHeader } from "@/components/layout/page-header"
+import { ShoppingAdviceSection } from "@/components/shopping/advice-section"
 import { ShoppingListView } from "@/components/shopping/shopping-list"
 import { Skeleton } from "@/components/ui/skeleton"
 import { verifySession } from "@/lib/auth/dal"
@@ -28,6 +29,10 @@ export default function ShoppingPage() {
       <PageHeader title="Shopping" description="What to buy to fill the gaps in your wardrobe." />
       <Suspense fallback={<ShoppingSkeleton />}>
         <ShoppingContent />
+      </Suspense>
+      {/* No fallback: with FEATURE_SHOPPING_AI off the section renders nothing (D-040). */}
+      <Suspense fallback={null}>
+        <ShoppingAdviceSection />
       </Suspense>
     </>
   )

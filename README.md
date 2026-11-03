@@ -1,6 +1,6 @@
 # Wardrobe
 
-A private, single-user, climate-aware digital wardrobe. You photograph your clothes, Claude tags each item from the photo (category, colours, materials, warmth, seasons and so on), and you browse and filter the result. Relocation mode takes the climate of a destination (Hamburg first) and tells you what to bring, what to leave, donate or sell, and what is missing for that climate. It runs as a Next.js app on Vercel and installs on a phone as a PWA.
+A private, single-user, climate-aware digital wardrobe. You photograph your clothes, Claude tags each item from the photo (category, colours, materials, warmth, seasons and so on), and you browse and filter the result. Relocation mode takes the climate of a destination (Hamburg first) and tells you what to bring, what to leave, donate or sell, and what is missing for that climate. Each day, `/today` shows your home city's forecast and three outfits Claude puts together from your own clothes; you save outfits, log what you wore (wear counts follow on every card), and, when switched on, get a budget-aware "What to buy next" ranking. It runs as a Next.js app on Vercel and installs on a phone as a PWA.
 
 Task tracking lives in Beads (`bd ready`, `bd show <id>`). Why things are built the way they are is in [DECISIONS.md](DECISIONS.md); the current state of work is in [HANDOFF.md](HANDOFF.md).
 
@@ -20,8 +20,11 @@ Task tracking lives in Beads (`bd ready`, `bd show <id>`). Why things are built 
 | 4 | Stats page with a winter-readiness checklist; JSON, CSV and image ZIP export |
 | 5 | Relocation analysis with Claude Sonnet 5.5: Bring / Leave / Donate-Sell, gaps, layering, packing checklist |
 | 5 | Shopping list fed from relocation gaps; climate profile editor |
-| 6 | Outfit builder; `/today` with weather and three AI outfit suggestions; wear tracking |
-| 6 | "What to buy next" AI analysis behind `FEATURE_SHOPPING_AI` |
+| 6 | Outfit builder (`/outfits`): one item per slot (base layer included, a dress without a bottom, up to three accessories), checked on the server; saved outfits with "Worn N times" |
+| 6 | `/today`: the home city's forecast from Open-Meteo (cached, with attribution) and three outfit suggestions by Claude from your own items, each with Save and "Wore this today" |
+| 6 | Wear tracking: "+1 worn today" on the item page and "Wore this today" on outfits, with Undo for 10 minutes; wear counts on cards and item pages |
+| 6 | "What to buy next" on `/shopping`, behind `FEATURE_SHOPPING_AI`: outfit unlock counts computed by the app, ranking and budget split by Claude |
+| 6 | Settings: home city, the feature switch's state, links to Today and Outfits for phones |
 
 ## Architecture
 
@@ -33,17 +36,23 @@ Task tracking lives in Beads (`bd ready`, `bd show <id>`). Why things are built 
  Next.js 16 on Vercel, fra1  │
    ├─ src/proxy.ts           optimistic session check (jose HS256 cookie)
    ├─ Server Components      static shell + <Suspense> children (Cache Components)
-   ├─ Server Actions         single mutations (confirm item, decisions, settings, login)
-   └─ Route Handlers         concurrent work (register, tag, analysis parts),
-        │                    exports, daily cron for batch polling
+   ├─ Server Actions         single mutations (confirm item, decisions, outfits,
+   │                         wear logs, home city, login)
+   ├─ Route Handlers         concurrent or long work (register, tag, analysis parts,
+   │                         outfit suggestions, shopping advice), exports,
+   │                         daily cron for batch polling
+   └─ 'use cache' function   today's forecast per place and day (src/server/weather.ts)
         │                    │
         ├──► Neon Postgres (aws-eu-central-1)   pg driver + Drizzle ORM
         ├──► Vercel Blob (public store, fra1) ◄─┘ originals, processed WebP, thumbnails
-        ├──► Anthropic API                      Haiku 5.5 tagging, Sonnet 5.5 analysis
-        └──► Open-Meteo                         forecast for /today, cached 30 min
+        ├──► Anthropic API                      Haiku 5.5 tagging; Sonnet 5.5 relocation,
+        │                                       outfit suggestions and shopping advice
+        └──► Open-Meteo                         /v1/forecast for /today, cached about 30 min
 ```
 
-Every server read and action checks the session through the data access layer (`requireSession()`); `proxy.ts` is only a fast first filter. Work the browser runs in parallel (registering uploads, tagging, relocation chunks) goes through Route Handlers, because Next.js runs Server Actions one at a time per client.
+Every server read and action checks the session through the data access layer (`requireSession()`); `proxy.ts` is only a fast first filter. The one cached function, the forecast fetch, cannot read cookies, so only a caller that has checked the session may call it (D-203; `test/boundaries.test.ts` enforces it). Work the browser runs in parallel or that takes seconds to minutes (registering uploads, tagging, relocation chunks, outfit suggestions, shopping advice) goes through Route Handlers, because Next.js runs Server Actions one at a time per client.
+
+Navigation: `src/components/layout/nav-items.ts` is the single source. The five primary sections are the desktop sidebar's first group and the phone's tab bar. Today and Outfits are a second sidebar group ("Get dressed"); on a phone, where the tab bar keeps five tabs, they are buttons in the wardrobe header and links at the top of Settings, and the Wardrobe tab stays marked on them (D-218).
 
 Two things happen only in the browser: photos are resized and re-encoded before upload, and the optional background removal runs a segmentation model in the browser. Its runtime is served by this app (copied from `onnxruntime-web` with pinned hashes by `pnpm vendor:bg-removal`, which `pnpm build` and `pnpm dev` run first); the model, which is data, comes from IMG.LY's CDN (`staticimgly.com`). The photo itself is never sent to IMG.LY.
 
@@ -76,14 +85,15 @@ Copy `.env.example` to `.env.local`, or get the values with `vercel env pull .en
 | `ANTHROPIC_API_KEY` | Phase 3+, runtime | Anthropic API key. Mark it as sensitive in Vercel. |
 | `CLAUDE_TAGGING_MODEL` | Optional | Tagging model. Default `claude-haiku-5-5`. Must be priced in `src/lib/ai/models.ts`. |
 | `CLAUDE_ANALYSIS_MODEL` | Optional | Relocation analysis model. Default `claude-sonnet-5-5`. Must be priced. |
-| `CLAUDE_OUTFIT_MODEL` | Optional (Phase 6) | Outfit suggestion model. Defaults to the analysis model. Must be priced. |
+| `CLAUDE_OUTFIT_MODEL` | Optional (Phase 6) | Model for the `/today` outfit suggestions. Defaults to the analysis model (`claude-sonnet-5-5`); `claude-haiku-5-5` costs about a twentieth (see [Costs](#costs)). Must be priced. |
 | `CLAUDE_ANALYSIS_EFFORT` | Optional (Phase 5) | Effort for the relocation analysis: `low`, `medium` or `high`. Default `medium`. |
 | `MONTHLY_AI_BUDGET_USD` | Optional | Hard monthly stop for AI spend (UTC calendar month). Default `20`. |
 | `AI_CREDIT_USD` | Optional | Prepaid API credit that the usage page compares all-time spend against. Default `100`. |
 | `APP_PASSWORD_HASH` | Phase 2+, runtime | The base64 encoding of the bcrypt hash of the app password. `pnpm hash-password` prints it. A raw `$2b$…` value is rejected with a hint, because `@next/env` expands `$` in `.env` files and would corrupt it. |
 | `SESSION_SECRET` | Phase 2+, runtime | Signs the session cookie and salts the login rate-limit key. At least 32 characters; `pnpm hash-password --with-secret` prints one. |
 | `CRON_SECRET` | Phase 3+, Vercel | Bearer secret for `/api/cron/poll-batches` (see [Batch polling cron](#batch-polling-cron)). Vercel sends it on cron invocations. At least 16 characters. |
-| `FEATURE_SHOPPING_AI` | Optional (Phase 6) | Enables the "What to buy next" AI analysis. Default `false`. |
+| `FEATURE_SHOPPING_AI` | Optional (Phase 6) | `true` (or `1`) shows "What to buy next" on `/shopping` and enables `POST /api/shopping/advice`; `false`, `0` or unset hides it and the route answers 404. Any other value is a configuration error, shown without details. Default `false`. Settings shows its state read-only. |
+| `OPEN_METEO_BASE_URL` | Test only (Phase 6) | Base URL of the forecast API, default `https://api.open-meteo.com` (free, no key). Only the e2e run sets it, to its local stub; leave it unset elsewhere. Must be an http(s) URL without a query or fragment (D-202). |
 | `E2E_TAG` | Test only | Set to `1` in the shell, together with `ANTHROPIC_API_KEY` and `BLOB_READ_WRITE_TOKEN`, to make the Playwright smoke spec tag its photos with Claude (Tag now) instead of by hand. Playwright reads it in the test runner; the e2e server gets real credentials only from the shell, never from `.env.local` (D-113). |
 | `ENABLE_EXPERIMENTAL_COREPACK` | Vercel dashboard only | Set to `1` so Vercel builds with the pnpm version in `packageManager` instead of guessing from the lockfile. |
 
@@ -245,6 +255,47 @@ Each item is one short line under an alias (`i12`), never its id, photo or notes
 
 `/settings/climate` (Settings, Climate profiles) edits each profile's monthly maximum, minimum and mean temperature, rain in mm, rain days and sunshine hours, plus wind notes and notes. An empty cell means unknown; text a cell cannot read, such as a lone "-", is an error that blocks Save (D-153, D-182). Bologna starts as a placeholder; once all 72 values are filled in and saved, its placeholder mark goes away for good, its source becomes "Monthly values entered by the owner…", and its seeded notes, if you left them as they were, keep only your description, so a relocation prompt no longer calls the data a placeholder (D-169). "Set as default" chooses the profile the relocation form starts with. `pnpm db:seed` restores Hamburg's reference values and makes Hamburg the default again on every run; Bologna and the settings are never overwritten (D-057, D-153).
 
+## Outfits
+
+`/outfits` lists the outfits you saved, newest first: a collage of the items' photos, occasion, weather range, rating, "Fine in rain", whether Claude suggested it ("AI"), how many times you wore it and when last, with "Wore this today" on each. "New outfit" (`/outfits/new`) and an outfit's page (`/outfits/<id>`, edit and Delete) use the same builder:
+
+- Slots: outerwear, top, base layer, bottom, shoes, hat, scarf, gloves and accessory. Each slot's Choose opens a dialog that lists only the items whose category fits (a dress fits the top slot, a bag the accessory slot), with a search box, photo, wear count and last worn day. Archived items are never offered.
+- Rules (D-038, D-195): exactly one item in the top slot; a bottom unless that item is a dress; one item per slot except up to three accessories; at most 12 items; no item twice. The form shows a broken rule next to its slot before saving, and the server checks the same rules again with the items as they are at that moment.
+- Details: a name (required), occasion, the temperature range it suits (−40 to 50 °C, a comma works as the decimal point), "Fine in rain", a rating of 1 to 5 and notes.
+
+Deleting an outfit keeps the wear history of its items (D-199). The outfit pages read themselves again when you come back to them after an item or outfit changed elsewhere in the tab, for example a wear logged on an item page (D-200).
+
+## Wear tracking
+
+Each item has a wear count and a last worn day, shown on its page, in the outfit pickers and on the suggestion cards; its wardrobe card shows the count ("Worn 4×"), and "Most worn first" sorts the wardrobe by it. A wear is logged per item and calendar day in your home city's time zone:
+
+- "+1 worn today" on an item's page logs that item (not offered for archived items).
+- "Wore this today" on a saved outfit logs all its items, linked to the outfit; on a `/today` suggestion it logs the suggestion's items with today's weather, or the saved outfit once you saved it.
+- Each item counts once per day and target: pressing again says "Already logged". The toast that confirms a wear has Undo for 10 minutes, which takes back exactly that wear; afterwards the wear stays (D-196). Pressed on another page, Undo also refreshes the page you are on (D-223).
+- A wear changes only the count, the last worn day and the log, not the item's "Last changed" date (D-197). Logging needs a home city (Settings), because the day is taken in its time zone (D-194).
+
+## Today
+
+`/today` is for getting dressed. It needs a home city, chosen in Settings, Home city (Bologna as seeded; switch to Hamburg after the move), and shows:
+
+- The weather card: today's conditions, the temperature now, the low and high, the feels-like range, the chance of rain, the rain in mm and the strongest gusts, from Open-Meteo for the home city's coordinates and time zone, with "Weather data by Open-Meteo.com" linking to the source (CC BY 4.0). The forecast is cached on the server per place and day for about 30 minutes (kept 15 minutes in the browser, refreshed in the background after 30 minutes, dropped after an hour without a request), so reloading the page does not ask Open-Meteo again (D-203). When the forecast cannot be read, the page says "Weather is unavailable right now." with Try again and offers no suggestions: nothing is guessed (D-190). Try again announces the outcome and, once the forecast loads, moves focus to it (D-224).
+- "Suggest outfits": three complete outfits by Claude (`CLAUDE_OUTFIT_MODEL`) from the items that are tagged or confirmed, located in the home city or of unknown location, and not marked donate or sell (D-204). Each card lists the items with their wear counts, says why the outfit suits the day, citing the numbers, and whether it keeps you dry. The note under the button gives the number of items, the model and the estimated cost before anything is sent; when the items cannot make three different outfits, the button is disabled and the note says what is missing (D-189). Asked again on the same day with nothing changed, it shows the stored suggestion at no cost; "Suggest again" always asks Claude anew (D-205). Without an API key, with the budget spent, or when another tab is already asking, it says so and nothing is paid. Outfits asked for before the home city changed are not shown for the new city (D-228).
+- On each card, Save creates an outfit (marked AI, its page showing "Why Claude suggested it") and becomes "Open saved outfit"; "Wore this today" logs the wear with Undo and then reads "Worn today" (D-207, D-208). Saved after that wear, the outfit takes it over, so it reads "Worn once" and is not counted again from its own page (D-222). The list leaves room below the last cards, so the toasts never cover their buttons (D-229).
+
+The page reads itself again when shown after you changed the home city, an item or an outfit elsewhere in the tab (D-209, D-200).
+
+### What Claude sees for outfits
+
+Each eligible item is one line, the relocation line plus how many wears are logged for it (one day can hold more than one, D-227) and when it was last worn: `i3|outerwear/parka|navy|down;polyester|w5|wp1 wd1 ins1 br?|winter|casual|good|confirmed|Navy down parka|worn:12|last:2026-10-30`. Up to 400 items are sent; above that, each category keeps its 10 items best suited to the day and the best-suited of the rest fill up (D-188). The instruction gives the place and the forecast (feels-like range, rain chance and amount, gusts). The system prompt (`src/lib/outfits/suggestion.ts`, version `outfit-v2`) asks Claude to dress for the feels-like range, rain and wind, to layer, to prefer items not worn recently, and to use only listed aliases and the slot rules. The answer is checked strictly: exactly three outfits, every alias known, every outfit valid under the slot rules, no two the same, titles of at most 60 and reasons of at most 300 characters; anything else is asked for again, within the three attempts and the 110 s deadline (D-186). Editing the prompt, the instruction or the wire schema requires bumping `OUTFIT_PROMPT_VERSION`, which a test enforces.
+
+## What to buy next
+
+With `FEATURE_SHOPPING_AI=true`, `/shopping` gets a "What to buy next" section below the list; with it off (the default) the section is not rendered and its route answers 404 (D-215). It ranks the candidates: the entries still to buy on the list, and the gaps of the latest finished relocation plan that are not on it yet (at most 50, D-211).
+
+- The app counts, for each candidate, how many more outfits the wardrobe could make with it in four Hamburg scenarios (January, April, July and October, from the climate profile's mean temperature, rainy with 15 or more rain days): a top or dress, a bottom unless it is a dress, shoes and optional outerwear, with formality within one step, summed warmth inside the month's band, each piece suited to the month on its own (no summer-weight bottom, dress or shoes from the cool months down, outerwear near freezing, no heavy coat in mild months) and, when rainy, something waterproof (D-191, D-225, D-212). Base layers, hats, gloves, scarves and bags never unlock a combination by this definition.
+- Claude (the analysis model, effort low) ranks up to ten of them, says why and suggests how much of the remaining purchase budget to set aside for each; the total never exceeds what is left (the latest plan's budget minus what was bought under that plan, D-210, D-219, D-193; the list's own budget box only compares prices). Each row shows what it unlocks per month ("January: unlocks 12 outfits"), and a gap not on the list yet can be added with "Add to shopping list".
+- "Rank N purchases" shows its estimate first; the ranking is reused at no cost while nothing changed, marked out of date when the list, the budget or the wardrobe changed, and "Run again" asks anew (D-213). It is refused before any paid call when the Hamburg profile is incomplete, there are no candidates, or no budget is left (D-214), and while another tab is still ranking: one ranking runs at a time (D-220). The climate Claude sees is the whole year's, January to December (D-226).
+
 ## Connecting the cloud (one time)
 
 1. `npm i -g vercel`, then `vercel login` and `vercel link`.
@@ -274,6 +325,9 @@ Expected costs (estimates, not yet measured):
 |---|---|---|
 | Tag 100 items | Haiku 5.5, effort low | About $0.055 (the spec's "about $0.06"); about $0.028 with Batch mode |
 | Relocation analysis of 300 items | Sonnet 5.5, effort medium | About $0.55 (likely $0.39–0.83); $0.40 at effort low, $0.77 at high. Above the spec's $0.20–0.30 because of thinking tokens and a reason per item (D-147). Sonnet 5.5 reads from the prompt cache at $0.10 per MTok (D-021). |
+| Outfit suggestion (three outfits) | Sonnet 5.5 (default `CLAUDE_OUTFIT_MODEL`), effort low | About $0.048 for a typical wardrobe (the 187 items of the 300-item demo seed that are at home in Bologna, about 12,000 input tokens); $0.039 for 100 items, $0.059 for 300. A repeat on the same day with nothing changed costs nothing. |
+| Outfit suggestion | Haiku 5.5 (`CLAUDE_OUTFIT_MODEL=claude-haiku-5-5`), effort low | About $0.0024 for the same 187 items; $0.0029 for 300. |
+| Shopping advice ("What to buy next") | Sonnet 5.5, effort low | About $0.031 for 10 candidates ($0.030 for 5, $0.032 for 20). Only with `FEATURE_SHOPPING_AI=true`. |
 
 How the tagging estimate is computed (`src/lib/ai/cost.ts`; the add page shows the same numbers):
 
@@ -296,13 +350,15 @@ How the relocation estimate is computed (`src/lib/relocation/estimate.ts`; the f
 | medium (default) | $0.55 | $0.39–0.83 |
 | high | $0.77 | $0.54–1.16 |
 
-These are estimates, not measurements: no relocation run has called Claude yet. The first live run's actual cost (the sum of its `ai_calls` rows, shown on the result page next to the estimate) replaces them here and in HANDOFF.md. A finished result opened again costs nothing (the cache), and "Re-run anyway" costs a full run.
+How the outfit and shopping estimates are computed (`estimateOutfitSuggestionUsd` in `src/lib/outfits/suggestion.ts`, `estimateShoppingAdviceUsd` in `src/lib/shopping/advice.ts`; `/today` and the advice panel show the same numbers): the system prompt (about 1,960 tokens for outfits, 1,430 for shopping), the instruction with every item or candidate line and 400 tokens of format overhead, counted like the tagging estimate, at the standard input rate with no cache discount; output 900 visible plus 1,500 thinking tokens for outfits, and 100 per recommendation (up to 10) plus 1,500 for shopping.
+
+These are estimates, not measurements: no relocation run, outfit suggestion or shopping advice has called Claude yet. The first live run's actual cost (the sum of its `ai_calls` rows, shown on the result page next to the estimate) replaces them here and in HANDOFF.md. A finished result opened again costs nothing (the cache), and "Re-run anyway" costs a full run.
 
 ## Changing models
 
 Set `CLAUDE_TAGGING_MODEL`, `CLAUDE_ANALYSIS_MODEL` or `CLAUDE_OUTFIT_MODEL` (and `CLAUDE_ANALYSIS_EFFORT` for the analysis) in Vercel and `.env.local`. A model can only be used if it has an entry in the pricing table in `src/lib/ai/models.ts`; otherwise every AI call fails with a configuration error before anything is sent, because unpriced calls would break budget accounting. To add a model, add its id to `PRICED_MODEL_IDS` and its prices to `PRICING_PER_MTOK` in that file (input, output, cache-read and cache-write multipliers, batch multiplier, and any long-context tier, all from Anthropic's pricing page), then set the variable.
 
-A different tagging model applies to new items and to items you re-tag; existing tags stay as they are, and each item records the model and prompt version that tagged it (`ai_model`, `ai_prompt_version`). The add page's estimate and the budget check use the new model's prices automatically. After changing the tagging model, run `pnpm ai:smoke` once to check that the model accepts the structured-output schema and reads the prompt cache. Editing the tagging prompt (`src/lib/ai/tagging/prompt.ts`) requires bumping `TAG_PROMPT_VERSION`; a unit test pins the prompt's hash, so the bump cannot be forgotten. A different analysis model or effort changes the relocation cache key, so the next run calls Claude again instead of reusing the previous result. Editing the relocation prompt (`src/lib/relocation/prompts.ts`) requires bumping `RELOC_PROMPT_VERSION`; a unit test pins the system prompt's hash, and the version is part of the cache key.
+A different tagging model applies to new items and to items you re-tag; existing tags stay as they are, and each item records the model and prompt version that tagged it (`ai_model`, `ai_prompt_version`). The add page's estimate and the budget check use the new model's prices automatically. After changing the tagging model, run `pnpm ai:smoke` once to check that the model accepts the structured-output schema and reads the prompt cache. Editing the tagging prompt (`src/lib/ai/tagging/prompt.ts`) requires bumping `TAG_PROMPT_VERSION`; a unit test pins the prompt's hash, so the bump cannot be forgotten. A different analysis model or effort changes the relocation cache key, so the next run calls Claude again instead of reusing the previous result. Editing the relocation prompt (`src/lib/relocation/prompts.ts`) requires bumping `RELOC_PROMPT_VERSION`; a unit test pins the system prompt's hash, and the version is part of the cache key. The same holds for the outfit prompt (`OUTFIT_PROMPT_VERSION` in `src/lib/outfits/suggestion.ts`) and the shopping advice prompt (`SHOPPING_PROMPT_VERSION` in `src/lib/shopping/advice.ts`). A different `CLAUDE_OUTFIT_MODEL` changes the suggestion's cache key, so the next "Suggest outfits" asks Claude again.
 
 ## Exporting data
 
@@ -325,16 +381,16 @@ A different tagging model applies to new items and to items you re-tag; existing
 | `pnpm test` | Vitest. Database tests run on an in-memory PGlite database built from the committed migrations in `drizzle/`; the Anthropic API, Blob and `fetch` are faked. Needs no Docker, no `.env` file and no network. |
 | `pnpm build` | Production build, after `pnpm vendor:bg-removal`. Cache Components violations only show up here. |
 | `pnpm vendor:bg-removal` | Copies the background-removal runtime from `onnxruntime-web` into `public/vendor/bg-removal/` and writes its `resources.json`; fails when an installed version differs from `PINNED_VERSIONS` in `src/lib/images/bg-removal-assets.ts` (which also names the asset folder) or a file hash or size differs from the pins in `scripts/bg-removal-vendor.ts`. `pnpm build` and `pnpm dev` run it first. |
-| `pnpm test:e2e` | Playwright, local only, in a visible browser, against `pnpm build && pnpm start` and the Docker `wardrobe_e2e` database. The server has no Anthropic key and no Blob token (every app variable except its own database and auth values is blanked), so the specs cover the add page's configuration errors, the review form (including filling an item in by hand), the usage page, the wardrobe grid, item page, stats and export with seeded rows, the relocation form, a run stopping with the configuration error and a finished plan completed in the database (overrides, apply, gaps to the shopping list, packing, print), the shopping list, the climate editor, and an axe accessibility scan of every page (including `/offline`, the not-found pages and each tab of a relocation plan); `add-tagging.spec.ts` answers the Blob and tag requests inside the browser to exercise the tagging bar. The smoke spec (upload to browse) skips unless the shell has a Blob token. Nothing calls Claude or Blob otherwise. |
+| `pnpm test:e2e` | Playwright, local only, in a visible browser, against `pnpm build && pnpm start` and the Docker `wardrobe_e2e` database. The server has no Anthropic key and no Blob token (every app variable except its own database and auth values is blanked), so the specs cover the add page's configuration errors, the review form (including filling an item in by hand), the usage page, the wardrobe grid, item page, stats and export with seeded rows, the relocation form, a run stopping with the configuration error and a finished plan completed in the database (overrides, apply, gaps to the shopping list, packing, print), the shopping list, the climate editor, the outfit builder and wear logging, `/today` with a suggestion completed in the database (Save, "Wore this today", Undo, the home city switch), "What to buy next" absent with the flag off, and an axe accessibility scan of every page (including `/offline`, the not-found pages and each tab of a relocation plan); the forecast comes from a local Open-Meteo stub the run starts, never the network; `add-tagging.spec.ts` answers the Blob and tag requests inside the browser to exercise the tagging bar. The smoke spec (upload to browse) skips unless the shell has a Blob token. Nothing calls Claude or Blob otherwise. |
 | `pnpm ai:smoke [image-path] [https-image-url]` | Live-only check against the Anthropic API (about $0.002), never part of `pnpm test`. It sends two identical base64 tagging requests and fails if the second shows no cache read; given an https URL, it also sends one request with the batch parameters (URL image, 1-hour cache). It prints usage, costs and the parsed tags, and logs to `ai_calls` only when `DATABASE_URL` is set. Run it after connecting the cloud and after changing the tagging model. |
 
 A phase is done when `pnpm typecheck && pnpm lint && pnpm test && pnpm build` passes.
 
-Before the first `pnpm test:e2e`, install the browser once with `pnpm exec playwright install chromium`, and start the database with `docker compose up -d db` before every run. The run needs no `.env.local`: `playwright.config.ts` starts the server with its own `DATABASE_URL` and `DATABASE_URL_UNPOOLED` (both `wardrobe_e2e`), a fixed test password from `e2e/constants.ts` hashed into `APP_PASSWORD_HASH`, and a new random `SESSION_SECRET` on every run. Every other app variable (`BLOB_READ_WRITE_TOKEN`, `ANTHROPIC_API_KEY`, the `CLAUDE_*` models and effort, `MONTHLY_AI_BUDGET_USD`, `AI_CREDIT_USD`, `CRON_SECRET`, `FEATURE_SHOPPING_AI`) is set to an empty value, which `src/env.ts` treats as unset and which `.env.local` cannot fill, so a real key or Blob token there never reaches the e2e server; the list lives in `test/app-env-vars.ts`, shared with Vitest. These override any values in `.env.local`. The global setup then migrates `wardrobe_e2e`, empties every table and seeds it, so each run starts from the same state. Details are in [e2e/README.md](e2e/README.md).
+Before the first `pnpm test:e2e`, install the browser once with `pnpm exec playwright install chromium`, and start the database with `docker compose up -d db` before every run. The run needs no `.env.local`: `playwright.config.ts` starts the server with its own `DATABASE_URL` and `DATABASE_URL_UNPOOLED` (both `wardrobe_e2e`), a fixed test password from `e2e/constants.ts` hashed into `APP_PASSWORD_HASH`, and a new random `SESSION_SECRET` on every run. Every other app variable (`BLOB_READ_WRITE_TOKEN`, `ANTHROPIC_API_KEY`, the `CLAUDE_*` models and effort, `MONTHLY_AI_BUDGET_USD`, `AI_CREDIT_USD`, `CRON_SECRET`, `FEATURE_SHOPPING_AI`) is set to an empty value, except `OPEN_METEO_BASE_URL`, which points at the local Open-Meteo stub (`e2e/open-meteo-stub.ts`, port 3901) that `playwright.config.ts` starts as a second web server; which `src/env.ts` treats as unset and which `.env.local` cannot fill, so a real key or Blob token there never reaches the e2e server; the list lives in `test/app-env-vars.ts`, shared with Vitest. These override any values in `.env.local`. The global setup then migrates `wardrobe_e2e`, empties every table and seeds it, so each run starts from the same state. Details are in [e2e/README.md](e2e/README.md).
 
-`e2e/a11y.spec.ts` scans `/login`, `/offline`, `/wardrobe` (also at 390 px), an item page and its not-found state, `/stats`, `/settings`, `/settings/export`, `/settings/usage`, `/add`, `/add/review`, `/relocate`, a finished relocation plan (each of its five tabs, and at 390 px), its print page, an unfinished run's progress page stopped by the configuration error (left out when the server has an API key, which would run its parts), the relocation not-found page, `/shopping` with entries and `/settings/climate` with axe (WCAG 2.0 and 2.1, A and AA) and fails on any serious or critical violation. `e2e/smoke.spec.ts` runs the whole path once against a real Blob store: sign in, upload two generated photos, wait for registration, confirm them on the review page, find them in the wardrobe, filter by category, open one and change its plan. It is skipped ("needs BLOB_READ_WRITE_TOKEN in the shell") unless the shell that starts Playwright has `BLOB_READ_WRITE_TOKEN`; only then does `playwright.config.ts` pass the token to the server, and `ANTHROPIC_API_KEY` only with `E2E_TAG=1` as well (D-113). Run it on its own, because the other specs assume the server has neither: `BLOB_READ_WRITE_TOKEN=… pnpm test:e2e e2e/smoke.spec.ts`, adding `E2E_TAG=1 ANTHROPIC_API_KEY=…` to tag with Claude (about $0.002). It deletes every blob and row it created afterwards. Tests that assume no token or key skip themselves with that reason when one is passed.
+`e2e/a11y.spec.ts` scans `/login`, `/offline`, `/wardrobe` (also at 390 px), an item page and its not-found state, `/stats`, `/settings`, `/settings/export`, `/settings/usage`, `/add`, `/add/review`, `/relocate`, a finished relocation plan (each of its five tabs, and at 390 px), its print page, an unfinished run's progress page stopped by the configuration error (left out when the server has an API key, which would run its parts), the relocation not-found page, `/shopping` with entries, `/settings/climate`, `/today` (also at 390 px), `/outfits` with a seeded outfit (also at 390 px), `/outfits/new` and an outfit's page (also at 390 px) with axe (WCAG 2.0 and 2.1, A and AA) and fails on any serious or critical violation. `e2e/smoke.spec.ts` runs the whole path once against a real Blob store: sign in, upload two generated photos, wait for registration, confirm them on the review page, find them in the wardrobe, filter by category, open one and change its plan. It is skipped ("needs BLOB_READ_WRITE_TOKEN in the shell") unless the shell that starts Playwright has `BLOB_READ_WRITE_TOKEN`; only then does `playwright.config.ts` pass the token to the server, and `ANTHROPIC_API_KEY` only with `E2E_TAG=1` as well (D-113). Run it on its own, because the other specs assume the server has neither: `BLOB_READ_WRITE_TOKEN=… pnpm test:e2e e2e/smoke.spec.ts`, adding `E2E_TAG=1 ANTHROPIC_API_KEY=…` to tag with Claude (about $0.002). It deletes every blob and row it created afterwards. Tests that assume no token or key skip themselves with that reason when one is passed.
 
-`src/lib/auth/rate-limit.pg.test.ts` checks that parallel logins on separate connections cannot get past the limit, which PGlite cannot show because it runs one transaction at a time. It is skipped unless `TEST_DATABASE_URL` names a migrated database, for example `TEST_DATABASE_URL=postgres://wardrobe:wardrobe@localhost:5433/wardrobe_e2e pnpm exec vitest run src/lib/auth/rate-limit.pg.test.ts`. It only writes `login_attempts` rows under its own random keys and deletes them afterwards. `src/server/services/relocation-apply.pg.test.ts` works the same way: it applies two relocation runs with crossing decisions at once, 20 times, and expects no deadlock (D-166); it writes 300 items and two analyses under a random name and deletes them afterwards.
+`src/lib/auth/rate-limit.pg.test.ts` checks that parallel logins on separate connections cannot get past the limit, which PGlite cannot show because it runs one transaction at a time. It is skipped unless `TEST_DATABASE_URL` names a migrated database, for example `TEST_DATABASE_URL=postgres://wardrobe:wardrobe@localhost:5433/wardrobe_e2e pnpm exec vitest run src/lib/auth/rate-limit.pg.test.ts`. It only writes `login_attempts` rows under its own random keys and deletes them afterwards. `src/server/services/relocation-apply.pg.test.ts` works the same way: it applies two relocation runs with crossing decisions at once, 20 times, and expects no deadlock (D-166); it writes 300 items and two analyses under a random name and deletes them afterwards. `src/server/services/shopping-advice.pg.test.ts` starts six shopping rankings at once with a delayed fake Claude and expects exactly one paid call and five CONFLICT answers (D-220); it needs the Hamburg profile and no other shopping rows, writes one shopping row under a random name and deletes it, the run's analysis and its `ai_calls` afterwards.
 
 ## Project structure
 
@@ -344,7 +400,8 @@ src/
                     manifest.ts, offline page
   components/
     ui/             shadcn components (Base UI primitives)
-    layout/         sidebar, mobile tab bar, nav-items.ts (single source for the tabs)
+    layout/         sidebar, mobile tab bar, nav-items.ts (single source for the tabs and the
+                    Today and Outfits links, D-218)
     theme/  pwa/    theme provider and toggle; service worker registration, install hint
     auth/           login form, logout button
     add/            the add flow: pickers, upload queue, tagging bar, route calls
@@ -358,7 +415,10 @@ src/
                     tabs, the print checklist, per-tab change counts (D-151)
     shopping/       the shopping list, its rows, add form, link picker and budget panel
     climate/        the climate profile editor and its 12-month table
-    outfits/                                    feature components (Phase 6)
+    outfits/        the outfit list, builder and slot picker, "Wore this today", the wear logger
+                    with its Undo toast, the outfit change count (D-200)
+    today/          /today: weather card, suggestion cards, the suggest call, home-city changes
+    settings/       Settings sections: home city, feature flags
   lib/
     ai/             models and pricing (models.ts), structured calls, retries, cost, budget,
                     JSON Schema conversion, call logging; tagging/ holds the prompt and schemas
@@ -372,13 +432,20 @@ src/
     relocation/     relocation contracts and DTOs (client-safe), schemas, the item lines and
                     snapshot hash (payload.ts), chunk plan and cache key, prompts, cost estimate
     export/         CSV format and the ZIP part planner
-    weather/                                    feature libraries (Phase 6)
+    outfits/        slot rules and validateOutfit, form schema and DTOs (contracts.ts); the
+                    suggestion's eligibility, item lines, schemas, prompt and estimate
+                    (suggestion.ts); the stored result (suggestion-result.ts, client-safe)
+    wear/           wear input schemas, undo window, calendar day and noon in a time zone
+    weather/        Open-Meteo URL, response schema, WeatherSnapshot, WMO labels (pure)
+    shopping/       outfit combinatorics and unlock counts; advice schemas, prompt and
+                    estimate; the stored advice (advice-result.ts, client-safe)
     result.ts       Result<T> type and error codes
     focus.ts        the shared "focus was lost" check for client components
   server/
     actions/        Server Actions (thin)
     items/          item card and detail DTOs, user-edited-field tracking
     services/       domain logic with injected dependencies, tested on PGlite
+    weather.ts      the cached Open-Meteo fetch and loadTodayWeather (D-203)
   env.ts            lazy, grouped environment validation
   proxy.ts          optimistic auth check
 drizzle/            generated SQL migrations (committed)
@@ -387,8 +454,9 @@ scripts/            tsx scripts: seed, hash-password, auth-unlock, icons, env ch
 assets/             icon.svg (source for the generated PWA icons)
 public/             sw.js, generated icons
 test/               Vitest helpers: PGlite database (db.ts), row factories, stubs, fakes for
-                    Anthropic and Blob, generated image fixtures, relocation fixtures (replies, results)
-e2e/                Playwright specs, global setup and fixed test constants
+                    Anthropic and Blob, generated image fixtures, relocation fixtures (replies, results),
+                    outfit fixtures (a 17-item wardrobe, the forecast, suggestion and advice replies)
+e2e/                Playwright specs, global setup, fixed test constants and the Open-Meteo stub
 ```
 
 ## Licences of notable dependencies
@@ -402,7 +470,7 @@ e2e/                Playwright specs, global setup and fixed test constants
 
 ## Vercel Hobby limits that shape the design
 
-- Functions stop after 300 seconds, including streaming and `after()`. That is why the relocation analysis runs in chunks that can resume, image exports can come in parts, and AI retries give up early when a wait would overrun the deadline.
+- Functions stop after 300 seconds, including streaming and `after()`. That is why the relocation analysis runs in chunks that can resume, image exports can come in parts, and AI retries give up early when a wait would overrun the deadline. The outfit suggestion and shopping advice routes allow 120 seconds and stop Claude at 110 (D-186).
 - Request bodies are capped at 4.5 MB, so photos upload from the browser straight to Blob.
 - Cron jobs run at most once a day, at an imprecise time. Batch results are also collected whenever you open the review page.
 - Blob allows 2,000 advanced operations a month and 1 GB of storage; going over blocks Blob for 30 days. Each new item costs about 3 operations (the browser's upload of the original, then the processed image and the thumbnail), so roughly 600 items a month; a background removal adds 2 (the PNG upload and the stored WebP). The app dedupes photos before upload, never calls `list()`, and shows the monthly estimate on the usage page.

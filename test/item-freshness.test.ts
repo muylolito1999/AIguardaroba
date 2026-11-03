@@ -82,3 +82,50 @@ describe("pages that show relocation data re-read after a change elsewhere (D-17
     expect(source("src/components/shopping/shopping-list.tsx")).toMatch(/useRefreshAfterShoppingChanges\(list, copy\.refresh\)/);
   });
 });
+
+describe("pages that show wear counts re-read after a wear or an Undo (D-107, D-200)", () => {
+  it("notes an item change after every confirmed wear and Undo, and an outfit change for an outfit's wear", () => {
+    const logger = source("src/components/outfits/use-wear-logger.ts");
+    expect(logger).toMatch(/function noteChanges\(outfit: boolean\): void \{\s*noteWardrobeChange\(\)\s*if \(outfit\) noteOutfitChange\(\)/);
+    // Once after a log the server confirmed, once after an Undo it confirmed.
+    expect(logger.match(/noteChanges\(outfit\)/g)).toHaveLength(2);
+    // Every wear button logs through it, so none can skip the notes.
+    for (const file of [
+      "src/components/item-detail/worn-today.tsx",
+      "src/components/outfits/wore-outfit-button.tsx",
+      "src/components/today/today-view.tsx",
+    ]) {
+      expect(source(file), file).toMatch(/useWearLogger\(/);
+    }
+  });
+
+  it("covers the item page, which shows the new count at once and re-reads when shown again", () => {
+    expect(source("src/components/item-detail/item-detail.tsx")).toMatch(/onCountsChange=\{applyWearCounts\}/);
+    // The wardrobe cards and /stats follow through the item change (first describe above).
+  });
+
+  it("covers /outfits, whose cards show each item's photo and the outfit's times worn", () => {
+    const list = source("src/components/outfits/outfit-list.tsx");
+    expect(list).toMatch(/useRefreshAfterItemChanges\(outfits, refresh\)/);
+    expect(list).toMatch(/useRefreshAfterOutfitChanges\(outfits, refresh\)/);
+    expect(source("src/app/(app)/outfits/page.tsx")).toMatch(/<OutfitList outfits=\{outfits\}/);
+  });
+
+  it("covers an outfit page and the new-outfit builder, whose pickers show wear counts", () => {
+    const detail = source("src/components/outfits/outfit-detail.tsx");
+    expect(detail).toMatch(/useRefreshAfterItemChanges\(outfit, refresh\)/);
+    expect(detail).toMatch(/useRefreshAfterOutfitChanges\(outfit, refresh\)/);
+    expect(source("src/app/(app)/outfits/[id]/page.tsx")).toMatch(/<OutfitDetail key=\{outfit\.id\} outfit=\{outfit\}/);
+    expect(source("src/components/outfits/new-outfit.tsx")).toMatch(/useRefreshAfterItemChanges\(candidates, refresh\)/);
+  });
+
+  it("covers /today, whose cards know which outfits were already worn today", () => {
+    const view = source("src/components/today/today-view.tsx");
+    // Its own wears show through its overlay (D-180), so it re-reads only when shown after a change elsewhere.
+    expect(view).toMatch(/useRefreshAfterItemChanges\(data, copy\.refresh, \{ refreshWhileShown: false \}\)/);
+    expect(view).toMatch(/useRefreshAfterOutfitChanges\(data, copy\.refresh\)/);
+    expect(view).toMatch(/useRefreshAfterHomeCityChange\(data, copy\.refresh\)/);
+    // The states without the view (no home city, no weather) re-read after a new home city.
+    expect(source("src/app/(app)/today/page.tsx").match(/<RefreshTodayWhenShown snapshot=\{settings\} \/>/g)).toHaveLength(2);
+  });
+});
