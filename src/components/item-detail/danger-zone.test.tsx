@@ -133,7 +133,8 @@ describe("DangerZone", () => {
 
   it("clears an earlier failure when the dialog is opened again", async () => {
     const { deleteItem } = setup()
-    deleteItem.mockResolvedValue(err("UPSTREAM", "The photos could not be deleted from storage, so the item was kept."))
+    // A refusal deleteItem still gives (no Blob token); a Blob failure no longer keeps the item (D-234).
+    deleteItem.mockResolvedValue(err("CONFIG", CONFIG_ERROR_MESSAGE))
 
     let dialog = await openDeleteDialog()
     fireEvent.click(within(dialog).getByRole("button", { name: "Delete" }))

@@ -102,7 +102,10 @@ export function DangerZone({ item, name, archiveItem, unarchiveItem, deleteItem,
     const result = await settle(() => deleteItem({ id: item.id }))
     if (!result.ok) {
       setDeleting(false)
-      // Shown in the dialog, which stays open: the item and its photos are untouched.
+      // Shown in the dialog, which stays open. An error the server answered
+      // means nothing was deleted; a call that never answered (settle's
+      // network error) proves nothing, since the delete may have committed
+      // before the connection went (D-237).
       setDeleteError(result.error)
       return
     }

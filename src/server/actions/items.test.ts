@@ -3,7 +3,7 @@ import { randomUUID } from "node:crypto";
 import { eq } from "drizzle-orm";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { aiBatches, itemImages, items, type Item } from "@/lib/db/schema";
+import { aiBatches, blobCleanup, deletedItems, itemImages, items, type Item } from "@/lib/db/schema";
 import type { ItemPatchInput } from "@/lib/items/contracts";
 import { AppError, CONFIG_ERROR_MESSAGE } from "@/lib/result";
 
@@ -322,6 +322,10 @@ describe("item detail actions", () => {
     consoleError.mockRestore();
     expect((await row(item.id)).id).toBe(item.id);
     expect(await testDb.db.select().from(itemImages).where(eq(itemImages.itemId, item.id))).toHaveLength(1);
+    // Nothing queued for the cleanup or listed as deleted either (D-234,
+    // D-238): the refusal comes before the transaction.
+    expect(await testDb.db.select().from(blobCleanup)).toEqual([]);
+    expect(await testDb.db.select().from(deletedItems)).toEqual([]);
   });
 
   it("refuses a signed-out caller before touching the item", async () => {

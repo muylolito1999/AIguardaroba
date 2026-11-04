@@ -6,6 +6,8 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vites
 import {
   aiCalls,
   analyses,
+  blobCleanup,
+  deletedItems,
   itemImages,
   items,
   outfitItems,
@@ -13,15 +15,17 @@ import {
   packingChecklistItems,
   shoppingListItems,
   wearLogs,
+  type BlobCleanup,
   type Item,
 } from "@/lib/db/schema";
-import type { BlobStorage } from "@/lib/images/blob";
+import { createBlobStorage, type BlobSdk, type BlobStorage } from "@/lib/images/blob";
 import { AppError } from "@/lib/result";
 
 import { makeTestDb, type TestDb } from "../../../test/db";
 import { makeImage, makeItem, makeTaggedItem } from "../../../test/factories";
 import { createFakeBlobStorage, type FakeBlobStorage } from "../../../test/fakes/blob";
-import { archiveItem, deleteItem, statusAfterUnarchive, unarchiveItem } from "./item-lifecycle";
+import { MIN_CALL_MS, runBlobCleanup } from "./blob-cleanup";
+import { AFTER_DELETE_BUDGET_MS, archiveItem, deleteItem, statusAfterUnarchive, unarchiveItem } from "./item-lifecycle";
 
 const requireSession = vi.hoisted(() => vi.fn());
 vi.mock("@/lib/auth/dal", () => ({ requireSession }));
@@ -225,74 +229,272 @@ describe("unarchiveItem", () => {
 });
 
 describe("deleteItem", () => {
+  const NOW = new Date("2026-11-04T10:00:00Z");
   let storage: FakeBlobStorage;
 
   beforeEach(() => {
     storage = createFakeBlobStorage();
   });
 
-  it("deletes every photo in one call while the rows still exist, then the rows", async () => {
-    const { item, urls } = await itemWithPhotos();
-    const other = await itemWithPhotos();
-    const rowsAtDel: number[] = [];
+  function deps(target: BlobStorage = storage) {
+    return { storage: target, now: () => NOW };
+  }
+
+  /** Like itemWithPhotos, but the four photos are really in the fake store, so a delete can be seen there. */
+  async function itemWithStoredPhotos(): Promise<{ item: Item; urls: string[] }> {
+    const item = await makeTaggedItem(testDb.db, { status: "confirmed" });
+    const urls: string[] = [];
+    for (const kind of ["original", "processed", "thumb", "nobg"] as const) {
+      const blob = storage.upload(`items/${item.id}/${kind}.webp`, Buffer.from(kind), "image/webp");
+      await makeImage(testDb.db, item.id, { kind, blobUrl: blob.url, blobPathname: blob.pathname });
+      urls.push(blob.url);
+    }
+    return { item, urls };
+  }
+
+  async function queued(): Promise<BlobCleanup[]> {
+    return testDb.db.select().from(blobCleanup).orderBy(blobCleanup.url);
+  }
+
+  /** The ids listed in deleted_items. */
+  async function tombstones(): Promise<string[]> {
+    return (await testDb.db.select({ itemId: deletedItems.itemId }).from(deletedItems)).map((entry) => entry.itemId);
+  }
+
+  /** A deadline the later cleanup runs of these tests never come near. */
+  function roomy(): number {
+    return Date.now() + 60_000;
+  }
+
+  /** Makes every statement of `table`'s `event` fail inside its transaction, as a database fault would. */
+  async function failOn(table: "items" | "blob_cleanup", event: "DELETE"): Promise<() => Promise<void>> {
+    await testDb.client.exec(`
+      CREATE FUNCTION test_injected_failure() RETURNS trigger LANGUAGE plpgsql AS $$
+      BEGIN RAISE EXCEPTION 'injected failure'; END $$;
+      CREATE TRIGGER test_injected_failure BEFORE ${event} ON ${table}
+        FOR EACH ROW EXECUTE FUNCTION test_injected_failure();
+    `);
+    return async () => {
+      await testDb.client.exec(`
+        DROP TRIGGER IF EXISTS test_injected_failure ON ${table};
+        DROP FUNCTION IF EXISTS test_injected_failure();
+      `);
+    };
+  }
+
+  it("deletes the item and queues its photo URLs in one transaction, then deletes the photos and empties the queue", async () => {
+    const { item, urls } = await itemWithStoredPhotos();
+    const other = await itemWithStoredPhotos();
+    const seenAtDel: Array<{ item: boolean; images: number; queued: string[] }> = [];
     // Wraps the fake to record what the database held when Blob was asked.
     const recording: BlobStorage = {
       ...storage,
       async del(target) {
-        const images = await testDb.db.select().from(itemImages).where(eq(itemImages.itemId, item.id));
-        rowsAtDel.push(images.length + ((await findItem(item.id)) === undefined ? 0 : 1));
+        seenAtDel.push({
+          item: (await findItem(item.id)) !== undefined,
+          images: (await testDb.db.select().from(itemImages).where(eq(itemImages.itemId, item.id))).length,
+          queued: (await queued()).map((row) => row.url),
+        });
         return storage.del(target);
       },
     };
 
-    expect(await deleteItem(testDb.db, item.id, { storage: recording })).toEqual({ deleted: true });
+    expect(await deleteItem(testDb.db, item.id, deps(recording))).toEqual({ deleted: true });
 
+    // Blob was asked once, after the commit: the item and its image rows were
+    // gone and every photo URL was in the queue.
     const delCalls = storage.calls.filter((call) => call.method === "del");
     expect(delCalls).toHaveLength(1);
     expect([...(delCalls[0]?.target ?? [])].sort()).toEqual([...urls].sort());
-    // The item row and its four image rows were all there when the photos went.
-    expect(rowsAtDel).toEqual([5]);
-    expect(await findItem(item.id)).toBeUndefined();
-    expect(await testDb.db.select().from(itemImages).where(eq(itemImages.itemId, item.id))).toEqual([]);
+    expect(seenAtDel).toEqual([{ item: false, images: 0, queued: [...urls].sort() }]);
+    // Then the photos left the store and the queue is empty again. The id
+    // stays listed as deleted (D-238).
+    for (const url of urls) expect(storage.blobs.has(url)).toBe(false);
+    expect(await queued()).toEqual([]);
+    expect(await tombstones()).toEqual([item.id]);
     // Another item is untouched.
     expect(await findItem(other.item.id)).toBeDefined();
     expect(await testDb.db.select().from(itemImages).where(eq(itemImages.itemId, other.item.id))).toHaveLength(4);
+    for (const url of other.urls) expect(storage.blobs.has(url)).toBe(true);
   });
 
-  it("keeps every row and answers UPSTREAM when Blob fails", async () => {
-    const { item } = await itemWithPhotos();
+  it("deletes no photo and changes nothing when the transaction fails", async () => {
+    const { item, urls } = await itemWithStoredPhotos();
+    const restore = await failOn("items", "DELETE");
+    try {
+      await expect(deleteItem(testDb.db, item.id, deps())).rejects.toThrow();
+    } finally {
+      await restore();
+    }
+
+    // The queue rows and the deleted_items row were rolled back with the
+    // failed delete, and Blob was never asked.
+    expect(storage.calls.filter((call) => call.method === "del")).toEqual([]);
+    for (const url of urls) expect(storage.blobs.has(url)).toBe(true);
+    expect(await findItem(item.id)).toBeDefined();
+    expect(await testDb.db.select().from(itemImages).where(eq(itemImages.itemId, item.id))).toHaveLength(4);
+    expect(await queued()).toEqual([]);
+    expect(await tombstones()).toEqual([]);
+
+    // Nothing is left half done: the owner's retry deletes it all.
+    expect(await deleteItem(testDb.db, item.id, deps())).toEqual({ deleted: true });
+    expect(await findItem(item.id)).toBeUndefined();
+    for (const url of urls) expect(storage.blobs.has(url)).toBe(false);
+    expect(await queued()).toEqual([]);
+  });
+
+  it("keeps the item deleted and its URLs queued when Blob fails after the commit; a later run deletes them", async () => {
+    const { item, urls } = await itemWithStoredPhotos();
     storage.failNext("del", new Error("socket hang up"));
     const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined);
 
-    const error = await appError(deleteItem(testDb.db, item.id, { storage }));
+    // The owner sees the item deleted.
+    expect(await deleteItem(testDb.db, item.id, deps())).toEqual({ deleted: true });
 
-    expect(error.code).toBe("UPSTREAM");
-    expect(error.message).toMatch(/item was kept/);
     expect(consoleError).toHaveBeenCalled();
     consoleError.mockRestore();
-    expect(await findItem(item.id)).toBeDefined();
-    expect(await testDb.db.select().from(itemImages).where(eq(itemImages.itemId, item.id))).toHaveLength(4);
+    expect(await findItem(item.id)).toBeUndefined();
+    expect(await testDb.db.select().from(itemImages).where(eq(itemImages.itemId, item.id))).toEqual([]);
+    for (const url of urls) expect(storage.blobs.has(url)).toBe(true);
+    const rows = await queued();
+    expect(rows.map((row) => row.url)).toEqual([...urls].sort());
+    for (const row of rows) {
+      expect(row).toMatchObject({ itemId: item.id, reason: "item_deleted", attempts: 1, lastAttemptAt: NOW });
+      expect(row.lastError).toMatch(/^UPSTREAM: .*\(socket hang up\)$/);
+    }
+
+    expect(await runBlobCleanup({ db: testDb.db, storage }, { deadlineAt: roomy(), maxItems: 10 })).toEqual({
+      deleted: 4,
+      pending: 0,
+      error: null,
+    });
+    for (const url of urls) expect(storage.blobs.has(url)).toBe(false);
+    expect(await queued()).toEqual([]);
   });
 
-  it("passes a CONFIG failure from Blob through and keeps the rows", async () => {
-    const { item } = await itemWithPhotos();
-    storage.failNext("del", new AppError("CONFIG", "Vercel Blob refused to delete an image: check BLOB_READ_WRITE_TOKEN."));
+  it("answers deleted within its budget when Blob never answers, with the failure stored on the queued files", async () => {
+    const { item, urls } = await itemWithStoredPhotos();
+    // The real storage over an SDK whose del() never settles: a store that
+    // keeps the connection open, or keeps answering 5xx while the SDK retries.
+    const del = vi.fn<BlobSdk["del"]>(() => new Promise<never>(() => undefined));
+    const silent = createBlobStorage("vercel_blob_rw_fakestore_notarealsecret", {
+      put: vi.fn<BlobSdk["put"]>(),
+      del,
+      head: vi.fn<BlobSdk["head"]>(),
+    });
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const budgetMs = MIN_CALL_MS + 300;
+    const started = Date.now();
 
-    expect((await appError(deleteItem(testDb.db, item.id, { storage }))).code).toBe("CONFIG");
-    expect(await findItem(item.id)).toBeDefined();
+    expect(await deleteItem(testDb.db, item.id, { ...deps(silent), cleanupBudgetMs: budgetMs })).toEqual({
+      deleted: true,
+    });
+
+    expect(Date.now() - started).toBeLessThan(budgetMs + 1_000);
+    expect(consoleError).toHaveBeenCalled();
+    consoleError.mockRestore();
+    expect(del).toHaveBeenCalledOnce();
+    expect(await findItem(item.id)).toBeUndefined();
+    const rows = await queued();
+    expect(rows.map((row) => row.url)).toEqual([...urls].sort());
+    for (const row of rows) {
+      expect(row).toMatchObject({ itemId: item.id, attempts: 1, lastAttemptAt: NOW });
+      expect(row.lastError).toMatch(/^UPSTREAM: .*\(Vercel Blob did not answer within \d+ ms\)$/);
+    }
+  });
+
+  it("gives the Blob call after the commit no more than AFTER_DELETE_BUDGET_MS by default", async () => {
+    const { item } = await itemWithStoredPhotos();
+    const timeouts: Array<number | undefined> = [];
+    const recording: BlobStorage = {
+      ...storage,
+      async del(target, options) {
+        timeouts.push(options?.timeoutMs);
+        return storage.del(target);
+      },
+    };
+
+    expect(await deleteItem(testDb.db, item.id, deps(recording))).toEqual({ deleted: true });
+
+    expect(timeouts).toHaveLength(1);
+    expect(timeouts[0]).toBeLessThanOrEqual(AFTER_DELETE_BUDGET_MS);
+    expect(timeouts[0]).toBeGreaterThan(AFTER_DELETE_BUDGET_MS - 1_000);
+  });
+
+  it("keeps the item deleted and records CONFIG when Blob refuses the token after the commit", async () => {
+    const { item, urls } = await itemWithStoredPhotos();
+    storage.failNext("del", new AppError("CONFIG", "Vercel Blob refused to delete an image: check BLOB_READ_WRITE_TOKEN."));
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined);
+
+    expect(await deleteItem(testDb.db, item.id, deps())).toEqual({ deleted: true });
+
+    // Logged for the operator; the files wait in the queue until the token is fixed.
+    expect(consoleError).toHaveBeenCalled();
+    consoleError.mockRestore();
+    expect(await findItem(item.id)).toBeUndefined();
+    const rows = await queued();
+    expect(rows).toHaveLength(urls.length);
+    for (const row of rows) expect(row.lastError).toMatch(/^CONFIG: Vercel Blob refused/);
+  });
+
+  it("keeps the item deleted when the cleanup after the commit stops halfway; a later run finishes it", async () => {
+    const { item, urls } = await itemWithStoredPhotos();
+    // The photos are deleted, but the queue rows cannot be removed: the state
+    // a function stopped right after the del() call leaves behind.
+    const restore = await failOn("blob_cleanup", "DELETE");
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    try {
+      expect(await deleteItem(testDb.db, item.id, deps())).toEqual({ deleted: true });
+    } finally {
+      await restore();
+    }
+    expect(consoleError).toHaveBeenCalled();
+    consoleError.mockRestore();
+    expect(await findItem(item.id)).toBeUndefined();
+    for (const url of urls) expect(storage.blobs.has(url)).toBe(false);
+    expect((await queued()).map((row) => row.attempts)).toEqual([1, 1, 1, 1]);
+
+    // The files are already gone, which counts as deleted.
+    expect(await runBlobCleanup({ db: testDb.db, storage }, { deadlineAt: roomy(), maxItems: 10 })).toEqual({
+      deleted: 4,
+      pending: 0,
+      error: null,
+    });
+  });
+
+  it("also deletes files earlier deletes left queued, except those tried within the last hour", async () => {
+    const stale = randomUUID();
+    const fresh = randomUUID();
+    const staleBlob = storage.upload(`items/${stale}/thumb.webp`, Buffer.from("a"), "image/webp");
+    const freshBlob = storage.upload(`items/${fresh}/thumb.webp`, Buffer.from("b"), "image/webp");
+    await testDb.db.insert(blobCleanup).values([
+      { url: staleBlob.url, itemId: stale, reason: "item_deleted", attempts: 2, lastAttemptAt: new Date(NOW.getTime() - 2 * 3_600_000) },
+      { url: freshBlob.url, itemId: fresh, reason: "item_deleted", attempts: 1, lastAttemptAt: new Date(NOW.getTime() - 600_000) },
+    ]);
+    const { item, urls } = await itemWithStoredPhotos();
+
+    expect(await deleteItem(testDb.db, item.id, deps())).toEqual({ deleted: true });
+
+    // The deleted item's photos went first, then the file last tried two hours ago.
+    const delCalls = storage.calls.filter((call) => call.method === "del").map((call) => [...call.target].sort());
+    expect(delCalls).toEqual([[...urls].sort(), [staleBlob.url]]);
+    expect(storage.blobs.has(staleBlob.url)).toBe(false);
+    expect(storage.blobs.has(freshBlob.url)).toBe(true);
+    expect((await queued()).map((row) => row.url)).toEqual([freshBlob.url]);
   });
 
   it("answers NOT_FOUND for a missing or malformed id without calling Blob", async () => {
-    expect((await appError(deleteItem(testDb.db, randomUUID(), { storage }))).code).toBe("NOT_FOUND");
-    expect((await appError(deleteItem(testDb.db, "nope", { storage }))).code).toBe("NOT_FOUND");
+    expect((await appError(deleteItem(testDb.db, randomUUID(), deps()))).code).toBe("NOT_FOUND");
+    expect((await appError(deleteItem(testDb.db, "nope", deps()))).code).toBe("NOT_FOUND");
     expect(storage.calls).toEqual([]);
   });
 
   it("deletes an item without photos without calling Blob", async () => {
     const item = await makeItem(testDb.db);
-    expect(await deleteItem(testDb.db, item.id, { storage })).toEqual({ deleted: true });
+    expect(await deleteItem(testDb.db, item.id, deps())).toEqual({ deleted: true });
     expect(storage.calls).toEqual([]);
     expect(await findItem(item.id)).toBeUndefined();
+    expect(await queued()).toEqual([]);
   });
 
   it("follows the schema's foreign keys for rows that point at the item", async () => {
@@ -328,7 +530,7 @@ describe("deleteItem", () => {
       .returning();
     if (packing === undefined || call === undefined) throw new Error("rows not inserted");
 
-    expect(await deleteItem(testDb.db, item.id, { storage })).toEqual({ deleted: true });
+    expect(await deleteItem(testDb.db, item.id, deps())).toEqual({ deleted: true });
 
     // CASCADE: the item leaves its outfit, and its wear logs go (also the one naming the outfit).
     expect(await testDb.db.select().from(outfits)).toHaveLength(1);
@@ -344,11 +546,13 @@ describe("deleteItem", () => {
     expect(await testDb.db.select().from(aiCalls)).toMatchObject([{ id: call.id, itemId: null, costUsd: 0.002 }]);
   });
 
-  it("checks the session before touching Blob", async () => {
+  it("checks the session before touching Blob or the queue", async () => {
     const { item } = await itemWithPhotos();
     requireSession.mockRejectedValue(new AppError("UNAUTHENTICATED", "Signed out."));
-    expect((await appError(deleteItem(testDb.db, item.id, { storage }))).code).toBe("UNAUTHENTICATED");
+    expect((await appError(deleteItem(testDb.db, item.id, deps()))).code).toBe("UNAUTHENTICATED");
     expect(storage.calls).toEqual([]);
     expect(await findItem(item.id)).toBeDefined();
+    expect(await queued()).toEqual([]);
+    expect(await tombstones()).toEqual([]);
   });
 });

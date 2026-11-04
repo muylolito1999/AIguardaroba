@@ -5,22 +5,24 @@ import { and, eq, ne, sql } from "drizzle-orm";
 import { requireSession } from "@/lib/auth/dal";
 import type { Db } from "@/lib/db/client";
 import type { ItemStatus } from "@/lib/db/enums";
-import { itemImages, items, type Item } from "@/lib/db/schema";
-import { blobFailure, deleteBlobsQuietly, type BlobStorage } from "@/lib/images/blob";
+import { blobCleanup, deletedItems, itemImages, items, type Item } from "@/lib/db/schema";
+import type { BlobStorage } from "@/lib/images/blob";
 import { isUuid } from "@/lib/items/contracts";
 import type { ItemDetailDto } from "@/lib/items/wardrobe";
 import { AppError } from "@/lib/result";
 import { loadItemDetail } from "@/server/items/detail";
+import { runBlobCleanup, type BlobCleanupReason } from "@/server/services/blob-cleanup";
 import { missingTagFields } from "@/server/services/items";
 
 // Archive, unarchive and delete from the item detail page.
 //
 // Archiving hides an item (the wardrobe's default filter and the relocation
 // snapshot leave archived items out) without losing anything. Deleting is
-// final: the photos go first, so a Blob failure leaves the item and every row
-// intact and the owner can simply try again; only then are the rows deleted.
-// The schema's foreign keys decide what happens to rows that point at the
-// item (see deleteItem).
+// final: one transaction deletes the item, records its id in deleted_items
+// and its photo URLs in blob_cleanup, and the files are deleted from Blob
+// after the commit, now or by a later cleanup run (D-234, D-238). The
+// schema's foreign keys decide what
+// happens to rows that point at the item (see deleteItem).
 
 function notFound(id: string): AppError {
   return new AppError("NOT_FOUND", "That item no longer exists.", { itemId: id });
@@ -85,24 +87,43 @@ export async function unarchiveItem(db: Db, id: string): Promise<ItemDetailDto> 
 export type DeleteItemDeps = {
   /** Built by the caller (getBlobStorage()), so a missing token fails before anything is deleted. */
   storage: BlobStorage;
+  /** Tests pass a fixed clock for the cleanup run. */
+  now?: () => Date;
+  /** How long the cleanup after the commit may take; defaults to AFTER_DELETE_BUDGET_MS. Tests pass a short one. */
+  cleanupBudgetMs?: number;
 };
 
-const BLOB_DELETE_FAILED =
-  "The photos could not be deleted from storage, so the item was kept. Try again in a moment.";
-
-async function imageUrls(db: Pick<Db, "select">, id: Item["id"]): Promise<string[]> {
-  const rows = await db.select({ url: itemImages.blobUrl }).from(itemImages).where(eq(itemImages.itemId, id));
-  return [...new Set(rows.map((row) => row.url))];
-}
+const DELETED_ITEM: BlobCleanupReason = "item_deleted";
 
 /**
- * Deletes an item for good: every photo it has in Blob (one del() call), then
- * its rows in one transaction. If Blob refuses or fails, nothing in the
- * database changes: UPSTREAM (or CONFIG for a token problem) is thrown and the
- * owner can retry.
+ * The cleanup run after a delete: the deleted item's files, plus a few files
+ * of earlier deletes that are still queued. Files tried within the last hour
+ * are left to the daily cron, and the run ends at the first failure.
+ */
+const AFTER_DELETE_CLEANUP = { maxItems: 4, retryAfterMs: 60 * 60 * 1000 } as const;
+
+/**
+ * The most a delete waits for Blob after its commit (D-237). The owner waits
+ * for the dialog meanwhile; normally the whole run takes well under a second,
+ * and during an outage the item is reported deleted after this long, with
+ * its files queued for the cron.
+ */
+export const AFTER_DELETE_BUDGET_MS = 8_000;
+
+/**
+ * Deletes an item for good. One transaction locks the item, records its id in
+ * deleted_items (so a retried register cannot bring it back, D-238), records
+ * the URL of every photo it has in blob_cleanup and deletes the item, so
+ * either all of that happens or none of it. After the commit the photos are
+ * deleted from Blob (one del() call, then up to three more for files earlier
+ * deletes left queued) and their queue rows removed; if Blob fails, or does
+ * not answer within AFTER_DELETE_BUDGET_MS, the item is still deleted, the
+ * failure is logged and stored with the queued URLs, and the cron or the next
+ * delete tries again (D-234, D-237). The call answers deleted either way. A
+ * failure before or at the commit changes nothing and is thrown.
  *
  * What the schema's foreign keys do when the item row goes:
- * - item_images: deleted (ON DELETE CASCADE); their blobs are already gone.
+ * - item_images: deleted (ON DELETE CASCADE); their URLs are queued first.
  * - outfit_items: deleted (CASCADE); the outfits stay, without this item.
  * - wear_logs that name the item: deleted (CASCADE), including rows that also
  *   name an outfit. The detail page's confirmation says the wear history goes.
@@ -117,38 +138,42 @@ export async function deleteItem(db: Db, id: string, deps: DeleteItemDeps): Prom
   const [exists] = await db.select({ id: items.id }).from(items).where(eq(items.id, id));
   if (exists === undefined) throw notFound(id);
 
-  // Blob first and outside the transaction: no row lock is held during a network call.
-  const urls = await imageUrls(db, id);
-  if (urls.length > 0) {
-    try {
-      await deps.storage.del(urls);
-    } catch (error) {
-      const failure = blobFailure(error, "delete an item's photos");
-      // UPSTREAM is an expected error the action wrapper does not log; the
-      // cause is kept here so a failing store can be diagnosed.
-      if (failure.code !== "CONFIG") console.error(`[item-lifecycle] deleting the photos of item ${id} failed:`, error);
-      if (failure.code === "UPSTREAM") {
-        throw new AppError("UPSTREAM", BLOB_DELETE_FAILED, { itemId: id }, { cause: error });
-      }
-      throw failure;
-    }
-  }
-
-  const deleted = new Set(urls);
-  let late: string[] = [];
   await db.transaction(async (tx) => {
     // The lock makes a concurrent image insert (a background cut-out being
-    // registered) wait for this transaction and then fail on the missing
-    // item, so the image list read below is the final one.
+    // saved) wait for this transaction and then fail on the missing item, so
+    // the image list read below is the final one and every URL is queued.
     const [row] = await tx.select({ id: items.id }).from(items).where(eq(items.id, id)).for("update");
-    // Deleted by another request meanwhile: its photos are gone and so is the row.
+    // Deleted by another request meanwhile, which queued the photos.
     if (row === undefined) return;
-    late = (await imageUrls(tx, id)).filter((url) => !deleted.has(url));
+    // Listed already only if a row was inserted under a deleted id by other
+    // means than a register (a script, a hand-made row); that must not block
+    // its delete.
+    await tx.insert(deletedItems).values({ itemId: id }).onConflictDoNothing({ target: deletedItems.itemId });
+    const images = await tx.select({ url: itemImages.blobUrl }).from(itemImages).where(eq(itemImages.itemId, id));
+    const urls = [...new Set(images.map((image) => image.url))];
+    if (urls.length > 0) {
+      await tx
+        .insert(blobCleanup)
+        .values(urls.map((url) => ({ url, itemId: id, reason: DELETED_ITEM })))
+        // Uploads never share a URL (each has a random suffix), but seeded demo
+        // items do; a URL already queued keeps its first row.
+        .onConflictDoNothing({ target: blobCleanup.url });
+    }
     await tx.delete(items).where(eq(items.id, id));
   });
 
-  // A photo attached between the del() above and the lock; the item is gone
-  // either way, so a failure here is only logged for manual cleanup.
-  await deleteBlobsQuietly(deps.storage, late, `deleting item ${id}`);
+  // The item is gone from here on, so nothing below may fail the delete: the
+  // cleanup logs and stores its own Blob failure (a call that does not answer
+  // in time included), and anything else (the database going away after the
+  // commit) is logged; the URLs stay queued for the cron either way.
+  const deadlineAt = Date.now() + (deps.cleanupBudgetMs ?? AFTER_DELETE_BUDGET_MS);
+  try {
+    await runBlobCleanup(
+      { db, storage: deps.storage, now: deps.now },
+      { ...AFTER_DELETE_CLEANUP, deadlineAt, firstItemId: id },
+    );
+  } catch (error) {
+    console.error(`[item-lifecycle] item ${id} is deleted, but the photo cleanup after it failed:`, error);
+  }
   return { deleted: true };
 }

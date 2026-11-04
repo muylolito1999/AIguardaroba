@@ -2,6 +2,354 @@
 
 Newest entry first. Each entry records the state at the end of a working session. Task tracking lives in Beads (`bd ready`, `bd show <id>`); the reasons behind choices are in [DECISIONS.md](DECISIONS.md).
 
+## 2026-11-04 — Codex review fixes (item deletion, wear-log transfer) and their review
+
+### State
+
+An adversarial Codex review of the whole branch (at `b32082d`) reported two findings, and the owner asked for both to be fixed:
+
+- **A** (high): deleting an item removed its Blob files before the transaction that deletes its rows. If that transaction failed, or the function stopped in between, the item stayed visible with dead photo URLs, and nothing recorded what to clean up.
+- **B** (medium): two Saves of different suggestions with shared items could both move the same wear logs, so the second outfit took the first one's wear history.
+
+Two implementation runs fixed them in separate files. This integration session then:
+
+- joined the two runs and made the cross-file changes they asked for;
+- resolved the decision-number clash;
+- wrote the docs;
+- ran the checks below.
+
+A review of the integrated fixes then confirmed two more findings, both rated low (see Review), and a second session fixed them (D-237, D-238), regenerated the migration as one, and ran the checks again.
+
+The lead re-ran the checks on the final tree (below), filed the follow-ups in Beads and committed it.
+
+What changed:
+
+- Item deletion (D-234, refines D-111):
+  - `deleteItem` does three things in one transaction: it locks the item, records each photo URL in the new `blob_cleanup` table, and deletes the item (its rows cascade as before).
+  - The Blob files are deleted only after the commit, through `runBlobCleanup` (`src/server/services/blob-cleanup.ts`): this item's files first, then up to three items that earlier deletes left queued.
+  - A Blob failure at that point is logged and stored on the queued rows. It no longer keeps the item, so the old "…so the item was kept" refusal is gone.
+  - A missing token still fails with CONFIG before anything is deleted or queued.
+  - `BlobStorage.del` counts a blob the store does not have as deleted.
+  - Every Blob call of the cleanup has a deadline (D-237): the cleanup after a delete's commit may take 8 s in all, and a call of the cron 30 s, all ending 30 s before its 300 s limit. A store that answers 5xx or not at all now ends in a stored `last_error` and an answer: the page shows "Item deleted" after 8 s, and the cron answers 502.
+  - The transaction also lists the item id in the new table `deleted_items`, and `registerUpload` refuses a listed id with "That item was deleted. Upload the photo again." (D-238), before reading anything and again after its insert, so a Retry on the add page cannot bring a deleted item back on photos queued for deletion.
+  - Migration `drizzle/20261104003955_item-deletion` creates both tables. It replaced the first version, `20261103230912_blob-cleanup`, which was never deployed (see Migration and deploy state).
+- Cleanup cron (D-235, refines D-069): `GET /api/cron/blob-cleanup` runs daily at 05:00 UTC (`vercel.json`) and handles up to 100 items per run.
+  - The Bearer `CRON_SECRET` check moved into `src/app/api/cron/_lib/cron-route.ts`. `poll-batches` now uses it too, with its behaviour and tests unchanged.
+  - Vercel's cron usage page (read 2026-11-04) allows 100 cron jobs per project on Hobby, each once a day, within ±59 minutes.
+- Wear-log transfer (D-236, refines D-222 and D-196):
+  - `saveSuggestedOutfit` locks the outfit's items `FOR UPDATE` in id order before `saveOutfit`. This is the same order `logWear` and `undoWear` use.
+  - The logs are then read under those locks, and only logs that still match are moved: no outfit, the same item and the same day.
+  - If fewer logs move than were read, the whole Save is refused with CONFLICT (`wear_changed`) and rolled back.
+
+Integration, by item:
+
+- Decision numbers: both runs proposed D-234.
+  - Deletion keeps D-234 and its cron becomes D-235.
+  - The wear-log transfer becomes D-236; its five citations in `outfit-suggestions.ts`, `outfit-suggestions.test.ts` and `outfit-suggestions.pg.test.ts` were renumbered.
+- `test/boundaries.test.ts`: added `runBlobCleanup` to `SESSIONLESS_SERVICE_FUNCTIONS`, with its reason. It is a cron entry checked by `CRON_SECRET`, and `deleteItem` calls it after its own session check.
+- `src/server/services/export.test.ts`: `blob_cleanup` is now one of the tables the export leaves out.
+- `src/server/actions/items.test.ts`: the no-token test also expects `blob_cleanup` to stay empty.
+- `src/proxy.test.ts`: `/api/cron/blob-cleanup` is listed as public; the matcher already covered it.
+- `danger-zone.test.tsx`: the mocked refusal is now the CONFIG one, because `deleteItem` no longer answers "…so the item was kept".
+- `src/server/actions/items.ts`: the doc comment describes the queue.
+- `e2e/item-detail.spec.ts`: the no-token Delete test also checks that none of the item's photos was queued, and `e2e/README.md` says so.
+- Docs:
+  - DECISIONS: D-234 to D-236 under "Added in the Codex review of the branch". D-069, D-111, D-196 and D-222 are marked refined, and D-111's Delete sentences, its Why and D-222's mechanism sentence are corrected.
+  - README:
+    - the architecture line;
+    - the `CRON_SECRET` row;
+    - the two bookkeeping tables in Database, and in Exporting data;
+    - the item page's Delete;
+    - a new "Photo cleanup cron" section;
+    - the demo data note;
+    - Deploy: the migration, and `CRON_SECRET` and `BLOB_READ_WRITE_TOKEN` before the crons;
+    - the opt-in Postgres tests;
+    - the Hobby cron limits.
+
+The implementation runs' own checks are in their reports to the lead:
+
+- A's fault injection: a trigger that fails the delete transaction leaves the item, its 4 images and all 4 files, and Blob is never called. With HEAD's `item-lifecycle.ts` the 6 new delete tests failed, and with HEAD's `blob.ts` the 3 not-found tests failed.
+- B's real-Postgres reproduction: with HEAD's code two outfits each held some of the day's logs in round 0. Taking the locks in descending order, or after `saveOutfit`, deadlocked (40P01).
+- Each run put the fixed files back and checked them with `cmp`.
+
+Statements in the entries below that are no longer true:
+
+- Phase 4, Open risks: "Delete removes blobs first". Since D-234 the rows go first in one transaction and the files are queued, then deleted after the commit. The success path has now also run against a local fake Blob API (below), though still not against a real store.
+- D-116 says "Delete and the photo ZIP do not work on demo items". Without a token that is still true (CONFIG). With a token, Delete now deletes a demo item and queues its shared relative path `/icons/icon-192.png`; what a real store answers for that path is untested. README still says to remove demo items with `--clean`.
+- D-069: "It is the only session-free service entry". Corrected in D-069; `runBlobCleanup` is the second.
+
+### Decisions
+
+New, under "Added in the Codex review of the branch":
+
+- D-234: deleting an item queues its photos in the same transaction, and Blob deletes them after the commit. Refines D-111.
+- D-235: a second daily cron drains the photo cleanup queue. Refines D-069.
+- D-236: saving a suggestion locks its items for update first, and moves the day's wear only as it was read. Refines D-222 and D-196.
+
+D-069, D-111, D-196 and D-222 are marked refined. D-111's Delete sentences, its Why and D-222's mechanism sentence ("whose item locks wait for a wear being logged") are corrected.
+
+New, under "Added in the review of the Codex fixes":
+
+- D-237: the photo cleanup's Blob calls have a deadline. Refines D-234 and D-235.
+- D-238: deleted item ids are kept, and a register for one is refused. Refines D-234 and D-074.
+
+D-074, D-234 and D-235 are marked refined. D-234 now names the new migration and says that its first version had no deadline.
+
+### Review
+
+A skeptical review of the integrated tree confirmed two findings; both verifiers rated them low. The second session fixed both.
+
+- **cx-1, a Blob outage after the commit.** `runBlobCleanup` called `storage.del` with no deadline. On a 5xx or a network error, the SDK retries ten times with doubling waits, about 17 minutes or more. The delete had committed, but the action did not answer before the platform's limit. The dialog then said "Could not reach the server" for an item already gone, and `last_error` was never stored. One failing call also used up the cron's run.
+  - Fix:
+    - `src/lib/images/blob.ts`: `del(urls, { timeoutMs })` aborts one `AbortController`, with no reason, and races the SDK call against a timer. `AbortSignal.timeout()` would not stop the SDK: it retries a TimeoutError and stops only for an AbortError.
+    - `src/server/services/blob-cleanup.ts`: a required `deadlineAt`. Each call gets at most 30 s or the time left, and no item starts with less than 1 s left.
+    - `item-lifecycle.ts`: an 8 s budget after the commit (`cleanupBudgetMs` in tests).
+    - The cron route: its start plus 300 s minus 30 s.
+    - The danger-zone comment no longer claims a rejected call left the item untouched.
+  - New tests:
+    - `blob.test.ts`: 3 tests.
+    - `blob.sdk.test.ts`: the real SDK against a 127.0.0.1 stub that answers 503 or never answers.
+    - `blob-cleanup.test.ts`: 4 tests.
+    - `item-lifecycle.test.ts`: 2 tests.
+    - The cron route test: the 30 s margin.
+- **cx-2, a register retried after a delete.** The add page's Retry re-sends the same item id and upload. After a register whose answer was lost, a delete from another tab while Blob failed, then Retry, the item came back on an original still queued in `blob_cleanup`, and the next cleanup run deleted the live item's only full-size photo.
+  - Fix: `deleted_items` (in `schema.ts` and the migration) is filled in `deleteItem`'s transaction. `registerUpload` refuses a listed id twice: right after its "the item exists" check, and inside the insert transaction after the `items` insert. Only a read after the insert sees a delete that commits while the insert waits on the primary key.
+  - New tests:
+    - `register-upload.test.ts`: 2 tests.
+    - The opt-in `register-upload.pg.test.ts`.
+    - Tombstone assertions in `item-lifecycle.test.ts`, `src/server/actions/items.test.ts` and `e2e/item-detail.spec.ts`.
+- **Seen failing without the fix** (`scratchpad/cx-fix/revert-checks.sh`, 01:44:48 to 01:47:19). Each case put the pre-fix file (from `scratchpad/cx-fix-orig/`) or a variant in place, ran the tests, and put the fixed file back, checked with `cmp`: identical every time.
+  - `blob.ts` before the fix: 5 failed, both `blob.sdk.test.ts` cases among them (still waiting at 20 s).
+  - `blob.ts` aborting with a TimeoutError reason: 3 failed, both real-SDK cases among them.
+  - `blob.ts` without the race: 2 failed.
+  - `blob-cleanup.ts` before the fix: 7 failed.
+  - `item-lifecycle.ts` before the fix: 10 failed, the two register tests among them.
+  - `item-lifecycle.ts` ignoring `cleanupBudgetMs`: 1 failed.
+  - `register-upload.ts` before the fix: 3 failed, the opt-in Postgres test among them.
+  - `register-upload.ts` without the early check: 1 failed.
+  - `register-upload.ts` with the check before the insert: PGlite passed, but the opt-in Postgres test failed. Only real Postgres shows the order.
+  - The cron route before the fix: 3 failed.
+  - The cron route with no margin: 1 failed.
+- **Not changed**:
+  - A connection that drops after the commit still shows "Could not reach the server" for a deleted item, as at HEAD. Proposed copy for the owner: "Could not confirm the delete. Reload the page to see whether the item is gone." It is not shipped.
+  - The other Blob calls (register `head`/`put`, the cut-out, the photo ZIP, `deleteBlobsQuietly`) still have no deadline.
+  - The optional guard that leaves out queued URLs an image row still references was not added; the tombstone makes it unneeded for this path.
+
+### Checks run
+
+All times local (CET, UTC+1), 2026-11-04.
+
+#### Final checks by the lead (the committed tree)
+
+- Read the diff of `item-lifecycle.ts`, `blob.ts`, `blob-cleanup.ts`, `register-upload.ts`, `outfit-suggestions.ts`, the cron routes, `schema.ts`, the migration SQL and `vercel.json`.
+- 02:10, Docker: `wardrobe` and `wardrobe_e2e` both list the three migrations, with `blob_cleanup` and `deleted_items` empty. The only databases are postgres, wardrobe and wardrobe_e2e.
+- Gate with no `.env.local` (`scratchpad/gate-mine.ps1`, the file moved aside and put back in `finally`), on the tree before this bullet:
+  - `pnpm typecheck` 02:11:27 to 02:11:33.
+  - `pnpm lint` to 02:11:46.
+  - `pnpm test` to 02:13:01: 162 files passed, 6 skipped; 2,554 tests passed, 8 skipped.
+  - `pnpm build` to 02:13:13; the route list includes `ƒ /api/cron/blob-cleanup`.
+  - All four passed. The file was back, and the aside folder empty, afterwards.
+- 02:13:52 to 02:16:18 `pnpm test:e2e`, headed, with every app variable unset in the shell: 77 passed, 1 skipped. The skip is the smoke spec, "needs BLOB_READ_WRITE_TOKEN in the shell", read from the HTML report.
+- Visible-browser check, headed Chromium. The same `check.cjs`, fake Blob API and server launcher as above, copied to `scratchpad/lead-cx/` with their own screenshot folder, and a new random `CRON_SECRET` that was never printed.
+  - Run 02:17:51 to 02:18:51: 16 of 17 passed, with the same results as the 02:01 run:
+    - Delete with the store silent: "Item deleted" after 8,098 ms.
+    - The refused Retry.
+    - Delete with the store answering 503 at 390 px dark: 8,138 ms, 3 SDK attempts and then none.
+    - The cron: 401, then 502 after 30,052 ms, then 200 with 6 deleted.
+    - No browser request left the machine.
+  - The one failure is again axe `aria-hidden-focus` on the add page's error toast (wardrobe-1s2).
+  - Screenshots looked at: "Deleting…" in the dialog, the refused Retry with its toast, and "Item deleted" on the empty wardrobe at 390 px dark.
+  - Clean-up: the listeners on 3100 and 3924 stopped by PID, the junction removed as a link, and the check's 2 `deleted_items` rows deleted. `wardrobe_e2e` then had 0 items, images, queue rows and tombstones.
+
+#### Review fixes (the tree before the lead's checks)
+
+- 01:35:13 to 01:35:25, `blob.test.ts` and `blob.sdk.test.ts`: 20 passed.
+- 01:39:54 to 01:39:55: removed `drizzle/20261103230912_blob-cleanup`, then `pnpm db:generate --name item-deletion` wrote `drizzle/20261104003955_item-deletion`.
+  - Its `blob_cleanup` SQL is the same as before, plus `deleted_items`.
+  - Its snapshot follows `20261102210917_archived-from`.
+- 01:40:19 to 01:40:30, the 9 touched unit test files: 175 passed. The files: `blob.test.ts`, `blob.sdk.test.ts`, `blob-cleanup.test.ts`, `item-lifecycle.test.ts`, `register-upload.test.ts`, the cron route test, `export.test.ts`, `src/server/actions/items.test.ts` and `test/boundaries.test.ts`.
+- 01:40:37 to 01:40:48 `pnpm typecheck`, then to 01:41:01 `pnpm lint`: both passed.
+- Scratch database `wardrobe_cx_fix`:
+  - 01:42:51 to 01:42:54: created, migrated (3 migrations, the new one last) and seeded.
+  - 01:43:18 to 01:43:22: `register-upload.pg.test.ts` and `item-lifecycle.pg.test.ts`, 3 passed.
+  - Afterwards: 0 rows in `items`, `item_images`, `blob_cleanup` and `deleted_items`, and no trigger left.
+- 01:44:48 to 01:47:19: the revert checks under Review.
+- 01:51:52 to 01:51:53, Docker `wardrobe` and `wardrobe_e2e` brought in line (see Migration and deploy state).
+- Docker `wardrobe`, with both database URLs set in the shell for these commands only:
+  - 01:52:02 `pnpm db:generate`: "No schema changes, nothing to migrate".
+  - 01:52:04 `pnpm db:migrate`: applied `20261104003955_item-deletion`.
+  - 01:52:05 `pnpm db:seed`: Hamburg updated, Bologna and app_settings kept.
+- 01:52:43 to 01:55:13 `pnpm test:e2e`, headed, with `BLOB_READ_WRITE_TOKEN`, `ANTHROPIC_API_KEY`, `E2E_TAG`, `FEATURE_SHOPPING_AI` and `OPEN_METEO_BASE_URL` unset: 77 passed and 1 skipped.
+  - The skipped test is the smoke spec, "needs BLOB_READ_WRITE_TOKEN in the shell" (read from the HTML report).
+  - The global setup ran the new migration on `wardrobe_e2e`.
+  - The no-token Delete test passed with its new `deleted_items` assertion.
+- Visible-browser check, headed Chromium, `scratchpad/cx-fix-visual/check.cjs`, against `next start -p 3100` on the e2e run's build. The server ran with:
+  - a fake Blob token;
+  - `VERCEL_BLOB_API_URL` at a local fake Blob API (`fake-blob.cjs`, 127.0.0.1:3924, which answers ok, 503 `service_unavailable` or never);
+  - a random `CRON_SECRET` made for the check.
+  - The browser's own Blob upload was answered by the script, and every other request off localhost would have been stopped and counted: none was.
+  - Fake store PID 5084 and server PID 15500, started at 02:01:06. The run went from 02:01:18 to 02:02:18: 16 of 17 checks passed.
+  - `/add` at 1440 px light: one photo uploaded, and its register request aborted, as an answer lost after the server committed. The item that register would have made was inserted under the same id.
+  - Its item page in a second tab, with the store never answering:
+    - Delete showed "Deleting…" at 2 s, then "Item deleted" and `/wardrobe` after 8,136 ms.
+    - The item was gone, its id listed in `deleted_items`, and its 3 files queued with `attempts` 1 and `last_error` "UPSTREAM: The photo store is not responding. Try again in a moment. (Vercel Blob did not answer within 7997 ms)".
+  - Back on `/add`, Retry: "Failed: That item was deleted. Upload the photo again." with a "Check your input" toast.
+    - No item or image row came back, and the 3 files stayed queued.
+    - The server made no Blob API call for it.
+  - 390 px dark, another item, with the store answering 503:
+    - "Item deleted" after 8,144 ms, with no sideways scroll.
+    - The SDK tried 3 times (attempts 0, 1 and 2), then stopped: no further request 6 s later.
+    - Its 3 files were queued with the timeout error.
+  - The cron:
+    - 401 without a secret.
+    - With the store never answering: 502 UPSTREAM after 30,052 ms, `pending` 6. The first item's files got `attempts` 2 and "within 30000 ms".
+    - With the store working: 200 `{ deleted: 6, pending: 0, error: null }`, and both ids stayed in `deleted_items`.
+  - The one failure: axe `aria-hidden-focus` on `/add`. `probe.cjs` (02:02:49 to 02:03:02) placed it: it is the error toast (`data-slot="toast"`, `aria-hidden="true"` with `tabindex="0"`). It shows the same way for a plain network error, which this work does not touch, and persists 4 s later.
+  - The only console errors were the aborted register and the refused register's 400, both expected.
+  - Screenshots in `scratchpad/cx-fix-shots/`, all looked at: 01 (the lost register with Retry), 02-* (the item page, "Deleting…", the wardrobe with "Item deleted"), 03 (the refused Retry), 04-390-dark-* (the same Delete on a phone, dark), 10 and 11 (the probes).
+  - Clean-up:
+    - 02:03:43: the server and the fake store stopped by PID with their process trees. Ports 3000, 3100, 3901, 3923 and 3924 were free at 02:03:46.
+    - The junction was removed with `rmdir`, and the check's secret file was deleted.
+    - 02:03:59 to 02:04:00: deleted the check's 2 `deleted_items` rows and 75 `login_attempts` rows from `wardrobe_e2e`.
+    - Both `wardrobe` and `wardrobe_e2e` then held only `climate_profiles` (2) and `app_settings` (1).
+- 02:04:06 to 02:04:11, all six opt-in Postgres files on `wardrobe_cx_fix`: 6 files and 8 tests passed. Afterwards only `climate_profiles` and `app_settings` had rows. Dropped at 02:04:18; left: postgres, template0, template1, wardrobe and wardrobe_e2e.
+- Final gate with no `.env.local`, on the final tree with every change above, these docs included except this bullet (`scratchpad/cx-fix/gate.sh`). The file was moved to `scratchpad/envlocal-aside-cx2/`, created empty, and put back by a trap:
+  - Moved at 02:06:15.
+  - `pnpm typecheck` to 02:06:21.
+  - `pnpm lint` to 02:06:34.
+  - `pnpm test` to 02:07:47: 162 files passed, 6 skipped; 2,554 tests passed, 8 skipped. The skipped ones are the six opt-in Postgres files.
+  - `pnpm build` to 02:07:59. The route list includes `ƒ /api/cron/blob-cleanup` and `ƒ /api/cron/poll-batches`.
+  - Restored at 02:07:59, with the aside folder empty again. All four passed.
+- 02:08:06 to 02:08:11, grep of `.next/static` (59 JS files, `scratchpad/cx-fix/grep-static.sh`). It looked for the integration's list plus `deleted_items`, "did not answer within", "That item was deleted", `item_deleted` and `CRON_MARGIN_MS`. None of them was found, except two names in one chunk, both `@vercel/blob`'s own lookups, as at 00:37:
+  - `VERCEL_BLOB_API_URL`: the SDK's API-URL override.
+  - `BLOB_READ_WRITE_TOKEN`: twice, its token lookup and its "No blob credentials found" message.
+  - Controls found: "Wore this today" (3 files), "Delete item" (1), "including from photo storage" (1), "Not deleted" (3), "Could not reach the server" (13).
+- 02:08:17: `git status` lists no `.env*` file, and ports 3000, 3100, 3901, 3923 and 3924 were free.
+
+#### Integration (00:30 to 00:53, the tree before the review fixes)
+
+- 00:30:32 to 00:30:39, targeted Vitest on 11 files: 254 passed. The files: `test/boundaries.test.ts`, `export.test.ts`, `src/server/actions/items.test.ts`, `src/proxy.test.ts`, `danger-zone.test.tsx`, `outfit-suggestions.test.ts`, `item-lifecycle.test.ts`, `blob-cleanup.test.ts`, `blob.test.ts` and both cron route tests.
+- Gate with no `.env.local`, using `scratchpad/cx-int/gate.sh`. The file was moved to `scratchpad/envlocal-aside-cx/` (created empty) and put back by a trap.
+  - Moved at 00:34:35.
+  - `pnpm typecheck` to 00:34:42.
+  - `pnpm lint` to 00:34:55.
+  - `pnpm test` to 00:36:06: 161 files passed, 5 skipped; 2,540 tests passed, 7 skipped. The skipped ones are the five opt-in Postgres files.
+  - `pnpm build` to 00:36:33. The route list includes `ƒ /api/cron/blob-cleanup` and `ƒ /api/cron/poll-batches`.
+  - Restored at 00:36:33, with the aside folder empty again. All four passed.
+- 00:37:04 to 00:37:09, grep of `.next/static` (59 JS files, `scratchpad/cx-int/grep-static.sh`). None of these were found:
+  - the secret names, with `ANTHROPIC_API_KEY`, `SESSION_SECRET`, `APP_PASSWORD_HASH`, `CRON_SECRET`, both `DATABASE_URL`s, `sk-ant` and `vercel_blob_rw` among them;
+  - the system-prompt phrases and the prompt versions listed in the entry below;
+  - the server-only strings `blob_cleanup`, "Missing or wrong cron secret", `wear_changed` and "The wear logged for this outfit changed".
+  - `BLOB_READ_WRITE_TOKEN` appears in 1 file, twice, both `@vercel/blob`'s own: its lookup of the name and its "No blob credentials found" message. `VERCEL_BLOB_API_URL`, which this check added to the list, also appears in that file only as the client SDK's lookup of its API-URL override; it is not a secret.
+  - Controls found: "Wore this today" (3 files), "Delete item" (1), "including from photo storage" (1), "Not deleted" (3).
+- Docker `guardaroba-ai-db-1`, database `wardrobe`. Both database URLs were set in the shell for these commands only, so `.env.local` could not send them elsewhere.
+  - 00:37:25 to 00:37:26 `pnpm db:generate`: "No schema changes, nothing to migrate", so the run's migration matches `schema.ts`.
+  - 00:37:26 to 00:37:27 `pnpm db:migrate` applied `20261103230912_blob-cleanup`. `wardrobe` now has 3 migrations and `blob_cleanup` with the columns of the migration.
+  - 00:37:27 to 00:37:28 `pnpm db:seed`: Hamburg updated, Bologna and app_settings kept.
+- Opt-in Postgres tests on the scratch database `wardrobe_cx_int`:
+  - 00:37:37: created, then migrated (3 migrations).
+  - 00:37:38 to 00:37:40: seeded (Hamburg and Bologna inserted, app_settings created).
+  - 00:37:49 to 00:37:53, `TEST_DATABASE_URL` at it, all five files: 5 files and 7 tests passed. The files are `rate-limit.pg.test.ts`, `relocation-apply.pg.test.ts`, `shopping-advice.pg.test.ts`, `item-lifecycle.pg.test.ts` and `outfit-suggestions.pg.test.ts`.
+  - 00:38:04 to 00:38:07, the two new files again: 4 passed.
+  - The database then held 0 items, images, queue rows, analyses, outfits, wear logs, shopping rows, `ai_calls` and login attempts.
+  - Dropped at 00:38:07. Left: postgres, template0, template1, wardrobe and wardrobe_e2e.
+- 00:38:17 to 00:40:44 `pnpm test:e2e`, headed, with `BLOB_READ_WRITE_TOKEN`, `ANTHROPIC_API_KEY`, `E2E_TAG`, `FEATURE_SHOPPING_AI` and `OPEN_METEO_BASE_URL` unset in the shell.
+  - 77 passed, 1 skipped, none failed. The skipped test is the smoke spec, with the reason "needs BLOB_READ_WRITE_TOKEN in the shell", read from the HTML report.
+  - "Delete without a Blob token shows a configuration error and keeps the item" passed with the new queue assertion.
+  - What e2e covers for these fixes: only the no-token Delete. No spec runs a successful Delete, because one needs a Blob token, and the smoke spec, the only one with a token, never presses Delete (its `afterAll` deletes blobs directly). No spec saves a suggestion after a wear (D-222/D-236) or calls a cron route.
+- Visible-browser check: headed Chromium, `scratchpad/cx-visual/check.cjs`, against `next start -p 3100` on the e2e run's build.
+  - Environment: the e2e server's, plus `OPEN_METEO_BASE_URL` at `e2e/open-meteo-stub.ts` on 3901 (`start.ts`).
+  - Seeded into `wardrobe_e2e` at 00:45:36 to 00:45:38 by `seed.test.ts` (vitest with the repo's aliases, through a `node_modules` junction):
+    - the 17-item outfit wardrobe ("CX visual …") and one complete suggestion for today in Bologna, as `today.spec.ts` does;
+    - "CX visual delete local", whose three photos point at the app's icon;
+    - "CX visual delete ok" and "CX visual delete fail", whose photos live on a local fake Blob API (127.0.0.1:3924, `fake-blob.cjs`).
+  - Run 1, no Blob token. The stub (PID 3340) and the server (PID 39932) started at 00:45:57; the run went from 00:46:13 to 00:46:16 and passed 12 of 13 checks, with no console or page errors.
+    - 1440 × 900 light, the item page's Delete: the dialog says "including from photo storage". Delete showed "Not deleted / The server is misconfigured. Check the server logs." and stayed on the item. The database was unchanged: the item, its 3 image rows and nothing in `blob_cleanup`. axe found no serious or critical violation.
+    - 390 × 844 dark, `/today`: three cards. "Wore this today" on "Layered for drizzle" logged its 3 items with no outfit. Save moved exactly those 3 logs to the new outfit, and each item counted once. The outfit page read "Worn once, last on 4 Nov 2026"; its "Wore this today" answered "Already logged" and logged nothing. No sideways scroll.
+    - The one failure: axe flagged `color-contrast` on that outfit page right after the press. Three probes (`probe.cjs` and `probe2.cjs`, 00:46:37 to 00:47:08) placed it:
+      - The page was clean when opened, and clean right after a press with a single toast.
+      - Repeating the run's path on the second card, the node was the earlier "Outfit saved" toast title fading behind the newer toast (foreground #1b1b1b on #171717), flagged right away and clean 2 s later.
+      - The toasts are unchanged by this work; this is a transient animation state.
+    - Server stopped by PID at 00:47:21.
+  - Run 2, fake Blob. The fake store (PID 11744) and the server (PID 5296) started at 00:47:32. The server had a fake `BLOB_READ_WRITE_TOKEN` (store id `cxfakestore`), `VERCEL_BLOB_API_URL` at the fake (the SDK's own override, so nothing left the machine) and a random `CRON_SECRET` made for this check. The run went from 00:47:39 to 00:47:43 and passed 14 of 15 checks, with no console or page errors.
+    - Delete succeeds: the item page showed its photo loaded from the fake store. Delete gave the toast "Item deleted" and `/wardrobe`. The item and its image rows are gone and `blob_cleanup` is empty. The fake received exactly one delete call, with the item's 3 URLs, a Bearer token and the store id.
+    - Delete while the store fails (the fake answered 400 `bad_request`, which the SDK does not retry): the delete still succeeded (toast, `/wardrobe`). The item is gone, and its 3 files are queued with `attempts` 1 and `last_error` "UPSTREAM: The photo store is not responding. Try again in a moment. (Vercel Blob: fake store: failure forced by the check)".
+    - The cron route: without a secret 401; with a wrong secret 401; `poll-batches` without a secret 401 (the shared check).
+      - With the secret while the store still failed: 502 with `{ ok: false, error: UPSTREAM, data: { deleted: 0, pending: 3 } }`, and the rows at `attempts` 2.
+      - With the store working: 200 with `{ ok: true, data: { deleted: 3, pending: 0, error: null } }` and the queue empty; the fake's call named exactly those 3 URLs.
+      - A repeated run: 200, nothing deleted, no Blob call.
+    - The one failure was the script's: it searched the page for "CX visual delete fail", which the "Item deleted" toast contains ("… and its photos are gone."). `probe3.cjs` (00:48:01, a fresh `/wardrobe`) found "18 items" (the 17 plus the local one) and no card for either deleted item. Screenshot 09 shows the same.
+  - Screenshots in `scratchpad/cx-shots/`, all looked at:
+    - 01, 02: the item page and the dialog's error, readable over the blurred page.
+    - 03 to 06: the worn card, the saved card with "Open saved outfit" and both toasts, then the outfit page with "Worn once" and the "Already logged" toast.
+    - 07: the item with the fake store's photo.
+    - 08, 09: `/wardrobe` loading, then 18 items with the "Item deleted" toast.
+    - 10 to 12: the probes.
+  - Clean-up:
+    - 00:48:08: the server, the fake store and the stub stopped by PID, each with its process tree. Ports 3000, 3100, 3901, 3923 and 3924 were free at 00:48:11.
+    - 00:48:44 to 00:48:45: removed the check's 6 wear logs, 2 outfits, 1 analysis and 18 items, plus the 77 `login_attempts` rows (the e2e run's and the check's sign-ins).
+    - `wardrobe` and `wardrobe_e2e` then had 0 rows in every table except `climate_profiles` (Hamburg the default, Bologna) and `app_settings` (Bologna the home city).
+    - 00:48:52: the junction removed with `rmdir` (the link only; the project's `node_modules` is intact).
+- Final gate with no `.env.local` on the final tree, after every change above including these docs except this bullet (`gate.sh`; the same aside folder, empty before and again after):
+  - Moved at 00:51:29.
+  - `pnpm typecheck` to 00:51:35.
+  - `pnpm lint` to 00:51:48.
+  - `pnpm test` to 00:53:01: 161 files passed, 5 skipped; 2,540 tests passed, 7 skipped.
+  - `pnpm build` to 00:53:13.
+  - Restored at 00:53:13. All four passed.
+  - 00:53:13 to 00:53:18, the same grep of `.next/static` (59 JS files): the same results as at 00:37:04.
+  - `git status` lists no `.env*` file. At 00:53:18 ports 3000, 3100, 3901, 3923 and 3924 were free.
+
+### Migration and deploy state
+
+This tree ships one new migration, `drizzle/20261104003955_item-deletion`, which creates `blob_cleanup` and `deleted_items`. It replaces `20261103230912_blob-cleanup`, which only the two Docker databases had:
+
+- Docker `wardrobe` and `wardrobe_e2e` were brought in line at 01:51:52, without touching any other data. In one transaction per database:
+  - a check that `blob_cleanup` held no rows (it held none);
+  - `drop table blob_cleanup`;
+  - `delete from drizzle.__drizzle_migrations where name = '20261103230912_blob-cleanup'`.
+- Then the new migration was applied: `wardrobe` with `pnpm db:migrate` at 01:52:04, `wardrobe_e2e` by the e2e global setup at 01:52.
+- Both now list `20261102094305_init`, `20261102210917_archived-from` and `20261104003955_item-deletion`. The migrator matches migrations by name, so the old row had to go.
+- Neon has neither this migration nor the Phase 4 one. Both must reach Neon before the next deploy (wardrobe-c8x). Without this one, Delete on the item page fails, the cleanup cron answers 500, and a register fails.
+- `CRON_SECRET` and `BLOB_READ_WRITE_TOKEN` must be set in Vercel before the deploy that adds the second cron (`vercel.json`).
+- Not deployed.
+
+### Open risks
+
+- When Blob fails after the commit, a deleted item's photos stay in the public store, reachable by their (unguessable) URLs, until a cleanup run deletes them: at the next delete or the daily cron. A store outage longer than that keeps them longer.
+- During a Blob outage, Delete takes 8 s before it answers "Item deleted", and a cron run that meets the outage answers 502 after 30 s. The deadline has run only against local stubs and the real SDK, not against a real store.
+- A connection that drops after the commit still shows "Could not reach the server" for a deleted item (D-237). The proposed copy is under Review; it is the owner's call.
+- Blob calls outside the cleanup (register `head` and `put`, the cut-out, the photo ZIP, `deleteBlobsQuietly`) have no deadline; during an outage they wait for the SDK's retries until the function's limit, as before.
+- `deleted_items` keeps one row per deleted item for good. An id listed there can never be registered again, which a browser-made random uuid never needs.
+- The "Item deleted" toast still says "… and its photos are gone." even when the files are only queued (seen again in this check). This wording is the owner's call; it was not changed.
+- A wrong or revoked token is found only after the commit. The item is deleted, its files wait with a CONFIG `last_error`, and the cron answers 500 every day until the token is fixed. No page shows the queue; the only signals are the cron's answer, the server log and `select … from blob_cleanup`.
+- Other Blob deletes stay best-effort and are logged. A failed delete of a replaced cut-out after its commit (`nobg.ts`) leaves an orphan file, never a dead URL. If a COMMIT reply were lost after the server committed, the clean-up of a failed register or cut-out could delete a referenced file; that is rare and was not changed.
+- With a token, Delete on a demo item deletes it and asks the store to delete the shared path `/icons/icon-192.png`; what a real store answers is untested.
+- Delete's success path and the cron have run against PGlite with a fake store, against Docker Postgres in the opt-in test, and against a local fake of the Blob API in the browser. They have never run against a real store or on Vercel.
+- D-236: of two Saves with shared items, the one that waits is saved without the wear, as D-222's rule says. The UPDATE's CONFLICT path can only be reached by a future code path that changes those logs without the item locks. Any new code that locks several items must take them in id order.
+- axe flags a stacked toast while it fades (`color-contrast`, transient; seen in run 1). The toasts are not part of this change.
+- axe flags the add page's error toast with `aria-hidden-focus` (`aria-hidden="true"` with `tabindex="0"`), for a network error as well as for the new refusal. The toasts are not part of this change.
+- The risks in the entries below stand.
+
+### Live checks pending
+
+- A real Delete with a Blob token, after the migration on that database: the item's blobs are gone (`vercel blob list`, which costs advanced operations, or a `head` of each URL) and `blob_cleanup` is empty.
+- On a deployment, a forced Blob failure drained by the cron. For example, queue a row for a file uploaded for the purpose, then run the cron (`vercel crons` or the 05:00 UTC run). The row and the file should be gone, the cron log should show 200 for `blob-cleanup`, and `poll-batches` should still answer as before.
+- The live checks in the entries below (wardrobe-r67, wardrobe-0j7, wardrobe-5u9, wardrobe-izw, wardrobe-aea, wardrobe-56n).
+
+### Next steps
+
+1. Bump `next`, `eslint-config-next` and `@next/env` to the 16.4.5 security release (wardrobe-9ri).
+2. Apply both pending migrations to Neon before the next deploy (wardrobe-c8x, updated for the second one): the Phase 4 one and `20261104003955_item-deletion`. Set `CRON_SECRET` and `BLOB_READ_WRITE_TOKEN` in Vercel before it.
+3. The two live checks above, added to wardrobe-aea.
+4. Follow-ups filed:
+   - wardrobe-1a5: route the replaced cut-out's delete (`nobg.ts`) through the queue;
+   - wardrobe-yog: a pending-cleanup count on the usage page;
+   - wardrobe-2v1: the owner's call on the "Item deleted" toast wording when the files are only queued, and on the dialog's wording when the connection drops after the commit;
+   - wardrobe-z4n: deadlines for the other Blob calls;
+   - wardrobe-1s2: the toasts' axe flags (`aria-hidden-focus`, and `color-contrast` while a toast fades).
+5. The earlier steps stand (wardrobe-56n, wardrobe-e1r, wardrobe-2n6, wardrobe-9hc, wardrobe-p11, wardrobe-x0r, wardrobe-izw, wardrobe-r67, wardrobe-0j7, wardrobe-5u9).
+
 ## 2026-11-03 — Owner decisions (D-093, D-134, D-218, D-219, D-225)
 
 ### State

@@ -106,6 +106,84 @@ describe("createBlobStorage", () => {
     expect(sdk.del).not.toHaveBeenCalled();
   });
 
+  it("treats a blob the store does not have as deleted", async () => {
+    const sdk = recordingSdk();
+    sdk.del.mockRejectedValue(new BlobNotFoundError());
+    await expect(createBlobStorage(TOKEN, sdk).del("https://a.example/gone")).resolves.toBeUndefined();
+    expect(sdk.del.mock.calls).toEqual([["https://a.example/gone", { token: TOKEN }]]);
+  });
+
+  it("deletes each URL on its own when a list holds a missing blob, and still fails on other errors", async () => {
+    const urls = ["https://a.example/1", "https://a.example/gone", "https://a.example/3"];
+    const sdk = recordingSdk();
+    sdk.del.mockImplementation(async (target) => {
+      if (Array.isArray(target) || target === "https://a.example/gone") throw new BlobNotFoundError();
+    });
+
+    await expect(createBlobStorage(TOKEN, sdk).del(urls)).resolves.toBeUndefined();
+    expect(sdk.del.mock.calls).toEqual([
+      [urls, { token: TOKEN }],
+      ["https://a.example/1", { token: TOKEN }],
+      ["https://a.example/gone", { token: TOKEN }],
+      ["https://a.example/3", { token: TOKEN }],
+    ]);
+
+    const failing = recordingSdk();
+    failing.del.mockImplementation(async (target) => {
+      if (Array.isArray(target)) throw new BlobNotFoundError();
+      if (target === "https://a.example/3") throw new BlobServiceNotAvailable();
+    });
+    expect(await thrownBy(createBlobStorage(TOKEN, failing).del(urls))).toMatchObject({ code: "UPSTREAM" });
+  });
+
+  it("gives up on a delete the store never answers after timeoutMs, aborting the SDK call with an AbortError", async () => {
+    const urls = ["https://a.example/1", "https://a.example/2"];
+    const sdk = recordingSdk();
+    sdk.del.mockImplementation(() => new Promise<never>(() => undefined));
+    const started = Date.now();
+
+    const error = await thrownBy(createBlobStorage(TOKEN, sdk).del(urls, { timeoutMs: 50 }));
+
+    expect(Date.now() - started).toBeLessThan(1_000);
+    if (!(error instanceof AppError)) throw new Error("expected an AppError");
+    expect(error).toMatchObject({ code: "UPSTREAM", message: "The photo store is not responding. Try again in a moment." });
+    expect(error.cause).toEqual(new Error("Vercel Blob did not answer within 50 ms"));
+    expect(sdk.del.mock.calls).toEqual([[urls, { token: TOKEN, abortSignal: expect.any(AbortSignal) }]]);
+    const signal = sdk.del.mock.calls[0]?.[1]?.abortSignal;
+    expect(signal?.aborted).toBe(true);
+    // The SDK stops retrying only for a DOMException named AbortError; the
+    // TimeoutError of AbortSignal.timeout() would be retried for minutes.
+    expect(signal?.reason).toBeInstanceOf(DOMException);
+    expect(signal?.reason).toMatchObject({ name: "AbortError" });
+  });
+
+  it("gives one deadline to the whole delete, the one-by-one deletes after a not-found included", async () => {
+    const urls = ["https://a.example/1", "https://a.example/gone"];
+    const sdk = recordingSdk();
+    sdk.del.mockImplementation((target) =>
+      Array.isArray(target) ? Promise.reject(new BlobNotFoundError()) : new Promise<never>(() => undefined),
+    );
+
+    expect(await thrownBy(createBlobStorage(TOKEN, sdk).del(urls, { timeoutMs: 50 }))).toMatchObject({
+      code: "UPSTREAM",
+    });
+
+    // The list, then the first URL on its own, which never answered.
+    expect(sdk.del.mock.calls.map((call) => call[0])).toEqual([urls, "https://a.example/1"]);
+    const signals = sdk.del.mock.calls.map((call) => call[1]?.abortSignal);
+    expect(new Set(signals).size).toBe(1);
+    expect(signals[0]?.aborted).toBe(true);
+  });
+
+  it("answers as before when the store answers within timeoutMs, and aborts nothing afterwards", async () => {
+    const sdk = recordingSdk();
+
+    await expect(createBlobStorage(TOKEN, sdk).del("https://a.example/1", { timeoutMs: 20 })).resolves.toBeUndefined();
+    await new Promise((resolve) => setTimeout(resolve, 60));
+
+    expect(sdk.del.mock.calls[0]?.[1]?.abortSignal?.aborted).toBe(false);
+  });
+
   it("answers null from head for a blob the store does not have", async () => {
     const sdk = recordingSdk();
     sdk.head.mockRejectedValue(new BlobNotFoundError());

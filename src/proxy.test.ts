@@ -173,6 +173,7 @@ describe("config.matcher", () => {
     "/vendor/bg-removal/imgly-1.7.0-ort-1.21.0/ort-wasm-simd-threaded.mjs",
     "/api/blob/upload",
     "/api/cron/poll-batches",
+    "/api/cron/blob-cleanup",
   ])("leaves public %s alone", (url) => {
     expect(matches(url)).toBe(false);
   });

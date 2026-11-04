@@ -6,7 +6,7 @@ import { drizzle } from "drizzle-orm/node-postgres"
 import { Pool } from "pg"
 
 import { relations } from "@/lib/db/relations"
-import { aiCalls, itemImages, items } from "@/lib/db/schema"
+import { aiCalls, blobCleanup, deletedItems, itemImages, items } from "@/lib/db/schema"
 
 import { makeImage, makeItem, makeTaggedItem } from "../test/factories"
 import { E2E_DATABASE_URL, E2E_PASSWORD } from "./constants"
@@ -16,7 +16,8 @@ import { NEEDS_NO_BLOB_TOKEN, SHELL_HAS_BLOB_TOKEN } from "./live-env"
 // key or a Blob token: items are inserted straight into wardrobe_e2e, and
 // their photos point at a static file the app serves itself. Without a Blob
 // token, Delete must refuse with a configuration error before anything is
-// deleted. Every row this spec creates is deleted again in afterAll.
+// deleted, queued for the photo cleanup or listed as deleted (D-234, D-238).
+// Every row this spec creates is deleted again in afterAll.
 
 const CONFIRMED_NAME = "E2E detail coat"
 const RENAMED = "E2E detail overcoat"
@@ -167,6 +168,10 @@ test("Delete without a Blob token shows a configuration error and keeps the item
   expect(await itemRow(confirmedId)).toBeDefined()
   const images = await db.select().from(itemImages).where(eq(itemImages.itemId, confirmedId))
   expect(images).toHaveLength(3)
+  // Refused before the delete's transaction, so none of its photos was queued
+  // and its id is not listed as deleted (D-234, D-238).
+  expect(await db.select().from(blobCleanup).where(eq(blobCleanup.itemId, confirmedId))).toEqual([])
+  expect(await db.select().from(deletedItems).where(eq(deletedItems.itemId, confirmedId))).toEqual([])
 
   await dialog.getByRole("button", { name: "Cancel" }).click()
   await expect(dialog).toHaveCount(0)

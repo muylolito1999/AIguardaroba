@@ -4,7 +4,7 @@ import { eq, or, type SQL } from "drizzle-orm";
 
 import { requireSession } from "@/lib/auth/dal";
 import type { Db } from "@/lib/db/client";
-import { appSettings, itemImages, items, type NewItemImage } from "@/lib/db/schema";
+import { appSettings, deletedItems, itemImages, items, type NewItemImage } from "@/lib/db/schema";
 import {
   assertRegisteredBlob,
   deleteBlobsQuietly,
@@ -28,6 +28,8 @@ import { loadItemCard } from "@/server/items/dto";
 // process it once, store the derived images, then create the item and its three
 // image rows in one transaction. Safe to call again with the same item id, and
 // safe against a concurrent duplicate: the unique constraints decide the race.
+// An id whose item was deleted is refused, so a retry cannot bring it back
+// (D-238).
 
 export type RegisterUploadDeps = {
   db: Db;
@@ -71,6 +73,23 @@ export function uniqueViolationConstraint(error: unknown): string | null {
 async function findItemId(db: Db, where: SQL | undefined): Promise<string | null> {
   const [row] = await db.select({ id: items.id }).from(items).where(where).limit(1);
   return row?.id ?? null;
+}
+
+type Tx = Parameters<Parameters<Db["transaction"]>[0]>[0];
+
+/**
+ * Refuses an item id that was deleted (D-238). Its photos, this upload's
+ * original among them, are queued in blob_cleanup, so an item registered
+ * again on them would lose its original to the next cleanup run.
+ */
+async function assertNotDeleted(db: Db | Tx, itemId: string): Promise<void> {
+  const [row] = await db
+    .select({ itemId: deletedItems.itemId })
+    .from(deletedItems)
+    .where(eq(deletedItems.itemId, itemId));
+  if (row !== undefined) {
+    throw new AppError("VALIDATION", "That item was deleted. Upload the photo again.", { reason: "item_deleted" });
+  }
 }
 
 async function registered(db: Db, itemId: string): Promise<RegisterData> {
@@ -247,6 +266,12 @@ async function insertItem(
       sourceHash: input.sourceHash,
       imageHash: result.imageHash,
     });
+    // After the insert, not before (D-238): an insert of an id whose delete
+    // has not committed yet waits on the primary key until it has, and only
+    // a read after that wait sees the delete's deleted_items row. Refused
+    // here, the transaction rolls back and registerUpload deletes the
+    // derived images it stored.
+    await assertNotDeleted(tx, itemId);
     await tx.insert(itemImages).values(images);
   });
 }
@@ -255,7 +280,9 @@ async function insertItem(
  * Registers a client upload as a pending_tagging item. Returns the new (or
  * already registered) item, or `{ duplicate: true, existingItemId }` when the
  * photo matches another item by source hash or processed-image hash, in which
- * case the new original is deleted.
+ * case the new original is deleted. Throws VALIDATION (reason item_deleted)
+ * for the id of a deleted item and leaves the upload alone: the delete queued
+ * that item's photos, the original among them, for the cleanup.
  */
 export async function registerUpload(deps: RegisterUploadDeps, input: RegisterBody): Promise<RegisterData> {
   await requireSession();
@@ -264,6 +291,10 @@ export async function registerUpload(deps: RegisterUploadDeps, input: RegisterBo
 
   // A retry after a lost response: the item exists, nothing is redone.
   if ((await findItemId(db, eq(items.id, itemId))) !== null) return registered(db, itemId);
+  // A retry after the item was deleted meanwhile: refused before anything is
+  // read, processed or stored. insertItem checks again for a delete that
+  // commits while this register runs.
+  await assertNotDeleted(db, itemId);
 
   // Before anything is fetched or deleted, the URL must be this item's
   // original in our store; otherwise a crafted request could make the server

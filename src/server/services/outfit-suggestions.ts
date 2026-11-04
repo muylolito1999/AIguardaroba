@@ -560,15 +560,41 @@ function rangeValue(value: number): number | null {
 }
 
 /**
+ * Locks the outfit's items FOR UPDATE in id order, the order logWear and
+ * undoWear take them in (D-196), so a Save, a wear and an Undo of shared
+ * items queue instead of deadlocking. Two Saves of different suggestions
+ * that share items queue as well, so the second reads the day's logs only
+ * after the first has moved them (D-236); saveOutfit's FOR SHARE locks alone
+ * let both read the same logs, and the second took them from the first.
+ * Taken before saveOutfit, whose share locks this transaction then already
+ * holds: two Saves that each held a share lock and then asked for the update
+ * lock would wait for each other. A missing or archived item is left to
+ * saveOutfit's check, which answers CONFLICT.
+ */
+async function lockOutfitItems(tx: Db, itemIds: readonly string[]): Promise<void> {
+  await tx
+    .select({ id: items.id })
+    .from(items)
+    .where(inArray(items.id, [...new Set(itemIds)]))
+    .orderBy(asc(items.id))
+    .for("update");
+}
+
+/**
  * When "Wore this today" on the card logged every item of the outfit with no
  * outfit on the suggestion's day, those logs become the new outfit's: the
  * outfit then reads "Worn once", and its own "Wore this today" answers
  * "Already logged" instead of counting the same wear again (D-208, D-222).
  * When only some items have such a log, they came from presses of "+1 worn
- * today", a target of their own (D-196), and nothing is attached. Counts,
- * last worn dates and log ids stay, so the card's Undo still works. Runs in
- * the save's transaction after saveOutfit, whose item locks wait for a wear
- * being logged.
+ * today", a target of their own (D-196), or another saved suggestion took
+ * the shared ones first, and nothing is attached. Counts, last worn dates
+ * and log ids stay, so the card's Undo still works.
+ *
+ * Runs under lockOutfitItems' locks, so no other request can move, undo or
+ * add a log of these items before this transaction ends. The UPDATE still
+ * requires each log to be as it was read (no outfit, that item and day) and
+ * refuses the whole Save with CONFLICT when one is not: moving only the rest
+ * would attach a wear that no longer covers every item (D-236).
  */
 async function attachCardWear(
   tx: Db,
@@ -582,10 +608,25 @@ async function attachCardWear(
     .where(and(inArray(wearLogs.itemId, [...itemIds]), eq(wearLogs.wornOn, day), isNull(wearLogs.outfitId)));
   const logged = new Set(loose.map((log) => log.itemId));
   if (!itemIds.every((id) => logged.has(id))) return;
-  await tx
+  const moved = await tx
     .update(wearLogs)
     .set({ outfitId })
-    .where(inArray(wearLogs.id, loose.map((log) => log.id)));
+    .where(
+      and(
+        inArray(wearLogs.id, loose.map((log) => log.id)),
+        inArray(wearLogs.itemId, [...itemIds]),
+        eq(wearLogs.wornOn, day),
+        isNull(wearLogs.outfitId),
+      ),
+    )
+    .returning({ id: wearLogs.id });
+  if (moved.length !== loose.length) {
+    throw new AppError(
+      "CONFLICT",
+      "The wear logged for this outfit changed while it was being saved. Save it again.",
+      { reason: "wear_changed" },
+    );
+  }
 }
 
 /**
@@ -625,6 +666,9 @@ export async function saveSuggestedOutfit(
       if (existing !== undefined) return { analysisId, index, outfitId: existing.id, alreadySaved: true };
     }
 
+    const itemIds = outfit.items.map((entry) => entry.itemId);
+    await lockOutfitItems(tx, itemIds);
+
     let outfitId: string;
     try {
       const created = await saveOutfit(
@@ -655,12 +699,7 @@ export async function saveSuggestedOutfit(
       throw error;
     }
 
-    await attachCardWear(
-      tx,
-      outfitId,
-      outfit.items.map((entry) => entry.itemId),
-      result.weather.date,
-    );
+    await attachCardWear(tx, outfitId, itemIds, result.weather.date);
 
     const savedOutfitIds = [...params.savedOutfitIds];
     savedOutfitIds[index] = outfitId;

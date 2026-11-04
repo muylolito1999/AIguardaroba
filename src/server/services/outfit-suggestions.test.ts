@@ -1,11 +1,15 @@
 import { randomUUID } from "node:crypto";
 
+import type { PGlite, QueryOptions, Results, Transaction } from "@electric-sql/pglite";
 import { and, eq, inArray, sql } from "drizzle-orm";
+import { drizzle } from "drizzle-orm/pglite";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { AnthropicLike } from "@/lib/ai/client";
 import { BOLOGNA } from "@/lib/climate/bologna";
 import { HAMBURG } from "@/lib/climate/hamburg";
+import type { Db } from "@/lib/db/client";
+import { relations } from "@/lib/db/relations";
 import {
   aiCalls,
   analyses,
@@ -167,6 +171,44 @@ function deps(fake: FakeAnthropic, extra: { anthropic?: () => AnthropicLike } = 
     random: () => 0,
     sleep: async () => undefined,
   };
+}
+
+/** Sends one statement of a hooked transaction as it was. */
+type RunStatement = () => Promise<Results<unknown>>;
+type StatementHook = (
+  statement: { text: string; params: readonly unknown[] },
+  tx: Transaction,
+  run: RunStatement,
+) => Promise<Results<unknown>>;
+
+/**
+ * A database on the test PGlite whose transactions hand every statement to
+ * `hook`, with the transaction's own connection: a test can then read Save's
+ * SQL in order, or change rows at an exact point between two statements, as
+ * another request committing at that moment would. PGlite runs one
+ * transaction at a time, so it cannot interleave two requests by itself.
+ */
+function hookedDb(client: PGlite, hook: StatementHook): Db {
+  // PGlite keeps its state in private fields, so its methods must run on the real object.
+  const bound = (target: object, property: string | symbol): unknown => {
+    const value: unknown = Reflect.get(target, property, target);
+    return typeof value === "function" ? value.bind(target) : value;
+  };
+  const hookedTx = (tx: Transaction): Transaction =>
+    new Proxy(tx, {
+      get(target, property) {
+        if (property !== "query") return bound(target, property);
+        return (text: string, params?: unknown[], options?: QueryOptions) =>
+          hook({ text, params: params ?? [] }, target, () => target.query(text, params, options));
+      },
+    });
+  const hookedClient = new Proxy(client, {
+    get(target, property) {
+      if (property !== "transaction") return bound(target, property);
+      return <T>(callback: (tx: Transaction) => Promise<T>) => target.transaction((tx) => callback(hookedTx(tx)));
+    },
+  });
+  return drizzle({ client: hookedClient, relations });
 }
 
 function instructionOf(fake: FakeAnthropic, call = 0): string {
@@ -734,6 +776,77 @@ describe("saveSuggestedOutfit", () => {
     expect(await getOutfit(testDb.db, saved.outfitId)).toMatchObject({ timesWorn: 0 });
     const [log] = await testDb.db.select().from(wearLogs);
     expect(log?.outfitId).toBeNull();
+  });
+
+  it("locks the outfit's items for update, in id order, before saveOutfit's share locks and the log read (D-236)", async () => {
+    const wardrobe = makeOutfitWardrobe();
+    await insertItems(Object.values(wardrobe));
+    const { id, result } = await storeSuggestion(Object.values(wardrobe));
+    const itemIds = result.outfits[0]?.items.map((entry) => entry.itemId) ?? [];
+    await logWear(testDb.db, { kind: "items", itemIds, weather }, { now: NOW });
+    const statements: { text: string; params: readonly unknown[] }[] = [];
+    const traced = hookedDb(testDb.client, async (statement, _tx, run) => {
+      statements.push(statement);
+      return await run();
+    });
+
+    const saved = await saveSuggestedOutfit(traced, { analysisId: id, index: 0 });
+
+    const first = (pattern: RegExp) => statements.findIndex((statement) => pattern.test(statement.text));
+    const itemLock = first(/^select .* from "items" .*order by "items"\."id" asc for update$/);
+    expect(itemLock).toBeGreaterThanOrEqual(0);
+    expect([...(statements[itemLock]?.params ?? [])].sort()).toEqual([...itemIds].sort());
+    expect(itemLock).toBeLessThan(first(/ from "items" .* for share$/));
+    expect(itemLock).toBeLessThan(first(/^insert into "outfits"/));
+    expect(itemLock).toBeLessThan(first(/^select .* from "wear_logs" /));
+    expect(itemLock).toBeLessThan(first(/^update "wear_logs"/));
+    expect(await getOutfit(testDb.db, saved.outfitId)).toMatchObject({ timesWorn: 1 });
+  });
+
+  it("moves no log and refuses with CONFLICT when one changed between the read and the move (D-236)", async () => {
+    const wardrobe = makeOutfitWardrobe();
+    await insertItems(Object.values(wardrobe));
+    const { id, result } = await storeSuggestion(Object.values(wardrobe));
+    const itemIds = result.outfits[0]?.items.map((entry) => entry.itemId) ?? [];
+    const card = await logWear(testDb.db, { kind: "items", itemIds, weather }, { now: NOW });
+    const [taken] = card.logIds;
+    if (taken === undefined) throw new Error("no log");
+    const [other] = await testDb.db.insert(outfits).values({ name: "Saved from another suggestion" }).returning();
+    if (other === undefined) throw new Error("no outfit");
+
+    // What a writer that skipped the item locks could do between Save's read
+    // of the day's logs and its UPDATE: take one log for another outfit, or
+    // remove it.
+    const meanwhile: Record<string, (tx: Transaction) => Promise<unknown>> = {
+      "taken by another outfit": (tx) => tx.query("update wear_logs set outfit_id = $1 where id = $2", [other.id, taken]),
+      undone: (tx) => tx.query("delete from wear_logs where id = $1", [taken]),
+    };
+    for (const [label, change] of Object.entries(meanwhile)) {
+      const seen: { moved: Results<unknown> | null } = { moved: null };
+      const interleaved = hookedDb(testDb.client, async (statement, tx, run) => {
+        if (seen.moved !== null || !statement.text.startsWith('update "wear_logs"')) return await run();
+        await change(tx);
+        seen.moved = await run();
+        return seen.moved;
+      });
+
+      await expect(saveSuggestedOutfit(interleaved, { analysisId: id, index: 0 }), label).rejects.toMatchObject({
+        code: "CONFLICT",
+        details: { reason: "wear_changed" },
+      });
+
+      // The UPDATE left that log alone; the error rolled the rest and the outfit back.
+      expect(seen.moved, label).not.toBeNull();
+      expect(JSON.stringify(seen.moved?.rows), label).not.toContain(taken);
+      expect(seen.moved?.affectedRows, label).toBe(itemIds.length - 1);
+      expect((await testDb.db.select({ id: outfits.id }).from(outfits)).map((row) => row.id), label).toEqual([other.id]);
+      const logs = await testDb.db.select().from(wearLogs);
+      expect(logs.map((log) => log.outfitId), label).toEqual(itemIds.map(() => null));
+    }
+
+    // Unchanged, the same Save moves the whole wear.
+    const saved = await saveSuggestedOutfit(testDb.db, { analysisId: id, index: 0 });
+    expect(await getOutfit(testDb.db, saved.outfitId)).toMatchObject({ timesWorn: 1 });
   });
 
   it("refuses with CONFLICT when an item was archived or deleted since, and saves nothing", async () => {

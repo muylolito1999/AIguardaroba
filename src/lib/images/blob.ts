@@ -26,10 +26,24 @@ export type BlobMeta = { url: string; pathname: string; size: number; contentTyp
 export type BlobStorage = {
   /** Public, random-suffixed, immutable upload of a server-made file. */
   put(pathname: string, body: Buffer, options: { contentType: string }): Promise<StoredBlob>;
-  /** Deletes blobs by URL; an empty list makes no call. */
-  del(urls: string | readonly string[]): Promise<void>;
+  /**
+   * Deletes blobs by URL; an empty list makes no call. Idempotent: a blob the
+   * store does not have counts as deleted, so a repeated cleanup never fails
+   * on files an earlier attempt already removed.
+   */
+  del(urls: string | readonly string[], options?: BlobDeleteOptions): Promise<void>;
   /** The blob's metadata, or null when this store has no blob at that URL. */
   head(url: string): Promise<BlobMeta | null>;
+};
+
+export type BlobDeleteOptions = {
+  /**
+   * Gives up after this long with UPSTREAM and stops the SDK's retries
+   * (D-237). Without it, a store that answers 5xx, or never answers, holds
+   * the call through the SDK's ten retries with doubling waits: about 17 min
+   * or more, longer than any function may run.
+   */
+  timeoutMs?: number;
 };
 
 /** The SDK functions the storage wraps; tests pass recording fakes. */
@@ -64,6 +78,30 @@ export function blobFailure(error: unknown, action: string): AppError {
 }
 
 export function createBlobStorage(token: string, sdk: BlobSdk = DEFAULT_SDK): BlobStorage {
+  /** Deletes one blob; resolves when the store says it has no such blob. */
+  async function delOne(url: string, abortSignal: AbortSignal | undefined): Promise<void> {
+    try {
+      await sdk.del(url, { token, abortSignal });
+    } catch (error) {
+      if (error instanceof BlobNotFoundError) return;
+      throw blobFailure(error, "delete an image");
+    }
+  }
+
+  async function delAll(list: string[], abortSignal: AbortSignal | undefined): Promise<void> {
+    const [first, ...rest] = list;
+    if (first === undefined) return;
+    if (rest.length === 0) return delOne(first, abortSignal);
+    try {
+      await sdk.del(list, { token, abortSignal });
+    } catch (error) {
+      if (!(error instanceof BlobNotFoundError)) throw blobFailure(error, "delete an image");
+      // The answer does not say which URL was missing, nor whether the others
+      // were deleted, so each one is deleted on its own; a missing one is done.
+      for (const url of list) await delOne(url, abortSignal);
+    }
+  }
+
   return {
     async put(pathname, body, { contentType }) {
       try {
@@ -80,13 +118,28 @@ export function createBlobStorage(token: string, sdk: BlobSdk = DEFAULT_SDK): Bl
       }
     },
 
-    async del(urls) {
+    async del(urls, options = {}) {
       const list = typeof urls === "string" ? [urls] : [...urls];
-      if (list.length === 0) return;
+      const { timeoutMs } = options;
+      if (timeoutMs === undefined || list.length === 0) return delAll(list, undefined);
+      // abort() without a reason on purpose: the SDK stops retrying only for a
+      // DOMException named AbortError, which is what that gives. Any other
+      // reason, such as AbortSignal.timeout()'s TimeoutError, is retried.
+      const controller = new AbortController();
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      const expired = new Promise<never>((_resolve, reject) => {
+        timer = setTimeout(() => {
+          reject(blobFailure(new Error(`Vercel Blob did not answer within ${timeoutMs} ms`), "delete an image"));
+          controller.abort();
+        }, timeoutMs);
+      });
       try {
-        await sdk.del(list, { token });
-      } catch (error) {
-        throw blobFailure(error, "delete an image");
+        // Raced too: the SDK notices the abort only when its current wait
+        // between retries ends, which can be seconds later. Its rejection then
+        // is still handled, by the race.
+        await Promise.race([delAll(list, controller.signal), expired]);
+      } finally {
+        clearTimeout(timer);
       }
     },
 

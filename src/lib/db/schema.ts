@@ -486,6 +486,46 @@ export const appSettings = snakeCase.table(
   (t) => [check("app_settings_single_row_check", sql`${t.id} = 1`)],
 );
 
+/**
+ * Blob files whose database rows are gone but which may still be in the store
+ * (D-234). Deleting an item records its photo URLs here in the same
+ * transaction that deletes the item, so a Blob failure, or a function that
+ * stops after the commit, never leaves rows pointing at deleted files nor
+ * files nobody knows about; src/server/services/blob-cleanup.ts deletes them
+ * and removes each row once its file is gone.
+ */
+export const blobCleanup = snakeCase.table(
+  "blob_cleanup",
+  {
+    id: id(),
+    url: text().notNull().unique(),
+    // No foreign key: the item row is deleted in the transaction that adds this row.
+    itemId: uuid().notNull(),
+    /** Why the file is no longer needed; "item_deleted" so far. */
+    reason: text().notNull(),
+    /** Delete attempts started, counted before each Blob call so one cut off by the time limit still counts. */
+    attempts: integer().notNull().default(0),
+    lastError: text(),
+    createdAt: createdAt(),
+    lastAttemptAt: timestamp({ withTimezone: true }),
+  },
+  (t) => [check("blob_cleanup_attempts_check", sql`${t.attempts} >= 0`)],
+);
+
+/**
+ * The id of every deleted item (D-238), added in the transaction that deletes
+ * it. Item ids are chosen by the browser (D-074) and a register may be
+ * retried with the same id and upload, so without this a retry after a
+ * delete would bring the item back on an original that blob_cleanup is about
+ * to delete. registerUpload refuses a listed id. Rows are never removed; a
+ * blob_cleanup row cannot serve, because it goes once its file is deleted.
+ */
+export const deletedItems = snakeCase.table("deleted_items", {
+  // No foreign key: the item row is deleted in the transaction that adds this row.
+  itemId: uuid().primaryKey(),
+  deletedAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
+});
+
 // ---------------------------------------------------------------------------
 // Row types
 // ---------------------------------------------------------------------------
@@ -518,3 +558,7 @@ export type LoginAttempt = typeof loginAttempts.$inferSelect;
 export type NewLoginAttempt = typeof loginAttempts.$inferInsert;
 export type AppSettings = typeof appSettings.$inferSelect;
 export type NewAppSettings = typeof appSettings.$inferInsert;
+export type BlobCleanup = typeof blobCleanup.$inferSelect;
+export type NewBlobCleanup = typeof blobCleanup.$inferInsert;
+export type DeletedItem = typeof deletedItems.$inferSelect;
+export type NewDeletedItem = typeof deletedItems.$inferInsert;

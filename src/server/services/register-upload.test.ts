@@ -3,7 +3,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { eq } from "drizzle-orm";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { appSettings, itemImages, items } from "@/lib/db/schema";
+import { appSettings, blobCleanup, itemImages, items } from "@/lib/db/schema";
 import type { BlobStorage } from "@/lib/images/blob";
 import { originalUploadPathname, type RegisterBody } from "@/lib/items/contracts";
 import { AppError } from "@/lib/result";
@@ -12,6 +12,8 @@ import { makeTestDb, type TestDb } from "../../../test/db";
 import { makeItem } from "../../../test/factories";
 import { createFakeBlobStorage, type FakeBlob, type FakeBlobStorage } from "../../../test/fakes/blob";
 import { solidJpeg } from "../../../test/fixtures/images";
+import { runBlobCleanup } from "./blob-cleanup";
+import { deleteItem } from "./item-lifecycle";
 import {
   processedPathname,
   registerUpload,
@@ -345,6 +347,79 @@ describe("registerUpload", () => {
     });
     expect(fake.calls).toHaveLength(callsBefore);
     expect(fake.fetched).toEqual([]);
+  });
+});
+
+describe("registerUpload after the item was deleted (D-238)", () => {
+  const ITEM_DELETED = {
+    code: "VALIDATION",
+    message: "That item was deleted. Upload the photo again.",
+    details: { reason: "item_deleted" },
+  };
+
+  /** Deletes the item while Blob fails, so its files stay in the store, queued, as after an outage. */
+  async function deleteWhileBlobFails(itemId: string): Promise<void> {
+    fake.failNext("del", new Error("socket hang up"));
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    try {
+      expect(await deleteItem(testDb.db, itemId, { storage: fake })).toEqual({ deleted: true });
+    } finally {
+      consoleError.mockRestore();
+    }
+  }
+
+  async function queuedUrls(): Promise<string[]> {
+    return (await testDb.db.select({ url: blobCleanup.url }).from(blobCleanup)).map((row) => row.url).sort();
+  }
+
+  it("refuses a retry with the same body before reading anything, and the cleanup then deletes the queued photos", async () => {
+    const { itemId, blob } = upload();
+    const input = registerBody(itemId, blob);
+    await registerUpload(deps(), input);
+    const registeredUrls = (await imageRows(itemId)).map((row) => row.blobUrl);
+    await deleteWhileBlobFails(itemId);
+    expect(fake.blobs.has(blob.url)).toBe(true);
+    const callsBefore = fake.calls.length;
+    const fetchedBefore = fake.fetched.length;
+
+    // The add page's Retry, after a register whose answer was lost.
+    await expect(registerUpload(deps(), input)).rejects.toMatchObject(ITEM_DELETED);
+
+    // Refused before head(), the fetch and any put; no item came back.
+    expect(fake.calls).toHaveLength(callsBefore);
+    expect(fake.fetched).toHaveLength(fetchedBefore);
+    expect(await itemRows()).toEqual([]);
+    expect(await imageRows(itemId)).toEqual([]);
+
+    // The next cleanup run deletes the queued photos, the original among them.
+    expect(await queuedUrls()).toEqual([...registeredUrls].sort());
+    expect(
+      await runBlobCleanup({ db: testDb.db, storage: fake }, { deadlineAt: Date.now() + 60_000, maxItems: 10 }),
+    ).toEqual({ deleted: 3, pending: 0, error: null });
+    expect(fake.urlsUnder(`items/${itemId}/`)).toEqual([]);
+  });
+
+  it("refuses a register whose item is registered and deleted while it runs, and keeps none of its own images", async () => {
+    const { itemId, blob } = upload();
+    const input = registerBody(itemId, blob);
+    // Once this register's checks have passed, another request registers the
+    // same upload (its answer lost) and the owner deletes that item while
+    // Blob fails, so the item id is free again when this one inserts.
+    const storage = racingStorage(async () => {
+      await registerUpload(deps(), input);
+      await deleteWhileBlobFails(itemId);
+    });
+
+    await expect(registerUpload(deps({ storage }), input)).rejects.toMatchObject(ITEM_DELETED);
+
+    expect(await itemRows()).toEqual([]);
+    expect(await imageRows(itemId)).toEqual([]);
+    // What is left in the store is the first register's three files, all
+    // queued; the derived images this register stored were deleted again.
+    const queued = await queuedUrls();
+    expect(queued).toHaveLength(3);
+    expect(queued).toContain(blob.url);
+    expect(fake.urlsUnder(`items/${itemId}/`).sort()).toEqual(queued);
   });
 });
 

@@ -126,9 +126,10 @@ export const unarchiveItem = authedAction(
 );
 
 /**
- * Deletes the item, its photos in Blob first. The storage is built before the
- * service runs, so a missing BLOB_READ_WRITE_TOKEN is a CONFIG error before
- * anything is deleted.
+ * Deletes the item and queues its photos, which are then deleted from Blob
+ * after the commit (D-234). The storage is built before the service runs, so
+ * a missing BLOB_READ_WRITE_TOKEN is a CONFIG error before anything is
+ * deleted or queued.
  */
 export const deleteItem = authedAction(
   z.strictObject({ id: z.uuid() }),

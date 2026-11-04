@@ -171,6 +171,12 @@ describe("JSON export", () => {
       return getTableName(table);
     });
     expect(schemaTableNames().filter((name) => !exported.includes(name))).toEqual([
+      // Files of deleted items still to be removed from Blob (D-234): the app's own
+      // bookkeeping, nothing of the owner's.
+      "blob_cleanup",
+      // The ids of deleted items, which a register may not use again (D-238):
+      // bookkeeping too.
+      "deleted_items",
       // Nested under each item, not a section of its own.
       "item_images",
       // Keyed hashes derived from SESSION_SECRET, nothing of the owner's (D-114).
