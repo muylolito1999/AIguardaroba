@@ -114,7 +114,7 @@ Notes:
 
 - The session cookie is `Secure`. Chromium and Firefox accept it on `http://localhost`; Safari may not, so use `pnpm dev --experimental-https` there.
 - Five failed logins from one client lock that client out for 15 minutes. `pnpm auth:unlock` clears all recorded attempts.
-- Testing on a phone (camera, HEIC, install) needs real HTTPS. The simplest route is a preview deploy. The alternative is LAN HTTPS with a certificate issued for the LAN IP (`--experimental-https-key` and `--experimental-https-cert`) and the mkcert root CA installed on the phone; plain `--experimental-https` is not trusted over a LAN IP.
+- Testing on a phone (camera, HEIC, install) needs real HTTPS. The simplest route is the production deployment (a preview works too, on the same data; see [Deploy](#deploy)). The alternative is LAN HTTPS with a certificate issued for the LAN IP (`--experimental-https-key` and `--experimental-https-cert`) and the mkcert root CA installed on the phone; plain `--experimental-https` is not trusted over a LAN IP.
 
 ## Database
 
@@ -305,23 +305,28 @@ With `FEATURE_SHOPPING_AI=true`, `/shopping` gets a "What to buy next" section b
 ## Connecting the cloud (one time)
 
 1. `npm i -g vercel`, then `vercel login` and `vercel link`.
-2. Neon: `vercel integration add neon` with region aws-eu-central-1 and preview branching off.
+2. Neon: `vercel integration add neon --meta region=fra1 --meta auth=false`. The CLI no longer prompts: without `--meta region=fra1` (Frankfurt, aws-eu-central-1) it creates the database in us-east-1, and a Neon region cannot be changed later. `auth=false` leaves Neon Auth off, since the app has its own login. Check that preview branching is off on the database's page in the Vercel Storage tab.
 3. Blob: `vercel blob create-store wardrobe --access public --region fra1 --yes` (`--yes` connects all environments, including Development).
-4. In the Vercel dashboard, add for all environments: `ANTHROPIC_API_KEY` (type Secret), `APP_PASSWORD_HASH` and `SESSION_SECRET` (from `pnpm hash-password --with-secret`, available from Phase 2), `CRON_SECRET`, and `ENABLE_EXPERIMENTAL_COREPACK=1`. Set the Function region to fra1.
-5. `vercel env pull .env.local`.
+4. In the Vercel dashboard, add for Production (and Preview, if you use preview deploys): `ANTHROPIC_API_KEY` (type Secret), `APP_PASSWORD_HASH` and `SESSION_SECRET` (from `pnpm hash-password --with-secret`, available from Phase 2), `CRON_SECRET`, and `ENABLE_EXPERIMENTAL_COREPACK=1`. `vercel.json` pins the Function region to fra1.
+5. `vercel env pull .env.local`. It merges into an existing file and brings down the Neon and Blob variables. Secret values are write-only, so it never downloads them: to run the app locally, add `APP_PASSWORD_HASH`, `SESSION_SECRET` and `ANTHROPIC_API_KEY` (and `CRON_SECRET`, to call a cron route) to `.env.local` by hand. `pnpm env:check` shows which groups are still missing.
+6. `pnpm db:migrate`, then `pnpm db:seed`, both against Neon.
+7. Connect the Vercel project to the GitHub repository: `vercel git connect` in the project folder (it reads the `origin` remote), or the dashboard's Settings → Git → Connect Git Repository. If Vercel's GitHub app cannot see the repository, grant it access (GitHub → Settings → Applications → Vercel → Repository access) and run it again. Connect only after steps 4 to 6: from then on every push to `main` deploys to production.
 
-The code lives at https://github.com/muylolito1999/AIguardaroba (public). If the Vercel project is connected to that repository (Git integration), every push to `main` deploys to production and every other branch gets a preview. That deploy does not run migrations, so apply them to Neon before pushing a commit that ships one (see [Deploy](#deploy)). Until the first deploy has been checked, the project can stay unconnected and deploy with `vercel --prod` only.
+The code lives at https://github.com/muylolito1999/AIguardaroba (public), and the Vercel project is connected to it with `main` as the production branch (D-240).
 
 ## Deploy
 
-Follow this order:
+A push to `main` is a production deploy:
 
-1. Make sure every dashboard variable is set, including `ENABLE_EXPERIMENTAL_COREPACK=1` and `CRON_SECRET`.
-2. `vercel env pull .env.local`.
-3. `pnpm db:migrate`, then `pnpm db:seed`, both against Neon, using the connection strings that step 2 wrote to `.env.local`.
-4. `vercel --prod`.
+1. If the commits being pushed add a migration (a new folder under `drizzle/`), run `pnpm db:migrate` against Neon first. Vercel does not run migrations.
+2. `git push origin main`. Vercel builds the pushed commit and, once the build passes, makes it the production deployment.
+3. Follow it in the dashboard's Deployments tab, or with `vercel ls` and `vercel inspect <deployment-url> --logs`. The build log should show pnpm 11 through corepack and Next.js 16.4.5.
 
-Migrations never run during the build. Re-run `pnpm db:migrate` against Neon before any deploy that ships a new migration: the code expects its tables, and, for example, Delete on the item page fails without `blob_cleanup` and `deleted_items`, and a register without `deleted_items` (`drizzle/20261104003955_item-deletion`). `CRON_SECRET` and `BLOB_READ_WRITE_TOKEN` must be set before the first deploy with the crons, or their runs answer 500. On the first deploy, check that the build log shows pnpm 11.
+The crons in `vercel.json` belong to the production deployment, so a deploy also updates their schedule. `vercel --prod` still deploys the local folder without a push, uncommitted changes included; prefer a push, so production always matches a commit on `main`. To go back, `vercel rollback <deployment-url>` (or the Deployments tab) restores an earlier production deployment; it does not undo a migration.
+
+Other branches get preview deploys. A preview has the app's variables (D-241), so it is a full copy of the app, but it uses the same Neon database and Blob store as production: whatever it saves, deletes or spends on Claude is real. The crons run only on production. Push only to `main` until previews get data of their own.
+
+Migrations never run during the build. Re-run `pnpm db:migrate` against Neon before any deploy that ships a new migration: the code expects its tables, and, for example, Delete on the item page fails without `blob_cleanup` and `deleted_items`, and a register without `deleted_items` (`drizzle/20261104003955_item-deletion`). `CRON_SECRET` and `BLOB_READ_WRITE_TOKEN` must be set before the first deploy with the crons, or their runs answer 500.
 
 ## Costs
 

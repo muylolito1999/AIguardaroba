@@ -2,6 +2,97 @@
 
 Newest entry first. Each entry records the state at the end of a working session. Task tracking lives in Beads (`bd ready`, `bd show <id>`); the reasons behind choices are in [DECISIONS.md](DECISIONS.md).
 
+## 2026-11-04 — Cloud connected, first production deploy, deploys on push
+
+### State
+
+- **Vercel project:** `airmaclollo99/guardaroba-ai`.
+  - Created at 09:42 and linked from this machine; `.vercel` is gitignored.
+  - Node 26.x, framework Next.js. Functions run in fra1, pinned by `vercel.json`.
+- **Neon:** `neon-green-lighthouse`, free plan, AWS eu-central-1, connected for Production, Preview and Development, with Neon Auth off (D-241).
+  - Vercel CLI 65 no longer prompts for Neon's settings. The first database, `neon-green-marble`, came from a plain `vercel integration add neon` and landed in us-east-1 with Neon Auth on.
+  - It was empty, so the owner deleted it (`vercel integration resource delete neon-green-marble --disconnect-all`) and created this one with `--meta region=fra1 --meta auth=false`.
+  - The CLI cannot show preview branching. The owner checks it on the database's page in the Storage tab.
+  - The owner ran all 3 migrations and the seed (wardrobe-c8x closed).
+- **Blob:** store `wardrobe`, public, fra1, connected for all three environments. The connection set `BLOB_READ_WRITE_TOKEN`.
+- **App variables:** the owner set them in the dashboard, type Secret, for Production, Preview and Development (D-241):
+  - `ANTHROPIC_API_KEY` (a new key; the one pasted into the chat was never used);
+  - `APP_PASSWORD_HASH` and `SESSION_SECRET`;
+  - `CRON_SECRET`;
+  - `ENABLE_EXPERIMENTAL_COREPACK`.
+- **Local `.env.local`:**
+  - The CLI's pulls merged the Neon and Blob values into it, so local `pnpm db:*` commands and `pnpm dev` now reach Neon, not Docker. To work on Docker again, point it back as in README "Database".
+  - Secret values never come down. The owner's `pnpm env:check` shows `db`, `blob` and `migrate` OK, and `session`, `password`, `ai` and `cron` unset.
+  - Two `NEON_AUTH_*` lines from the deleted database are left in it. The app ignores them.
+  - The gate script (`scratchpad/gate-mine.ps1`) moves the file aside as before.
+- **`.gitignore`:** the Vercel CLI appended `.vercel` and `.env*`. Both were already listed, and the trailing `.env*` would also have cancelled `!.env.example`, so the committed file was restored.
+- **First production deploy:** 10:09:03, by the owner from the CLI (source `cli`), on the folder at `9b1d58d`. It was Ready after a 1 m 44 s build. A sign-in on production succeeded at 10:11:54.
+- **Git integration:** connected to `muylolito1999/AIguardaroba`, with `main` as the production branch (D-240). The push of the commit with this entry is the first deploy through it.
+- **Docs:**
+  - README "Connecting the cloud" now has the Neon command with `--meta`, the Git step and the Secret-pull caveat.
+  - README "Deploy" now describes deploying by push: migrations first, previews on production data, `vercel rollback`.
+
+### Decisions
+
+- D-240: production deploys come from pushes to `main` through the Git integration. Refines D-002.
+- D-241: the app's own variables are Vercel Secrets; Neon and Blob come from their integrations.
+
+### Checks run
+
+All times local (CET), 2026-11-04. Every check was read-only and printed no secret values.
+
+- **About 10:12 to 10:13: project and first deploy.**
+  - Project API: Git link `github muylolito1999/AIguardaroba`, production branch `main`, `nodeVersion` 26.x.
+  - The deployment's `vercel inspect` and its API record: target production, source `cli`, region fra1, commit `9b1d58d`, Ready.
+  - The deployment's build log:
+    - "Detected ENABLE_EXPERIMENTAL_COREPACK=1 and "pnpm@11.28.9"";
+    - "Lockfile passes supply-chain policies";
+    - "Done in 24.4s using pnpm v11.28.9";
+    - "Detected Next.js version: 16.4.5";
+    - "▲ Next.js 16.4.5 (Turbopack)";
+    - "Build Completed in /vercel/output [2m]".
+  - The filtered log had no Node version line; the project setting is 26.x.
+- **10:14:32 to 10:14:39: the cloud setup.**
+  - `vercel env ls`: the Neon, Blob and app variables, in the environments listed under State.
+  - `vercel integration list`: `neon-green-lighthouse`.
+  - `vercel blob list-stores`: `wardrobe`, fra1, 0 files.
+  - The `PGHOST` region is AWS eu-central-1. It was read from a pull into a scratch file, which was deleted at once.
+  - A read-only transaction on Neon (`scratchpad/neon-state.cjs`):
+    - 3 migrations recorded (`20261102094305_init`, `20261102210917_archived-from`, `20261104003955_item-deletion`) and 16 tables;
+    - climate profiles `hamburg` and `bologna` (placeholder), and 1 `app_settings` row;
+    - 0 rows in items, analyses, `ai_calls`, `blob_cleanup` and `deleted_items`; 1 row in `login_attempts`.
+- **About 10:15:** that `login_attempts` row reads `success=true` at 10:11:54.
+- **Run by the owner**, with the output pasted into the chat (times not recorded here):
+  - `pnpm env:check`;
+  - `pnpm db:migrate` ("migrations applied successfully");
+  - `pnpm db:seed` (hamburg inserted, bologna inserted, app_settings created).
+  - Both database commands printed pg's warning that `sslmode=require` is treated as `verify-full` until pg 9 (wardrobe-1nr).
+- **Not run:**
+  - The phase gate: this entry changes only README, HANDOFF and DECISIONS. The Git deploy of the push builds the commit.
+  - The live checks below.
+
+### Migration and deploy state
+
+- Neon has all 3 migrations and the seed. No new migration in this entry.
+- Production is deployed: from the CLI at 10:09, on `9b1d58d`. The push of this entry's commit deploys through Git.
+
+### Live checks pending
+
+- wardrobe-aea: upload, Delete and the cleanup cron on production.
+- `pnpm ai:smoke`, about $0.001. It needs `ANTHROPIC_API_KEY` added to `.env.local` by hand.
+- Paid checks, each needing the owner's approval: wardrobe-r67, wardrobe-izw and wardrobe-0j7.
+- wardrobe-5u9 and wardrobe-56n.
+- The first cron runs: poll-batches at 04:00 UTC and blob-cleanup at 05:00 UTC.
+
+### Next steps
+
+1. The owner checks that preview branching is off on the Neon database's page and, if they like, deletes the two `NEON_AUTH_*` lines from `.env.local`.
+2. The live checks above.
+3. Follow-ups:
+   - wardrobe-1nr, wardrobe-z4n, wardrobe-1a5, wardrobe-2v1 and wardrobe-1s2;
+   - wardrobe-yog, wardrobe-e1r and wardrobe-2n6;
+   - wardrobe-9hc, wardrobe-p11 and wardrobe-x0r.
+
 ## 2026-11-04 — Next.js 16.4.5, GitHub remote, production preparation
 
 ### State
@@ -64,18 +155,18 @@ All times local (CET, UTC+1), 2026-11-04, on the tree with the bump.
 
 1. Revoke the API key pasted into the chat (Claude Console, API keys) and create a new one. Never paste keys into chats, issues or commits.
 2. `npm i -g vercel`, `vercel login`, `vercel link`: a new project, Function region fra1.
-3. Neon: `vercel integration add neon`, region aws-eu-central-1, preview branching off.
+3. Neon: `vercel integration add neon --meta region=fra1 --meta auth=false`. CLI 65 does not prompt: without the region it creates the database in us-east-1, and the region cannot be changed later. Check that preview branching is off on the database's page in the Storage tab.
 4. Blob: `vercel blob create-store wardrobe --access public --region fra1 --yes`.
-5. Vercel dashboard, Environment Variables:
+5. Vercel dashboard, Environment Variables, for Production (and Preview, if preview deploys are used):
    - `ANTHROPIC_API_KEY`: the new key, type Secret.
    - `APP_PASSWORD_HASH` and `SESSION_SECRET`: from `pnpm hash-password --with-secret`.
    - `CRON_SECRET`: a random value of at least 16 characters.
    - `ENABLE_EXPERIMENTAL_COREPACK=1`.
    - Optional: `MONTHLY_AI_BUDGET_USD` and `AI_CREDIT_USD`.
    - Leave unset: `OPEN_METEO_BASE_URL`, `E2E_TAG` and `FEATURE_SHOPPING_AI` (stays off until wardrobe-0j7).
-6. `vercel env pull .env.local`, then `pnpm env:check`. If the Secret key is not written for Development, add it to `.env.local` by hand; the file is gitignored.
+6. `vercel env pull .env.local`, then `pnpm env:check`. The pull merges into the existing file and never downloads Secret values (they are write-only), so `db`, `blob` and `migrate` come out OK and `session`, `password`, `ai` and `cron` stay unset. That is enough for step 7. To run the app locally, add those values to `.env.local` by hand; the file is gitignored.
 7. `pnpm db:migrate` (3 migrations), then `pnpm db:seed`, both against Neon (wardrobe-c8x).
-8. Connect the Git integration only after steps 5 to 7, because connecting it deploys `main` at once. Or keep it unconnected and ask for `vercel --prod`.
+8. Connect the Git integration only after steps 5 to 7: from then on every push to `main` deploys to production (see the next entry and D-240).
 9. After the first deploy, run the live checks:
    - `pnpm ai:smoke` (about $0.001);
    - wardrobe-aea: upload, Delete, the cleanup cron;
