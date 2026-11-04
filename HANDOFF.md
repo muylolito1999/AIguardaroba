@@ -2,6 +2,93 @@
 
 Newest entry first. Each entry records the state at the end of a working session. Task tracking lives in Beads (`bd ready`, `bd show <id>`); the reasons behind choices are in [DECISIONS.md](DECISIONS.md).
 
+## 2026-11-04 — Next.js 16.4.5, GitHub remote, production preparation
+
+### State
+
+- The Codex review fixes are committed as `960161c` (entry below).
+- `next`, `eslint-config-next` and `@next/env` are bumped from 16.4.3 to the 16.4.5 security release (wardrobe-9ri, D-239). The lockfile changes only those packages and Next's own `@next/*` binaries; no app code changed.
+- GitHub: the remote `origin` is https://github.com/muylolito1999/AIguardaroba.git, a **public** repository.
+  - At 02:28 `main` was pushed with `960161c` on top, tracking set. The repo was empty before, and its default branch is now `main`.
+  - The commit with this entry is pushed after it.
+  - Everything in the history is public now, including the commit author email.
+  - The history was checked for secrets before the push: `.env.example` is the only env file ever committed, and the only database URLs are test placeholders.
+- Production preparation:
+  - README "Connecting the cloud" now names the repository. It warns that once the Vercel project is connected to it, every push to `main` deploys to production without running migrations.
+  - `ANTHROPIC_API_KEY` is described with Vercel's current "Secret" type, formerly "Sensitive".
+  - Vercel supports Node 26.x and uses it as the default (docs read today), so `engines.node: 26.x` holds.
+- An Anthropic API key that the owner pasted into the chat was not used, stored, written to any file or printed. Because it was exposed in plain text, the owner should revoke it and set a new one in Vercel themselves (see Production checklist).
+- Not deployed. No Vercel project is linked from this machine (no `.vercel` folder), and the Vercel CLI is not installed here.
+
+### Decisions
+
+- D-239: Next.js 16.4.5, the security release D-007 waited for. Refines D-007.
+
+### Checks run
+
+All times local (CET, UTC+1), 2026-11-04, on the tree with the bump.
+
+- 02:19: `pnpm add next@16.4.5` and `pnpm add -D eslint-config-next@16.4.5 @next/env@16.4.5`. `pnpm ls` shows all three at 16.4.5, and the lockfile has no 16.4.3 left.
+- Gate with no `.env.local` (`scratchpad/gate-mine.ps1`), before the docs of this entry:
+  - `pnpm typecheck` 02:20:44 to 02:20:59.
+  - `pnpm lint` to 02:21:13.
+  - `pnpm test` to 02:22:32: 162 files passed, 6 skipped; 2,554 tests passed, 8 skipped.
+  - `pnpm build` to 02:23:01, "Next.js 16.4.5 (Turbopack)".
+  - All four passed; the file was back afterwards.
+- 02:23:01 to 02:25:28 `pnpm test:e2e`, headed, every app variable unset in the shell: 77 passed, 1 skipped (the smoke spec, "needs BLOB_READ_WRITE_TOKEN in the shell", read from the HTML report).
+- Freshness re-check for D-180, D-183 and D-184 in a visible browser (`scratchpad/lead-cx/run-r4.ps1`), against `next start -p 3100` on the 16.4.5 build with every app variable blank:
+  - Seeded into `wardrobe_e2e` at 02:26:07 to 02:26:11: the 300 demo items and one complete `reloc-v4` analysis, through the real relocation code with the scratch realistic fake for Claude (`scratchpad/vcheck5/reset.ps1 -Reseed`; no network).
+  - `scratchpad/phase5-r4-visual/r4.mjs`, 02:26:13 to 02:27:35: 38 of 39 passed, with no console or page errors. Each race below was reproduced (reads and saves held over the network) and resolved as on 16.4.3:
+    - dup: an extra added while Back's read was held shows once; the tab, status and group count it once; the page read once more.
+    - shop: Bought pressed while the Shopping link's read was held stays shown, "5 still to buy", and the page read once more (D-183).
+    - print and decision: a tick or Donate that answered after the print page's read made the page read again and print the change (D-184).
+    - hidden: a tick with the print page kept hidden read neither page, and Forward read the print page once.
+    - axe and sideways scroll were clean on the Packing tab, the print page and `/shopping`, at 1440 light and 390 dark.
+  - The one failure, "climate rows unchanged by the check", compares against a snapshot file from 2026-11-03. The rows differ only in `id`, `created_at` and `updated_at`: the e2e global setup re-created them at 02:23 to 02:24, before the check started. All values are the same.
+  - Clean-up: the server stopped by PID; both junctions removed as links; the demo items, the analysis, its shopping rows and `ai_calls`, and the `login_attempts` rows deleted. `wardrobe_e2e` then had 0 items and analyses.
+- 02:28:52: `git ls-remote origin main` and the GitHub API both show `960161c` on `main`, and the repository reports `PUBLIC`, not empty.
+- Final gate with no `.env.local`, on the tree as committed except this bullet (the docs of this entry, D-239 and the README edits included):
+  - `pnpm typecheck` 02:30:06 to 02:30:12.
+  - `pnpm lint` to 02:30:26.
+  - `pnpm test` to 02:31:40: 162 files passed, 6 skipped; 2,554 tests passed, 8 skipped.
+  - `pnpm build` to 02:31:53 (Next.js 16.4.5).
+  - All four passed; the file was back and the aside folder empty afterwards.
+
+### Migration and deploy state
+
+- No new migration in this entry.
+- Neon still needs `20261102210917_archived-from` and `20261104003955_item-deletion` before the first deploy of this `main` (wardrobe-c8x).
+- Not deployed.
+
+### Production checklist (owner, in this order)
+
+1. Revoke the API key pasted into the chat (Claude Console, API keys) and create a new one. Never paste keys into chats, issues or commits.
+2. `npm i -g vercel`, `vercel login`, `vercel link`: a new project, Function region fra1.
+3. Neon: `vercel integration add neon`, region aws-eu-central-1, preview branching off.
+4. Blob: `vercel blob create-store wardrobe --access public --region fra1 --yes`.
+5. Vercel dashboard, Environment Variables:
+   - `ANTHROPIC_API_KEY`: the new key, type Secret.
+   - `APP_PASSWORD_HASH` and `SESSION_SECRET`: from `pnpm hash-password --with-secret`.
+   - `CRON_SECRET`: a random value of at least 16 characters.
+   - `ENABLE_EXPERIMENTAL_COREPACK=1`.
+   - Optional: `MONTHLY_AI_BUDGET_USD` and `AI_CREDIT_USD`.
+   - Leave unset: `OPEN_METEO_BASE_URL`, `E2E_TAG` and `FEATURE_SHOPPING_AI` (stays off until wardrobe-0j7).
+6. `vercel env pull .env.local`, then `pnpm env:check`. If the Secret key is not written for Development, add it to `.env.local` by hand; the file is gitignored.
+7. `pnpm db:migrate` (3 migrations), then `pnpm db:seed`, both against Neon (wardrobe-c8x).
+8. Connect the Git integration only after steps 5 to 7, because connecting it deploys `main` at once. Or keep it unconnected and ask for `vercel --prod`.
+9. After the first deploy, run the live checks:
+   - `pnpm ai:smoke` (about $0.001);
+   - wardrobe-aea: upload, Delete, the cleanup cron;
+   - wardrobe-r67, wardrobe-izw and wardrobe-0j7 (paid; each needs the owner's approval);
+   - wardrobe-5u9 and wardrobe-56n.
+   - The first build log should show pnpm 11, Node 26 and Next.js 16.4.5.
+
+### Next steps
+
+1. The owner works through the Production checklist; deploying waits for the owner's request.
+2. Then the live checks: wardrobe-c8x, wardrobe-aea, wardrobe-izw, wardrobe-r67, wardrobe-0j7, wardrobe-5u9 and wardrobe-56n.
+3. Open follow-ups: wardrobe-z4n, wardrobe-1a5, wardrobe-2v1, wardrobe-1s2, wardrobe-yog, wardrobe-e1r, wardrobe-2n6, wardrobe-9hc, wardrobe-p11 and wardrobe-x0r.
+
 ## 2026-11-04 — Codex review fixes (item deletion, wear-log transfer) and their review
 
 ### State

@@ -61,7 +61,7 @@ Two things happen only in the browser: photos are resized and re-encoded before 
 | Area | Choice |
 |---|---|
 | Runtime | Node 26 LTS (`engines.node: 26.x`), pnpm 11.28.9 |
-| Framework | Next.js 16.4.3 (App Router, Turbopack, Cache Components, typed routes), React 19.3, TypeScript 5 |
+| Framework | Next.js 16.4.5 (App Router, Turbopack, Cache Components, typed routes), React 19.3, TypeScript 5 |
 | UI | Tailwind CSS 4 via `@tailwindcss/turbopack`, shadcn CLI 4.23 (base-nova style, Base UI primitives), lucide-react 1.x, next-themes 0.4.6 |
 | Data | Postgres (Neon in production), drizzle-orm and drizzle-kit 1.0.0-rc.5 (exact pin), pg 8.23, `@vercel/functions` 3.10 |
 | Files | `@vercel/blob` 2.8, sharp 0.35; in the browser `heic-to` 1.6 (HEIC decoding) and `@imgly/background-removal` 1.7.0 with `onnxruntime-web` 1.21.0 (both pinned exactly) |
@@ -69,7 +69,7 @@ Two things happen only in the browser: photos are resized and re-encoded before 
 | AI | `@anthropic-ai/sdk` 1.3 (API version 2026-10-21), zod 4.6 |
 | Auth | jose 6.2 (HS256 JWT), bcryptjs 3 |
 | Tests | Vitest 5 with Vite 8, jsdom and Testing Library; PGlite 0.5; Playwright 1.64 |
-| Scripts | tsx 4.23, `@next/env` 16.4.3 |
+| Scripts | tsx 4.23, `@next/env` 16.4.5 |
 
 Packages that only one feature needs are added in that feature's phase: `@tanstack/react-virtual` and `client-zip` come with Phase 4.
 
@@ -82,7 +82,7 @@ Copy `.env.example` to `.env.local`, or get the values with `vercel env pull .en
 | `DATABASE_URL` | Phase 2+, runtime (Vercel and local) | Pooled Postgres connection string. Set by the Neon integration; locally it can point at the Docker database. |
 | `DATABASE_URL_UNPOOLED` | Phase 2+, migrations | Direct (unpooled) connection used by `drizzle-kit`. `drizzle.config.ts` fails with the variable name if it is missing; there is no fallback to the pooled URL. |
 | `BLOB_READ_WRITE_TOKEN` | Phase 3+, runtime (Vercel and local) | Blob store token. Required even when the store is connected through OIDC: `handleUpload` signs client upload tokens with it, and every server Blob call passes it explicitly. Connect the store with the Development environment included so `vercel env pull` writes it. |
-| `ANTHROPIC_API_KEY` | Phase 3+, runtime | Anthropic API key. Mark it as sensitive in Vercel. |
+| `ANTHROPIC_API_KEY` | Phase 3+, runtime | Anthropic API key. Store it in Vercel as type Secret (write-only once saved; formerly "Sensitive"). |
 | `CLAUDE_TAGGING_MODEL` | Optional | Tagging model. Default `claude-haiku-5-5`. Must be priced in `src/lib/ai/models.ts`. |
 | `CLAUDE_ANALYSIS_MODEL` | Optional | Relocation analysis model. Default `claude-sonnet-5-5`. Must be priced. |
 | `CLAUDE_OUTFIT_MODEL` | Optional (Phase 6) | Model for the `/today` outfit suggestions. Defaults to the analysis model (`claude-sonnet-5-5`); `claude-haiku-5-5` costs about a twentieth (see [Costs](#costs)). Must be priced. |
@@ -307,8 +307,10 @@ With `FEATURE_SHOPPING_AI=true`, `/shopping` gets a "What to buy next" section b
 1. `npm i -g vercel`, then `vercel login` and `vercel link`.
 2. Neon: `vercel integration add neon` with region aws-eu-central-1 and preview branching off.
 3. Blob: `vercel blob create-store wardrobe --access public --region fra1 --yes` (`--yes` connects all environments, including Development).
-4. In the Vercel dashboard, add for all environments: `ANTHROPIC_API_KEY` (sensitive), `APP_PASSWORD_HASH` and `SESSION_SECRET` (from `pnpm hash-password --with-secret`, available from Phase 2), `CRON_SECRET`, and `ENABLE_EXPERIMENTAL_COREPACK=1`. Set the Function region to fra1.
+4. In the Vercel dashboard, add for all environments: `ANTHROPIC_API_KEY` (type Secret), `APP_PASSWORD_HASH` and `SESSION_SECRET` (from `pnpm hash-password --with-secret`, available from Phase 2), `CRON_SECRET`, and `ENABLE_EXPERIMENTAL_COREPACK=1`. Set the Function region to fra1.
 5. `vercel env pull .env.local`.
+
+The code lives at https://github.com/muylolito1999/AIguardaroba (public). If the Vercel project is connected to that repository (Git integration), every push to `main` deploys to production and every other branch gets a preview. That deploy does not run migrations, so apply them to Neon before pushing a commit that ships one (see [Deploy](#deploy)). Until the first deploy has been checked, the project can stay unconnected and deploy with `vercel --prod` only.
 
 ## Deploy
 
