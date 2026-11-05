@@ -151,6 +151,10 @@ The init script that creates `wardrobe_e2e` runs only on an empty volume. `docke
 
 Migrations always run over `DATABASE_URL_UNPOOLED`, the direct connection: DDL and the migrator's lock do not belong on Neon's pooled endpoint. If the variable is missing, `drizzle.config.ts` stops with an error naming it; there is no fallback to the pooled `DATABASE_URL`, which the app uses at runtime. Migrations never run during the Vercel build, and `drizzle-kit push` is not used.
 
+Two traps with `vercel env run` (Vercel CLI 65.11.0, native build, on Windows):
+- Never give it `node` as the command. `vercel env run -e production -- node <file>` did not run the file: it started a second Vercel CLI that deployed the file as a new Vercel project. Run Node scripts as `vercel env run -e production -- pnpm exec node <file>`, or through a `package.json` script.
+- In PowerShell, the `vercel` command resolves to the `vercel.ps1` shim, which drops `--`, so the CLI answers "No command provided". Call `vercel.cmd` instead, or run the command through a `pnpm` script, as `pnpm db:migrate:prod` does.
+
 The seed restores Hamburg to the reference values on every run and makes it the default profile. It inserts the Bologna placeholder only when it is missing, so values filled in through the climate editor survive a re-run, and it creates `app_settings` (home profile Bologna, new items located in Bologna) only when the row does not exist yet.
 
 ### Neon

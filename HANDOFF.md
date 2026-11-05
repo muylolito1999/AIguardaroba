@@ -72,8 +72,16 @@ All times local (CET), 2026-11-05.
 
 - **New migration** `drizzle/20261105102741_login-attempts-prefix`: a column with a default, plus two indexes. It only adds, so it is safe ahead of the code.
   - Applied to the local Docker databases.
-  - **Not on Neon production yet.** Run `pnpm db:migrate:prod` before pushing these commits: login inserts the new column.
-- Not deployed.
+  - **Production, 14:27:21 to 14:27:25:** `pnpm db:migrate:prod` applied it, with the owner's approval and with `.env.local` moved aside, so the database variables came only from Vercel's Production environment. A read-only check afterwards, through `vercel.cmd env run -e production -- pnpm exec node <script>` on host `ep-blue-mountain-ba9oqdsx…eu-central-1.aws.neon.tech`, found:
+    - `prefix_hash` present: text, not null, default `''`;
+    - both new indexes on `login_attempts`;
+    - 4 applied migrations.
+- **Deployed:** the owner asked for the push. `407b659..5881924` reached `main` at about 14:28, and the Git integration built deployment `dpl_4qMmiwj1y9QzDVxUYSRxwVwj9K4U` (created 14:28:57, Ready, target production). `vercel inspect guardaroba-ai-seven.vercel.app` resolves to it.
+  - HEAD `/login` returned 200 from fra1, and `/` returned 307.
+  - A sign-in on production was not tried here (the agent does not enter passwords). It is the owner's check.
+- **Stray Vercel project, created by mistake:** an earlier attempt at the read-only check ran `vercel.cmd env run -e production -- node <script>`. Vercel CLI 65.11.0 did not run the file: it started a second CLI that deployed the file as a new project, `airmaclollo99/prod-prefix-check`, with one production deployment, `dpl_2eFJ3LFm7nKezGBsMbEYSYTsyugd`, behind Vercel Authentication.
+  - The file is the check script only: no secrets and no environment variables.
+  - It awaits the owner's go-ahead for deletion. README "Commands" now warns about both `vercel env run` traps.
 
 ### Owner steps (in this order)
 
@@ -87,7 +95,7 @@ All times local (CET), 2026-11-05.
    - Set the Docker URLs and delete the Neon, `POSTGRES_*`, `PG*` and `NEON_*` lines.
    - Generate a fresh local pair with `pnpm hash-password --with-secret`.
    - Run `vercel env pull .env.local` for the dev Blob token.
-3. **Production:** `pnpm db:migrate:prod`, then push (deploy only on the owner's request).
+3. **Production:** done 2026-11-05 (migrated at 14:27, deployed at 14:28). Still open: one sign-in on production, and the go-ahead to delete the stray `prod-prefix-check` project.
 4. **Observe** (wardrobe-vo9):
    - the browser's Local Network Access setting;
    - the Windows network profile and the inbound rules for node.exe;
