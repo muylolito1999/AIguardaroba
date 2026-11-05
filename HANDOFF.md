@@ -81,7 +81,8 @@ All times local (CET), 2026-11-05.
   - A sign-in on production was not tried here (the agent does not enter passwords). It is the owner's check.
 - **Stray Vercel project, created by mistake:** an earlier attempt at the read-only check ran `vercel.cmd env run -e production -- node <script>`. Vercel CLI 65.11.0 did not run the file: it started a second CLI that deployed the file as a new project, `airmaclollo99/prod-prefix-check`, with one production deployment, `dpl_2eFJ3LFm7nKezGBsMbEYSYTsyugd`, behind Vercel Authentication.
   - The file is the check script only: no secrets and no environment variables.
-  - It awaits the owner's go-ahead for deletion. README "Commands" now warns about both `vercel env run` traps.
+  - With the owner's go-ahead, it was deleted with `vercel project delete prod-prefix-check --confirm-name prod-prefix-check --scope airmaclollo99` ("Deleted"). `vercel project ls` afterwards listed only `guardaroba-ai`.
+  - README "Commands" now warns about both `vercel env run` traps.
 
 ### Owner steps (in this order)
 
@@ -95,7 +96,7 @@ All times local (CET), 2026-11-05.
    - Set the Docker URLs and delete the Neon, `POSTGRES_*`, `PG*` and `NEON_*` lines.
    - Generate a fresh local pair with `pnpm hash-password --with-secret`.
    - Run `vercel env pull .env.local` for the dev Blob token.
-3. **Production:** done 2026-11-05 (migrated at 14:27, deployed at 14:28). Still open: one sign-in on production, and the go-ahead to delete the stray `prod-prefix-check` project.
+3. **Production:** done 2026-11-05 (migrated at 14:27, deployed at 14:28). Still open: one sign-in on production.
 4. **Observe** (wardrobe-vo9):
    - the browser's Local Network Access setting;
    - the Windows network profile and the inbound rules for node.exe;
