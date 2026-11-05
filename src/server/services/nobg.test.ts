@@ -4,7 +4,7 @@ import { eq } from "drizzle-orm";
 import sharp from "sharp";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { itemImages, items, type Item } from "@/lib/db/schema";
+import { blobCleanup, itemImages, items, type Item } from "@/lib/db/schema";
 import type { BlobStorage } from "@/lib/images/blob";
 import { nobgUploadPathname, type NobgBody } from "@/lib/items/contracts";
 import { AppError } from "@/lib/result";
@@ -13,6 +13,8 @@ import { makeTestDb, type TestDb } from "../../../test/db";
 import { makeImage, makeItem } from "../../../test/factories";
 import { createFakeBlobStorage, FAKE_BLOB_ORIGIN, type FakeBlob, type FakeBlobStorage } from "../../../test/fakes/blob";
 import { solidPng } from "../../../test/fixtures/images";
+import { runBlobCleanup } from "./blob-cleanup";
+import { deleteItem } from "./item-lifecycle";
 import { attachNobgImage, nobgPathname, type AttachNobgDeps } from "./nobg";
 
 const requireSession = vi.hoisted(() => vi.fn());
@@ -160,6 +162,63 @@ describe("attachNobgImage", () => {
     expect(fake.blobs.has(upload.url)).toBe(false);
     expect(deletedUrls().sort()).toEqual([old.url, upload.url].sort());
     expect(result.item.images.nobg?.url).toBe(row?.blobUrl);
+    // Queued in the save's transaction and taken off the queue once deleted (D-245).
+    expect(await testDb.db.select().from(blobCleanup)).toEqual([]);
+  });
+
+  describe("when Blob fails to delete (D-245)", () => {
+    async function itemWithOldCutout(): Promise<{ item: Item; old: FakeBlob }> {
+      const item = await itemWithPhoto();
+      const old = fake.upload(`items/${item.id}/nobg.webp`, Buffer.from("old webp"), "image/webp");
+      await makeImage(testDb.db, item.id, { kind: "nobg", blobUrl: old.url, blobPathname: old.pathname });
+      return { item, old };
+    }
+
+    it("keeps the replaced cut-out queued, and the next cleanup run deletes it", async () => {
+      const { item, old } = await itemWithOldCutout();
+      fake.failNext("del", new Error("Blob is down"));
+
+      const result = await attachNobgImage(deps({ now: () => new Date("2026-11-05T10:00:00Z") }), item.id, bodyFor(uploadCutout(item.id)));
+
+      expect(result.item.images.nobg?.url).not.toBe(old.url);
+      expect(fake.blobs.has(old.url)).toBe(true);
+      const [queuedRow, ...rest] = await testDb.db.select().from(blobCleanup);
+      expect(rest).toEqual([]);
+      expect(queuedRow).toMatchObject({ url: old.url, itemId: item.id, reason: "cutout_replaced", attempts: 1 });
+      expect(queuedRow?.lastError).toMatch(/UPSTREAM|CONFIG/);
+
+      const run = await runBlobCleanup({ db: testDb.db, storage: fake }, { deadlineAt: Date.now() + 60_000, maxItems: 10 });
+      expect(run).toMatchObject({ deleted: 1, pending: 0, error: null });
+      expect(fake.blobs.has(old.url)).toBe(false);
+    });
+
+    it("leaves nothing of the item in the store once the item is deleted and the cron has run", async () => {
+      const { item, old } = await itemWithOldCutout();
+      fake.failNext("del", new Error("Blob is down"));
+      await attachNobgImage(deps(), item.id, bodyFor(uploadCutout(item.id)));
+      expect(fake.blobs.has(old.url)).toBe(true);
+
+      await deleteItem(testDb.db, item.id, { storage: fake, cleanupBudgetMs: 5_000 });
+      // The delete's own run skips a file tried within the hour (D-234); it stays queued for the cron.
+      expect(await testDb.db.select({ url: blobCleanup.url }).from(blobCleanup)).toEqual([{ url: old.url }]);
+
+      await runBlobCleanup({ db: testDb.db, storage: fake }, { deadlineAt: Date.now() + 60_000, maxItems: 100 });
+      expect([...fake.blobs.values()].filter((blob) => blob.pathname.startsWith(`items/${item.id}/`))).toEqual([]);
+      expect(await testDb.db.select().from(blobCleanup)).toEqual([]);
+    });
+
+    it("queues the uploaded PNG it could not delete", async () => {
+      const item = await itemWithPhoto();
+      const upload = uploadCutout(item.id);
+      fake.failNext("del", new Error("Blob is down"));
+
+      await attachNobgImage(deps(), item.id, bodyFor(upload));
+
+      expect(fake.blobs.has(upload.url)).toBe(true);
+      expect(await testDb.db.select().from(blobCleanup)).toMatchObject([
+        { url: upload.url, itemId: item.id, reason: "upload_abandoned", attempts: 0 },
+      ]);
+    });
   });
 
   it("refuses a URL that is not in the store, without fetching or deleting anything", async () => {

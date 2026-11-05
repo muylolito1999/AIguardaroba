@@ -163,19 +163,6 @@ export function getBlobStorage(): BlobStorage {
   return instance;
 }
 
-/**
- * Deletes blobs without letting a failure mask the error or result the caller
- * is already returning; a leftover blob is logged for manual cleanup.
- */
-export async function deleteBlobsQuietly(storage: BlobStorage, urls: readonly string[], why: string): Promise<void> {
-  if (urls.length === 0) return;
-  try {
-    await storage.del(urls);
-  } catch (error) {
-    console.error(`[blob] could not delete ${urls.length} blob(s) after ${why}:`, urls, error);
-  }
-}
-
 export type RegisteredBlobExpectations = {
   /** The pathname the client reported; must equal the stored one. */
   pathname?: string;

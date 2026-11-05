@@ -2,6 +2,105 @@
 
 Newest entry first. Each entry records the state at the end of a working session. Task tracking lives in Beads (`bd ready`, `bd show <id>`); the reasons behind choices are in [DECISIONS.md](DECISIONS.md).
 
+## 2026-11-05 — Security audit (skill run-1) and fixes for its leads
+
+### State
+
+- **Audit:** the owner installed the `security-audit` skill (`cloudflare/security-audit-skill`, in `.agents/`) and asked for its full workflow.
+  - **Run:** source-only, 71 agents, at `1fce940`. This host cannot enforce the skill's sandbox, so no record could be `confirmed`.
+  - **Result:** 14 `needs_validation` leads and 2 rejected candidates.
+  - **Output:** outside the repository, in `C:\Users\lo99\security-audit-skill\guardaroba-ai\run-1\` (`REPORT.md`, `NEEDS-VALIDATION.md`, `findings.json`, `coverage-ledger.json`).
+  - `.agents/` and `skills-lock.json` are gitignored and ignored by ESLint.
+- **Code fixes**, one decision each:
+  - D-242: localhost-only `pnpm dev` and `pnpm start`; Docker on `127.0.0.1:5433`; the Drizzle Studio guard; `pnpm db:migrate:prod`.
+  - D-243: a per-/48 login limit, the per-key gate first, and indexed scans.
+  - D-244: the CSV guard after `;` and tab.
+  - D-245: replaced cut-outs and abandoned uploads go through `blob_cleanup`. It supersedes wardrobe-1a5, and `deleteBlobsQuietly` is removed.
+- **Docs:**
+  - README: local setup, Database, Studio, rate limit, a new "Rotating credentials" subsection, Connecting the cloud, Deploy, CSV.
+  - DECISIONS D-242 to D-247, with the status lines of D-003, D-014, D-059, D-114, D-234, D-240 and D-241 updated.
+  - `.env.example`.
+- **Owner steps not done yet:**
+  - wardrobe-7kj: make `.env.local` development-only.
+  - wardrobe-xxi: isolated previews (D-246).
+  - Until both are done, `.env.local` still holds production Neon and Blob values. **Do not run `pnpm dev`, `pnpm db:studio` or a plain `pnpm db:migrate` meanwhile.** Studio now refuses a remote URL anyway.
+  - The second machine's `.env.local` came from a pull that wrote production's Secret values too, so it needs the same wardrobe-7kj change.
+
+### Decisions
+
+D-242, D-243, D-244, D-245, D-246 (the owner's steps are pending) and D-247 (the runbook; the code fix is wardrobe-tkp).
+
+### Checks run
+
+All times local (CET), 2026-11-05.
+
+- **11:25: targeted tests.** `vitest run test/local-listeners.test.ts scripts/seed-demo.test.ts`: 17 passed. `drizzle-kit check` loads the config through the relative import ("Everything's fine").
+- **About 11:26: Studio guard, live.** `drizzle-kit studio` with `DATABASE_URL_UNPOOLED=postgres://u:p@remote.example.invalid/db` set in the shell. It stopped with "drizzle-kit studio refused: DATABASE_URL_UNPOOLED points at host "remote.example.invalid"…", and nothing listened on 4983.
+- **Targeted suites while building D, E and F:**
+  - rate limit, login and migrations: 65 passed;
+  - CSV and export: 73;
+  - nobg and blob-cleanup: 35;
+  - register-upload: 21;
+  - blob: 17.
+- **Phase gate**, with `.env.local` moved aside by the gate script:
+  - `pnpm typecheck` 11:38:03 to 11:38:10;
+  - `pnpm lint` to 11:38:27;
+  - `pnpm test` to 11:39:52: 163 files passed, 6 skipped; 2,576 tests passed, 8 skipped;
+  - `pnpm build` to 11:40:25 (Next.js 16.4.5).
+  - All four passed. An earlier run failed in lint, on the skill's `.cjs` files (fixed with the ESLint ignore), and then in test, on the new boundary check and a slow test (both fixed).
+- **About 11:40: Docker.** `docker compose up -d db` recreated the container, and the named volume was kept. `docker compose port db 5432` now gives `127.0.0.1:5433` (before: `0.0.0.0:5433` and `[::]:5433`). The only listener on 5433 is `127.0.0.1`.
+- **11:40:55 to 11:43:36: `pnpm test:e2e`,** headed, with `.env.local` moved aside: 77 passed, 1 skipped (the smoke spec, which has no Blob token in the shell). The server now runs `next start -H localhost`.
+- **About 11:44: `pnpm start` listener.** Started with `.env.local` moved aside, it listened on `::1` only. It was stopped by PID.
+- **About 11:45: `pnpm audit --prod`.** 1 high, 1 moderate and 1 low, none reachable with untrusted input:
+  - `zod` below 4.6.6 (high): only the transitive copies. `@imgly/background-removal` (`zod` 3.25.76, browser-only, its own config) and `@vercel/cli-config` (4.1.11, local Vercel CLI config files). The app's own `zod` is 4.6.7.
+  - `deepmerge` and `minimatch`: only under the `shadcn` CLI. The app uses only its CSS export.
+  - No change made; this closes the audit's deferred unit.
+- **About 11:45: HSTS.** One HEAD request to `https://guardaroba-ai-seven.vercel.app/login` returned 200 with `Strict-Transport-Security: max-age=63072000; includeSubDomains; preload` from Vercel. `http://` answers 308. No header change is needed; this closes the audit's blocked unit.
+- **About 11:46: local migration.** `pnpm db:migrate` with the Docker URL set in the shell: the local `wardrobe` and `wardrobe_e2e` databases have all 4 migrations.
+- **Final gate** on the tree as committed except this bullet, with `.env.local` moved aside:
+  - `pnpm typecheck` 11:48:49 to 11:48:55;
+  - `pnpm lint` to 11:49:11;
+  - `pnpm test` to 11:50:38: 163 files passed, 6 skipped; 2,576 tests passed, 8 skipped;
+  - `pnpm build` to 11:50:52.
+  - All four passed.
+- **Rebase on `407b659`.** The owner pushed `407b659` from a second machine: README local setup on a new machine, and the finding that `vercel env pull` (CLI 65.11.0) writes the real values of Secrets set for Development. The security commit was rebased onto it.
+  - README: the four conflicts were merged by hand, keeping the new-machine steps (Docker Desktop, the exact `vercel link`, restoring `.gitignore`, Beads) on top of the development-only setup.
+  - The "a pull never downloads Secret values" sentence is gone. D-241's status and D-246's Why now record the correction.
+  - Gate on the rebased tree, `.env.local` moved aside: `pnpm typecheck` 14:16:27 to 14:16:33; `pnpm lint` to 14:16:52; `pnpm test` to 14:18:30 (163 files passed, 6 skipped; 2,576 tests passed, 8 skipped); `pnpm build` to 14:18:46. All four passed.
+
+### Migration and deploy state
+
+- **New migration** `drizzle/20261105102741_login-attempts-prefix`: a column with a default, plus two indexes. It only adds, so it is safe ahead of the code.
+  - Applied to the local Docker databases.
+  - **Not on Neon production yet.** Run `pnpm db:migrate:prod` before pushing these commits: login inserts the new column.
+- Not deployed.
+
+### Owner steps (in this order)
+
+1. **wardrobe-xxi, isolated previews (D-246):**
+   - Untick Preview and Development on `SESSION_SECRET`, `APP_PASSWORD_HASH`, `CRON_SECRET` and `ANTHROPIC_API_KEY`.
+   - Disconnect `neon-green-lighthouse` and the `wardrobe` store from Preview and Development.
+   - Create `wardrobe-preview` (Neon, `-e preview`) and the `wardrobe-dev` store (Development and Preview).
+   - Add the preview `SESSION_SECRET` and `APP_PASSWORD_HASH`, and `ENABLE_EXPERIMENTAL_COREPACK=1`.
+   - Migrate and seed the preview database.
+2. **wardrobe-7kj, `.env.local`:**
+   - Set the Docker URLs and delete the Neon, `POSTGRES_*`, `PG*` and `NEON_*` lines.
+   - Generate a fresh local pair with `pnpm hash-password --with-secret`.
+   - Run `vercel env pull .env.local` for the dev Blob token.
+3. **Production:** `pnpm db:migrate:prod`, then push (deploy only on the owner's request).
+4. **Observe** (wardrobe-vo9):
+   - the browser's Local Network Access setting;
+   - the Windows network profile and the inbound rules for node.exe;
+   - whether production answers on IPv6;
+   - any Vercel Firewall rule for POST `/login`;
+   - that Neon preview branching is off.
+
+### Next steps
+
+1. The owner steps above, then a read-only check of the variables, integrations and stores, and a throwaway preview branch to confirm isolation.
+2. Close wardrobe-7kj, ynk, xxi, t2s, ovm, hxd, ogs and vo9 as their parts land.
+3. Follow-ups: wardrobe-tkp (code-level revocation), wardrobe-7mp (triage the hardening notes), and the open issues listed in the entry below.
+
 ## 2026-11-04 — Cloud connected, first production deploy, deploys on push
 
 ### State

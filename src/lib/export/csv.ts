@@ -3,11 +3,13 @@
 // header list too.
 //
 // Format: RFC 4180 (fields with a comma, quote, CR or LF are quoted and their
-// quotes doubled; records end with CRLF), UTF-8 with a byte-order mark so Excel
-// opens accents correctly, lists joined with "; ", booleans as true/false and
-// null as an empty field. Text that a spreadsheet would run as a formula gets
-// a leading apostrophe (OWASP CSV injection guidance), because notes, names
-// and brands are free text, and some were written by Claude from a photo.
+// quotes doubled, and so are fields with ";" or a tab; records end with CRLF),
+// UTF-8 with a byte-order mark so Excel opens accents correctly, lists joined
+// with "; ", booleans as true/false and null as an empty field. Text that a
+// spreadsheet would run as a formula gets an apostrophe (OWASP CSV injection
+// guidance) at the start of the field and after any ";" or tab in it, because
+// notes, names and brands are free text, and some were written by Claude from
+// a photo (D-114, D-244).
 
 import type { Item } from "@/lib/db/schema";
 
@@ -21,14 +23,25 @@ export type CsvValue = string | number | boolean | Date | null | undefined | rea
 // = + - @ start a formula in Excel, LibreOffice and Google Sheets; a leading
 // tab or carriage return can hide one of them from a quick look.
 const FORMULA_START = /^[=+\-@\t\r]/;
-const NEEDS_QUOTES = /[",\r\n]/;
+// A spreadsheet that splits this comma file on ";" (Excel under a locale whose
+// list separator is ";", such as Italian) or on a tab starts a new cell there,
+// so the same characters after a ";" or a tab, spaces allowed, are guarded too
+// (D-244).
+const FORMULA_AFTER_SEPARATOR = /([;\t] *)([=+\-@])/g;
+// ";" and tab are quoted as well, so a reader that splits on them but honours
+// quotes keeps the field in one cell (D-244).
+const NEEDS_QUOTES = /[",;\t\r\n]/;
 
-/** Prefixes text a spreadsheet would treat as a formula with an apostrophe. */
+/**
+ * Puts an apostrophe before every place a spreadsheet could start a formula:
+ * the start of the text, and right after a ";" or a tab inside it.
+ */
 export function guardFormula(text: string): string {
-  return FORMULA_START.test(text) ? `'${text}` : text;
+  const inner = text.replace(FORMULA_AFTER_SEPARATOR, "$1'$2");
+  return FORMULA_START.test(inner) ? `'${inner}` : inner;
 }
 
-/** RFC 4180 quoting: only fields with a comma, quote, CR or LF are quoted. */
+/** RFC 4180 quoting: fields with a comma, quote, CR or LF are quoted, and also ";" and tab (D-244). */
 export function quoteCsvField(text: string): string {
   return NEEDS_QUOTES.test(text) ? `"${text.replaceAll('"', '""')}"` : text;
 }

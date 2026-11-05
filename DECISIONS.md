@@ -15,7 +15,7 @@ Each entry records one decision and the reason for it. "Deviates from spec" comp
 - Why: The owner's choice. Every phase gate can pass without secrets.
 
 ### D-003 Docker Postgres for local checks only
-- Date: 2026-11-01 · Status: accepted · Deviates from spec: no
+- Date: 2026-11-01 · Status: accepted; refined by D-242 (published on 127.0.0.1 only) · Deviates from spec: no
 - Decision: `docker-compose.yml` runs postgres:18-alpine on port 5433 with the databases `wardrobe` and `wardrobe_e2e`, used only for local browser and e2e checks. Production uses Neon only. Unit tests use PGlite.
 - Why: Migrations, seed, login and Playwright can run before Neon exists. It is a development environment, not a runtime fallback.
 
@@ -75,7 +75,7 @@ Each entry records one decision and the reason for it. "Deviates from spec" comp
 - Matcher (Phase 2 copies it as is): `matcher: ['/((?!_next/static|_next/image|favicon\\.ico$|icon\\.svg$|apple-icon\\.png$|icons/|manifest\\.webmanifest$|sw\\.js$|offline$|login$|api/blob/upload$|api/cron/).*)']`. The metadata icons, `/icons/*`, `/manifest.webmanifest`, `/sw.js` and `/offline` must stay public: browsers fetch the manifest without cookies (unless the link has `crossorigin="use-credentials"`), so a gated manifest breaks installation even when signed in, and the service worker fetches `/offline` with `redirect: 'error'`, so a redirect to `/login` fails its install. A unit test checks the matcher with `unstable_doesProxyMatch` from `next/experimental/testing/server`.
 
 ### D-014 Login rate limit without a global lock
-- Date: 2026-11-01 · Status: accepted · Deviates from spec: no
+- Date: 2026-11-01 · Status: accepted; refined by D-243 (a per-/48 limit for IPv6) · Deviates from spec: no
 - Decision: Attempts are stored in `login_attempts`, keyed by sha256(ip|SESSION_SECRET); 5 failures in 15 minutes lock that key. There is no global lock: a high threshold only logs. `pnpm auth:unlock` clears the attempts. `?next=` redirects must be same-origin relative paths. bcryptjs cost 12, passwords at most 72 bytes.
 - Why: In-memory counters do not survive serverless instances. A global lock would let any anonymous visitor lock the owner out.
 
@@ -323,7 +323,7 @@ Each entry records one decision and the reason for it. "Deviates from spec" comp
 - Why: With SET NULL, the CHECK that a wear log names an item or an outfit would make it impossible to delete an item or outfit that has wear logs. The extra columns and checks back Blob-operation counting, batch costing and data integrity; the indexes serve the foreign-key lookups and the analysis history. Without them, every ON DELETE SET NULL or CASCADE scans the referencing table; for `ai_calls`, which gains a row per Claude attempt, that would make each item or analysis delete slower over time.
 
 ### D-059 Session and login details
-- Date: 2026-11-02 · Status: accepted · Deviates from spec: no
+- Date: 2026-11-02 · Status: accepted; refined by D-243 (per-/48 limit) and D-247 (rotation runbook) · Deviates from spec: no
 - Decision: The session token is issued once at login for a fixed 30 days and is not renewed on use; `maxTokenAge` bounds its age by `iat` as well, so no token outlives 30 days and changing `SESSION_SECRET` signs out every device. The cookie is `__Host-wardrobe_session` with `path=/`, no Domain, httpOnly, Secure and SameSite=Lax; logout overwrites it with `maxAge` 0. Changing the password does not end existing sessions; rotating `SESSION_SECRET` does, and the README says to do both after a suspected compromise. The rate-limit client is the first `x-forwarded-for` entry, then `x-real-ip`, otherwise one shared `unknown` bucket. An IPv6 address counts as its /64 network and an IPv4-mapped IPv6 address as the IPv4 address before hashing. The per-client limit is only trustworthy behind a proxy that overwrites `x-forwarded-for`, such as Vercel: Next 16.4.3 sets the header from the socket only when it is absent, so a self-hosted `next start` lets each client pick its own key. More than 200 failed logins in an hour across all clients only logs a warning (D-014). The login and logout actions are the only ones that run without a session. Mutating Route Handlers also refuse a missing or foreign `Origin` with 403.
 - Why: A single owner gains little from sliding sessions, and a fixed lifetime keeps the token check stateless. On Vercel the platform overwrites `x-forwarded-for`, so its first entry is the client. One host routinely holds a whole IPv6 /64 and could otherwise get 5 guesses per address. The `__Host-` prefix makes browsers refuse a session cookie set by a sibling subdomain or with a Domain attribute, so it cannot be shadowed (cookie tossing); Chromium accepts it on `http://localhost`, so local builds and e2e runs need no change. The Origin check guards cookie-authenticated routes against cross-site requests, which SameSite=Lax alone does not fully cover.
 
@@ -609,7 +609,7 @@ Each entry records one decision and the reason for it. "Deviates from spec" comp
 - Why: The smoke test must reach a real store to mean anything, but a real token in `.env.local` must never reach the other specs, which would upload to it and pay for Claude calls.
 
 ### D-114 What the JSON and CSV exports contain
-- Date: 2026-11-02 · Status: accepted; refined by D-135 · Deviates from spec: no
+- Date: 2026-11-02 · Status: accepted; refined by D-135 and D-244 (guard after ; and tab) · Deviates from spec: no
 - Decision: The JSON (format version 1) holds every table except `login_attempts`, which only stores keyed hashes of client addresses derived from `SESSION_SECRET`; `analysisParts` is included too. Each table is an array of rows with camelCase keys, ISO timestamps and money as numbers; items carry their photo rows (URL, kind, size, dimensions). The CSV has one row per item, archived ones included, 35 snake_case columns ending in the processed, original and cut-out photo URLs (thumbnails are derived copies and left out); only text gets the formula guard, while numbers, booleans and dates are written as they are. Both stream 200 rows per database read, items oldest first by creation time with the id as tie-break, paged with a UTC cursor that keeps microseconds so no row is skipped or repeated; the export is not one consistent snapshot. A read that fails part-way ends the stream with an error and is logged, so a short file never looks complete. File names are dated in UTC (`wardrobe-YYYY-MM-DD`). The download links are plain links without `download`, so an error (an expired session) opens as a readable message.
 - Why: Portable data the owner can read without the app; streaming keeps memory flat whatever the wardrobe's size.
 
@@ -1239,7 +1239,7 @@ Each entry records one decision and the reason for it. "Deviates from spec" comp
 ## Added in the Codex review of the branch
 
 ### D-234 Deleting an item queues its photos in the same transaction, and Blob deletes them after the commit (refines D-111)
-- Date: 2026-11-04 · Status: accepted; refined by D-237 (every Blob call of the cleanup has a deadline) and D-238 (the transaction also lists the item id in `deleted_items`) · Deviates from spec: no
+- Date: 2026-11-04 · Status: accepted; refined by D-237 (every Blob call of the cleanup has a deadline), D-238 (the transaction also lists the item id in `deleted_items`) and D-245 (replaced cut-outs and abandoned uploads are queued too) · Deviates from spec: no
 - Decision: `deleteItem` checks that the item exists, then in one transaction locks the item row (`FOR UPDATE`), reads its `item_images` URLs, inserts one `blob_cleanup` row per distinct URL (`url` unique, `item_id` without a foreign key, `reason` `item_deleted` as plain text, `attempts` 0) and deletes the item, whose rows cascade as before (D-111). A URL already queued keeps its first row; only seeded demo items share one. After the commit it calls `runBlobCleanup` with this item first: its files in one `del()`, then the files of up to three more items that earlier deletes left queued, leaving out any tried within the last hour. Nothing after the commit can fail the delete: a Blob failure is logged and stored on the queued rows (`attempts`, `last_attempt_at`, `last_error`), and any other error is logged. (At first a Blob call had no deadline, so an outage the SDK retries held the action past the function's limit; D-237 bounds it.) The action still builds the storage with `getBlobStorage()` first, so a missing token is CONFIG before anything is deleted or queued. `runBlobCleanup` (`src/server/services/blob-cleanup.ts`) groups the due rows by item, one `del()` per item; it records the attempt before each call (so a call cut off by the time limit still counts), removes a group's rows once its files are gone, and ends the run at the first failure. Files never tried go first, then those tried longest ago, so one that keeps failing cannot block the others. `BlobStorage.del` (`src/lib/images/blob.ts`) treats `BlobNotFoundError` as deleted; when a call with several URLs answers not found, each URL is deleted on its own. `blob_cleanup` is left out of the JSON export (the app's own bookkeeping). Migration `drizzle/20261104003955_item-deletion` (with D-238's table; it replaced the first `20261103230912_blob-cleanup` before any deploy). Tested in `item-lifecycle.test.ts` (a trigger that makes the transaction fail leaves the item, its four image rows and all four files, and Blob is never asked), `blob-cleanup.test.ts`, `blob.test.ts`, `src/server/actions/items.test.ts` (no token: nothing deleted or queued), `e2e/item-detail.spec.ts` (the same in the browser) and the opt-in `item-lifecycle.pg.test.ts` (a cut-out committed while the delete waits for the row lock is queued too; two deletes of one item at once).
 - Why: The Codex review of the branch found that the photos were deleted before the transaction that deletes the rows, so a transaction that failed, or a function that stopped in between, left the item and its image rows visible with dead URLs (a broken gallery, tagging and photo export), with no record to recover from (reproduced with fault injection: three blobs deleted, the item still there). Now the database decides: either the item is gone and its files are queued, or nothing changed. What the owner sees changes: a Blob outage no longer refuses the delete with "…so the item was kept"; the item is deleted, and its photos stay in the store, reachable by their URLs, until a cleanup run deletes them. A wrong or revoked token also shows only after the commit, as queued rows with a CONFIG `last_error` and a failing cron; checking the token before every delete would cost a Blob request each time.
 
@@ -1275,11 +1275,74 @@ Each entry records one decision and the reason for it. "Deviates from spec" comp
 ## Added for the cloud connection
 
 ### D-240 Production deploys come from pushes to `main` through the Git integration (refines D-002)
-- Date: 2026-11-04 · Status: accepted · Deviates from spec: no
+- Date: 2026-11-04 · Status: accepted; refined by D-246 (previews have their own data) · Deviates from spec: no
 - Decision: The Vercel project `airmaclollo99/guardaroba-ai` is connected to https://github.com/muylolito1999/AIguardaroba with `main` as its production branch, so every push to `main` builds and deploys to production. Migrations stay out of the build: a push that ships a new folder under `drizzle/` is preceded by `pnpm db:migrate` against Neon. `vercel --prod` still works, but it uploads the local folder, uncommitted changes included, so pushes are the normal route. Other branches get preview deploys: they have the app's variables (D-241) but use the production database and Blob store, so only `main` is pushed while that holds.
 - Why: The owner connected the repository and asked to deploy by pushing. Deploying from commits keeps production traceable to `main`. A migration inside the build would run before the deploy is known to be good, once per build, and could not be held back when a build fails, so it stays a deliberate step.
 
 ### D-241 The app's own variables are Vercel Secrets; Neon and Blob come from their integrations
-- Date: 2026-11-04 · Status: accepted · Deviates from spec: no
+- Date: 2026-11-04 · Status: accepted; refined by D-246 (app secrets for Production only; Preview has its own). The Why below is wrong about pulls: on 2026-11-05 `vercel env pull` wrote the real values of the Secrets set for Development (see D-246) · Deviates from spec: no
 - Decision: `ANTHROPIC_API_KEY`, `APP_PASSWORD_HASH`, `SESSION_SECRET`, `CRON_SECRET` and `ENABLE_EXPERIMENTAL_COREPACK` are type Secret, set by the owner in the dashboard for Production, Preview and Development. The Neon and Blob variables are created by their integrations as Config for the same three environments. Neon is created with `vercel integration add neon --meta region=fra1 --meta auth=false` (aws-eu-central-1, Neon Auth off); the Blob store `wardrobe` is public, in fra1. A local `.env.local` gets the Secret values by hand.
 - Why: Secret values are write-only: per the Vercel CLI docs (read 2026-11-04), `vercel env pull` keeps a real value already in the local file or writes a placeholder, and never downloads a Secret, so ticking Development does not bring them to `.env.local`. With the Preview values a preview deploy is a full copy of the app on the production data, which D-240 handles by pushing only `main`. Vercel CLI 65 does not prompt for Neon's settings: the first database, created without `--meta`, landed in us-east-1 with Neon Auth on, across the Atlantic from the fra1 functions, and a Neon region cannot be changed after creation; it was empty, so it was deleted and replaced the same morning. The app has its own login (D-013), so Neon Auth would only add unused variables.
+
+
+## Added for the security audit of 2026-11-05
+
+The installed `security-audit` skill (run-1, source-only) left 14 leads that need validation. The report is outside the repository, in `C:\Users\lo99\security-audit-skill\guardaroba-ai\run-1\REPORT.md`. These entries record how they were handled.
+
+### D-242 Local development and tooling never hold production authority (refines D-003)
+- Date: 2026-11-05 · Status: accepted · Deviates from spec: no
+- Decision: `.env.local` is for development only: the Docker database, the `wardrobe-dev` Blob store and a local password pair. Production commands fetch production's variables from Vercel for one run: `pnpm db:migrate:prod` = `vercel env run -e production -- drizzle-kit migrate`, and `vercel env run -e production -- pnpm db:seed`. Because `@next/env` does not override variables that are already set, `.env.local` cannot redirect those runs. The listeners are bound to this machine:
+  - `pnpm dev` = `next dev -H localhost` and `pnpm start` = `next start -H localhost`, so the Playwright server too;
+  - the Docker database publishes `127.0.0.1:5433:5432`.
+
+  `drizzle.config.ts` calls `assertStudioTarget` (`src/lib/db/local-url.ts`, shared with the demo seeder's `nonLocalReason`). It refuses `drizzle-kit studio` on a URL that is not localhost or 127.0.0.1, or that names a host in its query string, unless `ALLOW_REMOTE_DB_STUDIO=1` is set for that run, which prints a warning. LAN phone testing passes `-H 0.0.0.0` explicitly, and only with the development `.env.local`. `test/local-listeners.test.ts` pins the scripts, the compose ports, the Studio guard and its use in `drizzle.config.ts`.
+- Why: Audit leads 1, 3, 4, 5, 6, 7 and 10. After the cloud connection, `.env.local` held production Neon and Blob values (HANDOFF 2026-11-04). The local tools then carried production authority while listening beyond loopback or trusting loopback alone:
+  - drizzle-kit 1.0.0-rc.5 Studio serves an unauthenticated SQL proxy with `cors()` origin `*` and Private Network Access allowed;
+  - `next dev` and `next start` bind every interface by default, and Next 16's dev endpoints (`/_next/mcp`, `/__nextjs_*`) check no caller;
+  - the Docker port was published on every interface with credentials committed to a public repository.
+
+  Keeping production credentials out of local files removes the impact of all of these at once. The binds and the Studio guard close the network paths.
+
+### D-243 The login rate limit also caps an IPv6 /48, and locked keys skip the table scans (refines D-014 and D-059)
+- Date: 2026-11-05 · Status: accepted · Deviates from spec: no
+- Decision: `client-key.ts` adds `rateLimitPrefix(ip)` and `clientPrefixHash(ip, secret)`. The prefix is an IPv6 client's /48; for IPv4, IPv4-mapped and "unknown" clients it is the same address as the key, so the prefix hash equals the key hash.
+  - Schema: `login_attempts` gains `prefix_hash` (not null, default `''`; rows expire after 24 h anyway) and two indexes, `(prefix_hash, attempted_at)` and `(attempted_at)`. Migration `drizzle/20261105102741_login-attempts-prefix`.
+  - Locking: `reserveLoginAttempt` takes its advisory lock on the prefix hash, which serializes every key in one /48.
+  - Gate order in `checkLoginAllowed`: the per-key gate (5 per 15 min) first; then, only when the prefix differs from the key, a per-prefix gate (`MAX_FAILURES_PER_PREFIX` = 25 per 15 min); only an allowed attempt runs the table-wide failure-spike count.
+  - Pruning stays per request, now on the `attempted_at` index.
+  - Callers: the prefix argument defaults to the key, so callers and tests that pass only a key behave as before.
+- Why: Audit leads 11 and 12. One end site often holds a /56 or a /48, so per-/64 keys alone let it rotate through 256 to 65,536 keys, each with 5 guesses and 5 bcrypt runs. Every request, a locked key's included, also ran two scans of `login_attempts` that no index served, before the per-key gate. Locking the owner out through the /48 needs an attacker inside the owner's own /48, a much smaller risk than the global lock D-014 rejects.
+
+### D-244 The CSV formula guard also covers `;` and tab, and such fields are quoted (refines D-114)
+- Date: 2026-11-05 · Status: accepted · Deviates from spec: no
+- Decision: `guardFormula` puts an apostrophe at the start of a field (as before) and also before every `=`, `+`, `-` or `@` that follows a `;` or a tab, spaces allowed. `quoteCsvField` quotes fields containing `;` or a tab, besides a comma, quote, CR or LF, so list fields joined with `"; "` are now quoted. Values read back by an RFC 4180 reader are unchanged apart from the added apostrophes.
+- Why: Audit lead 13. Excel opens a `.csv` with the system list separator. Under an Italian locale that is `;`, so a cell begins after every `;`. Text written by Claude from a photo, such as a transcribed label, can contain `;=…`, which then becomes an unguarded formula cell, against the export page's promise that opening the file never runs anything.
+
+### D-245 Replaced cut-outs and abandoned uploads go through the cleanup queue (refines D-234)
+- Date: 2026-11-05 · Status: accepted · Deviates from spec: no
+- Decision: `BlobCleanupReason` gains `cutout_replaced` and `upload_abandoned`. `reason` is free text, so no migration is needed.
+  - Replaced cut-out: `upsertNobgRow` queues the replaced cut-out's URL in `blob_cleanup` in the same transaction that repoints the row. After the commit, `attachNobgImage` runs `runBlobCleanup` for that item within `AFTER_REPLACE_BUDGET_MS` (8 s). A Blob failure is stored on the queue row and left to the daily cron.
+  - Other leftover files: the uploaded PNG, a failed save's WebP, and register's duplicate, unreadable or failed files belong to no row. They go through `deleteOrQueue`, which deletes with an 8 s deadline and, on failure, queues them instead of only logging. It never throws, because callers are on an error path or in `finally`.
+  - `deleteBlobsQuietly` had no callers left and is removed. `test/boundaries.test.ts` lists `deleteOrQueue` as session-less, like `runBlobCleanup`: it runs only after its caller's session check.
+- Why: Audit lead 14 (and wardrobe-1a5). A replaced cut-out whose best-effort delete failed was recorded nowhere. Its public URL then outlived the item's delete, against the dialog's promise that the photos are deleted, and photos are readable by anyone holding the URL. The delete's own cleanup run skips files tried in the last hour, so such a file is deleted by the daily cron rather than at once; the tests pin that.
+
+### D-246 Previews have their own database, photo store and secrets (refines D-240 and D-241)
+- Date: 2026-11-05 · Status: accepted; the owner's Vercel, Neon and Blob steps are pending · Deviates from spec: no
+- Decision: Previews are kept but isolated, by the owner's choice.
+  - Production-only variables: `SESSION_SECRET`, `APP_PASSWORD_HASH`, `CRON_SECRET` and `ANTHROPIC_API_KEY`; the `neon-green-lighthouse` database; the `wardrobe` Blob store.
+  - Preview: its own `SESSION_SECRET` and `APP_PASSWORD_HASH` (a separate preview password); a separate Neon resource (`wardrobe-preview`, fra1, Neon Auth off), migrated and seeded through `vercel env run -e preview`; and the `wardrobe-dev` store, shared with Development. Preview gets no Anthropic key and no `CRON_SECRET`.
+  - Fork pull requests keep Vercel's owner authorization step for public repositories.
+- Why: Audit leads 2 and 8 and the cross-environment token check. Preview deploys of the public repository received every production secret plus the production database and Blob store. Any branch build, or an authorized fork pull request, was therefore a parallel door to production. It could mint owner sessions (the token carries no environment claim), read and write production data, and delete production photos (ownership of a photo is bound only to its pathname). Turning previews off was the alternative; the owner chose to keep them. Development needs the same cut: on 2026-11-05 a `vercel env pull` with Vercel CLI 65.11.0, on a second machine, wrote the real values of the Secret variables set for Development, against what D-241 assumed. With Development ticked, every machine that pulls holds production's password hash, session secret, cron secret and Anthropic key.
+
+### D-247 A credential rotation follows a runbook; a code-level revocation is deferred (refines D-059)
+- Date: 2026-11-05 · Status: accepted · Deviates from spec: no
+- Decision: README "Rotating credentials":
+  1. Set new Production values.
+  2. Redeploy.
+  3. Remove the older deployments by id with `vercel remove <dpl_id> --safe`, never by project name.
+  4. Do not Instant Rollback across a rotation.
+  5. Keep Deployment Protection on generated URLs.
+  6. Rotate `CRON_SECRET` when needed.
+
+  The code fix, a credential-generation fingerprint and `sessions_valid_after` in `app_settings`, checked in `getSession` and `attemptLogin`, is tracked as wardrobe-tkp.
+- Why: Audit lead 9. Rotation is the only revocation, and each Vercel deployment keeps the values it was built with. Older deployments, and a rollback across a rotation, therefore still accept the old password and old sessions on production data. The runbook closes this operationally. The code fix would protect only deployments built after it ships, so it waits.

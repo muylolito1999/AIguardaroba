@@ -9,7 +9,7 @@ import { AppError, CONFIG_ERROR_MESSAGE } from "@/lib/result";
 
 import { makeTestDb, type TestDb } from "../../../test/db";
 import { createFakeBlobStorage, type FakeBlobStorage } from "../../../test/fakes/blob";
-import { CLEANUP_CALL_TIMEOUT_MS, MIN_CALL_MS, runBlobCleanup } from "./blob-cleanup";
+import { CLEANUP_CALL_TIMEOUT_MS, deleteOrQueue, MIN_CALL_MS, runBlobCleanup } from "./blob-cleanup";
 
 // The queue worker on its own; deleteItem's use of it is tested in
 // item-lifecycle.test.ts and the cron route's in its route test.
@@ -69,6 +69,50 @@ async function queued(): Promise<BlobCleanup[]> {
 function delTargets(): string[][] {
   return storage.calls.filter((call) => call.method === "del").map((call) => [...call.target].sort());
 }
+
+describe("deleteOrQueue (D-245)", () => {
+  it("deletes the files and queues nothing when Blob answers", async () => {
+    const itemId = randomUUID();
+    const file = storage.upload(`items/${itemId}/original.jpg`, Buffer.from("x"), "image/jpeg");
+    await deleteOrQueue(testDb.db, storage, [file.url], itemId, "upload_abandoned", "a test");
+    expect(storage.blobs.has(file.url)).toBe(false);
+    expect(await queued()).toEqual([]);
+  });
+
+  it("queues the files with their reason when Blob fails, for the cron to retry", async () => {
+    const itemId = randomUUID();
+    const file = storage.upload(`items/${itemId}/original.jpg`, Buffer.from("x"), "image/jpeg");
+    storage.failNext("del", new Error("Blob is down"));
+    const error = vi.spyOn(console, "error").mockImplementation(() => undefined);
+
+    await deleteOrQueue(testDb.db, storage, [file.url], itemId, "upload_abandoned", "a test");
+    error.mockRestore();
+
+    expect(await queued()).toMatchObject([{ url: file.url, itemId, reason: "upload_abandoned", attempts: 0 }]);
+    expect(await runBlobCleanup(deps(), { deadlineAt: roomy(), maxItems: 10 })).toMatchObject({ deleted: 1, pending: 0 });
+    expect(storage.blobs.has(file.url)).toBe(false);
+  });
+
+  it("never throws, even when the queue cannot be written either", async () => {
+    storage.failNext("del", new Error("Blob is down"));
+    const error = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const insert = vi.spyOn(testDb.db, "insert").mockImplementation(() => {
+      throw new Error("database is down");
+    });
+    try {
+      await expect(deleteOrQueue(testDb.db, storage, ["https://x.example/a"], randomUUID(), "upload_abandoned", "a test")).resolves.toBeUndefined();
+      expect(String(error.mock.calls.at(-1)?.[0])).toMatch(/could not queue/);
+    } finally {
+      insert.mockRestore();
+      error.mockRestore();
+    }
+  });
+
+  it("does nothing for no files", async () => {
+    await deleteOrQueue(testDb.db, storage, [], randomUUID(), "upload_abandoned", "a test");
+    expect(storage.calls).toEqual([]);
+  });
+});
 
 describe("runBlobCleanup", () => {
   it("makes no Blob call for an empty queue", async () => {

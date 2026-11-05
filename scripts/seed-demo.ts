@@ -28,31 +28,19 @@ import type {
   ItemLocation,
   Season,
 } from "@/lib/db/enums";
+import { nonLocalReason } from "@/lib/db/local-url";
 import { itemImages, items, type NewItem, type NewItemImage } from "@/lib/db/schema";
 
 export const DEMO_MARKER = "demo-seed";
 export const DEMO_ITEM_COUNT = 300;
 /** Same-origin placeholder photo; 192 x 192 PNG. */
 export const DEMO_PHOTO = { url: "/icons/icon-192.png", width: 192, height: 192, bytes: 4_000 } as const;
-const LOCAL_HOSTS = new Set(["localhost", "127.0.0.1"]);
-
 // ---------------------------------------------------------------------------
 // Safety check
 // ---------------------------------------------------------------------------
 
-/** Why the URL is not a local database, or null when it is. */
-export function nonLocalReason(databaseUrl: string): string | null {
-  if (!URL.canParse(databaseUrl)) return "DATABASE_URL is not a valid URL.";
-  const url = new URL(databaseUrl);
-  // node-postgres copies every query parameter into its config, and a `host`
-  // there replaces the URL's host (libpq reads `hostaddr` too), so
-  // `localhost/db?host=<remote>` would pass a check of the hostname alone.
-  if (url.searchParams.has("host") || url.searchParams.has("hostaddr")) {
-    return "DATABASE_URL sets the host in its query string; put a local host in the URL itself.";
-  }
-  if (LOCAL_HOSTS.has(url.hostname)) return null;
-  return `DATABASE_URL points at host "${url.hostname}", not localhost or 127.0.0.1.`;
-}
+// The check lives in src/lib/db/local-url.ts so drizzle.config.ts can share it.
+export { nonLocalReason };
 
 // ---------------------------------------------------------------------------
 // Generator

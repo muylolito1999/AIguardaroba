@@ -1,0 +1,143 @@
+{
+  "type": "diff",
+  "version": "9",
+  "dialect": "postgres",
+  "id": "35aa39e4-3311-4ade-9a33-b9846ab656bf",
+  "prevIds": [
+    "eff0eff1-c12d-4bd0-919e-b75255c3d0f2"
+  ],
+  "footprints": [
+    {
+      "statementType": "add_column",
+      "statementTarget": [
+        "column",
+        "public",
+        "login_attempts",
+        "prefix_hash"
+      ],
+      "writes": [
+        "s|col|public.login_attempts.prefix_hash",
+        "n|col|public.login_attempts.prefix_hash",
+        "e|col|public.login_attempts.prefix_hash"
+      ],
+      "reads": [
+        "n|tbl|public.login_attempts",
+        "n|sch|public"
+      ]
+    },
+    {
+      "statementType": "create_index",
+      "statementTarget": [
+        "index",
+        "public",
+        "login_attempts",
+        "login_attempts_prefix_hash_attempted_at_idx"
+      ],
+      "writes": [
+        "s|idx|public.login_attempts_prefix_hash_attempted_at_idx",
+        "n|idx|public.login_attempts_prefix_hash_attempted_at_idx",
+        "e|idx|public.login_attempts_prefix_hash_attempted_at_idx",
+        "n|rel|public.login_attempts_prefix_hash_attempted_at_idx"
+      ],
+      "reads": [
+        "n|tbl|public.login_attempts",
+        "n|sch|public",
+        "n|col|public.login_attempts.prefix_hash",
+        "n|col|public.login_attempts.attempted_at"
+      ]
+    },
+    {
+      "statementType": "create_index",
+      "statementTarget": [
+        "index",
+        "public",
+        "login_attempts",
+        "login_attempts_attempted_at_idx"
+      ],
+      "writes": [
+        "s|idx|public.login_attempts_attempted_at_idx",
+        "n|idx|public.login_attempts_attempted_at_idx",
+        "e|idx|public.login_attempts_attempted_at_idx",
+        "n|rel|public.login_attempts_attempted_at_idx"
+      ],
+      "reads": [
+        "n|tbl|public.login_attempts",
+        "n|sch|public",
+        "n|col|public.login_attempts.attempted_at"
+      ]
+    }
+  ],
+  "deltas": [
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "login_attempts",
+        "name": "prefix_hash",
+        "type": "text",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": "''",
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "login_attempts",
+        "name": "login_attempts_prefix_hash_attempted_at_idx",
+        "nameExplicit": true,
+        "columns": [
+          {
+            "value": "prefix_hash",
+            "isExpression": false,
+            "asc": true,
+            "nullsFirst": false,
+            "opclass": null
+          },
+          {
+            "value": "attempted_at",
+            "isExpression": false,
+            "asc": true,
+            "nullsFirst": false,
+            "opclass": null
+          }
+        ],
+        "isUnique": false,
+        "where": null,
+        "with": "",
+        "method": "btree",
+        "concurrently": false,
+        "entityType": "indexes"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "login_attempts",
+        "name": "login_attempts_attempted_at_idx",
+        "nameExplicit": true,
+        "columns": [
+          {
+            "value": "attempted_at",
+            "isExpression": false,
+            "asc": true,
+            "nullsFirst": false,
+            "opclass": null
+          }
+        ],
+        "isUnique": false,
+        "where": null,
+        "with": "",
+        "method": "btree",
+        "concurrently": false,
+        "entityType": "indexes"
+      }
+    }
+  ]
+}

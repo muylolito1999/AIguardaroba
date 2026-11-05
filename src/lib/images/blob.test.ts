@@ -11,7 +11,6 @@ import {
   assertRegisteredBlob,
   blobFailure,
   createBlobStorage,
-  deleteBlobsQuietly,
   IMMUTABLE_CACHE_SECONDS,
   type BlobSdk,
 } from "./blob";
@@ -209,17 +208,6 @@ describe("createBlobStorage", () => {
   it("leaves an AppError untouched", () => {
     const original = new AppError("VALIDATION", "no");
     expect(blobFailure(original, "x")).toBe(original);
-  });
-});
-
-describe("deleteBlobsQuietly", () => {
-  it("logs a failed delete instead of throwing", async () => {
-    const fake = createFakeBlobStorage();
-    fake.failNext("del", new Error("store down"));
-    const log = vi.spyOn(console, "error").mockImplementation(() => undefined);
-
-    await expect(deleteBlobsQuietly(fake, ["https://a.example/1"], "a test")).resolves.toBeUndefined();
-    expect(log).toHaveBeenCalledOnce();
   });
 });
 

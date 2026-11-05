@@ -14,6 +14,8 @@ export type AttemptLoginInput = {
   password: string;
   /** clientKeyHash(ip, SESSION_SECRET); see client-key.ts. */
   keyHash: string;
+  /** clientPrefixHash(ip, SESSION_SECRET); defaults to keyHash (an IPv4 client). */
+  prefixHash?: string;
   now: Date;
   /** The decoded bcrypt hash (passwordEnv().passwordHash). */
   passwordHash: string;
@@ -38,13 +40,14 @@ export async function attemptLogin({
   db,
   password,
   keyHash,
+  prefixHash = keyHash,
   now,
   passwordHash,
   verify = verifyPassword,
 }: AttemptLoginInput): Promise<Result<void>> {
   await pruneLoginAttempts(db, now);
 
-  const reservation = await reserveLoginAttempt(db, keyHash, now);
+  const reservation = await reserveLoginAttempt(db, keyHash, now, prefixHash);
   if (!reservation.allowed) {
     return err("RATE_LIMITED", rateLimitedMessage(reservation.retryAfterSeconds), {
       retryAfterSeconds: reservation.retryAfterSeconds,

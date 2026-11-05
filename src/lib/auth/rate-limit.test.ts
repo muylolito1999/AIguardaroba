@@ -7,7 +7,7 @@ import { relations } from "@/lib/db/relations";
 import { loginAttempts } from "@/lib/db/schema";
 
 import { makeTestDb, type TestDb } from "../../../test/db";
-import { clientKeyHash, getClientIp, rateLimitAddress } from "./client-key";
+import { clientKeyHash, clientPrefixHash, getClientIp, rateLimitAddress, rateLimitPrefix } from "./client-key";
 import {
   ATTEMPT_RETENTION_MS,
   checkLoginAllowed,
@@ -15,6 +15,7 @@ import {
   FAILURE_WINDOW_MS,
   GLOBAL_ALERT_THRESHOLD,
   markLoginAttemptSucceeded,
+  MAX_FAILURES_PER_PREFIX,
   pruneLoginAttempts,
   recordLoginAttempt,
   reserveLoginAttempt,
@@ -204,6 +205,62 @@ describe("reserveLoginAttempt", () => {
   });
 });
 
+describe("the per-prefix limit (D-243)", () => {
+  // 40 different /64 networks inside one /48 (an end site can hold 256 to
+  // 65,536): per-/64 keys alone would allow 200 failures here.
+  const sitePrefix = "2001:db8:abcd";
+  const siteIps = Array.from({ length: 40 }, (_, i) => `${sitePrefix}:${i.toString(16)}::1`);
+
+  it("caps a whole IPv6 /48 at 25 failures per window, not 5 per /64", async () => {
+    const keys = new Set(siteIps.map((ip) => clientKeyHash(ip, SECRET)));
+    const prefixes = new Set(siteIps.map((ip) => clientPrefixHash(ip, SECRET)));
+    expect(keys.size).toBe(40);
+    expect(prefixes.size).toBe(1);
+
+    let allowed = 0;
+    for (const ip of siteIps) {
+      for (let attempt = 0; attempt < 6; attempt += 1) {
+        const reservation = await reserveLoginAttempt(testDb.db, clientKeyHash(ip, SECRET), at(attempt * 1000), clientPrefixHash(ip, SECRET));
+        if (reservation.allowed) allowed += 1;
+      }
+    }
+    expect(allowed).toBe(MAX_FAILURES_PER_PREFIX);
+  });
+
+  it("leaves another /48 and IPv4 clients alone", async () => {
+    for (let i = 0; i < MAX_FAILURES_PER_PREFIX; i += 1) {
+      const ip = siteIps[i % siteIps.length] ?? "";
+      await recordLoginAttempt(testDb.db, clientKeyHash(ip, SECRET), false, T0, clientPrefixHash(ip, SECRET));
+    }
+    const lockedIp = siteIps[30] ?? "";
+    expect((await checkLoginAllowed(testDb.db, clientKeyHash(lockedIp, SECRET), at(MINUTE), clientPrefixHash(lockedIp, SECRET))).allowed).toBe(false);
+    const otherSite = "2001:db8:abce:1::1";
+    expect(await checkLoginAllowed(testDb.db, clientKeyHash(otherSite, SECRET), at(MINUTE), clientPrefixHash(otherSite, SECRET))).toEqual({ allowed: true });
+    expect(await checkLoginAllowed(testDb.db, OWNER, at(MINUTE), clientPrefixHash(OWNER_IP, SECRET))).toEqual({ allowed: true });
+  });
+
+  it("unlocks the prefix once its 25th most recent failure is 15 minutes old", async () => {
+    for (let i = 0; i < MAX_FAILURES_PER_PREFIX; i += 1) {
+      const ip = siteIps[i] ?? "";
+      await recordLoginAttempt(testDb.db, clientKeyHash(ip, SECRET), false, at(i * 1000), clientPrefixHash(ip, SECRET));
+    }
+    const fresh = siteIps[35] ?? "";
+    const gate = (when: number) => checkLoginAllowed(testDb.db, clientKeyHash(fresh, SECRET), at(when), clientPrefixHash(fresh, SECRET));
+    expect((await gate(FAILURE_WINDOW_MS - 1000)).allowed).toBe(false);
+    expect(await gate(FAILURE_WINDOW_MS + 1000)).toEqual({ allowed: true });
+  });
+
+  it("does not run the table-wide spike count for a locked key", async () => {
+    await fail(ATTACKER, 5, T0);
+    const statements: string[] = [];
+    const logged = drizzle({ client: testDb.client, relations, logger: { logQuery: (query) => statements.push(query.toLowerCase()) } });
+    expect((await checkLoginAllowed(logged, ATTACKER, at(MINUTE))).allowed).toBe(false);
+    expect(statements).toHaveLength(1);
+    expect(statements[0]).toContain('"key_hash" =');
+    expect(statements.some((query) => query.startsWith("select count"))).toBe(false);
+  });
+});
+
 describe("pruneLoginAttempts and clearLoginAttempts", () => {
   it("deletes only attempts older than 24 hours", async () => {
     await recordLoginAttempt(testDb.db, OWNER, false, at(-ATTEMPT_RETENTION_MS - 1000));
@@ -262,6 +319,17 @@ describe("client keys", () => {
     expect(clientKeyHash("::ffff:203.0.113.7", SECRET)).toBe(OWNER);
     // Different IPv4 addresses stay separate clients.
     expect(clientKeyHash("::ffff:203.0.113.8", SECRET)).not.toBe(OWNER);
+  });
+
+  it("group an IPv6 client's wider network by its /48, and give IPv4 no wider network", () => {
+    expect(rateLimitPrefix("2001:db8:1234:5678::1")).toBe("2001:db8:1234::/48");
+    expect(rateLimitPrefix("2001:db8:1234:ffff::1")).toBe("2001:db8:1234::/48");
+    expect(rateLimitPrefix(OWNER_IP)).toBe(OWNER_IP);
+    expect(rateLimitPrefix("::ffff:203.0.113.7")).toBe(OWNER_IP);
+    expect(rateLimitPrefix("unknown")).toBe("unknown");
+    // For IPv4 the prefix hash is the key hash, so the per-prefix limit adds nothing.
+    expect(clientPrefixHash(OWNER_IP, SECRET)).toBe(OWNER);
+    expect(clientPrefixHash("2001:db8:1234:5678::1", SECRET)).not.toBe(clientKeyHash("2001:db8:1234:5678::1", SECRET));
   });
 
   it("keep IPv4 and non-addresses as they are", () => {

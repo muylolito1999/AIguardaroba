@@ -1,6 +1,9 @@
 import { loadEnvConfig } from "@next/env";
 import { defineConfig } from "drizzle-kit";
 
+// Relative import: drizzle-kit loads this file without the "@/" path alias.
+import { assertStudioTarget } from "./src/lib/db/local-url";
+
 // drizzle-kit runs only from the terminal (`pnpm db:generate`, `pnpm db:migrate`,
 // `pnpm db:studio`), never in the Vercel build: migrations are applied by hand
 // before a deploy that ships one (README, Deploy).
@@ -33,6 +36,11 @@ if (needsDatabase && unpooledUrl === undefined) {
       "the pooled DATABASE_URL is not used for migrations. Set it in .env.local (see .env.example).",
   );
 }
+
+// Studio is for the local database only (D-242); it throws for a remote URL
+// unless ALLOW_REMOTE_DB_STUDIO=1, and returns a warning when that was set.
+const studioWarning = assertStudioTarget(command, unpooledUrl, process.env);
+if (studioWarning !== null) console.warn(studioWarning);
 
 export default defineConfig({
   dialect: "postgresql",

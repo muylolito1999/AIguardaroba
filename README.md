@@ -79,10 +79,10 @@ Copy `.env.example` to `.env.local`, or get the values with `vercel env pull .en
 
 | Variable | Required | Description |
 |---|---|---|
-| `DATABASE_URL` | Phase 2+, runtime (Vercel and local) | Pooled Postgres connection string. Set by the Neon integration; locally it can point at the Docker database. |
+| `DATABASE_URL` | Phase 2+, runtime (Vercel and local) | Pooled Postgres connection string. On Vercel, set by the Neon integration (production's database for Production, the preview database for Preview); locally, the Docker database (D-242). |
 | `DATABASE_URL_UNPOOLED` | Phase 2+, migrations | Direct (unpooled) connection used by `drizzle-kit`. `drizzle.config.ts` fails with the variable name if it is missing; there is no fallback to the pooled URL. |
-| `BLOB_READ_WRITE_TOKEN` | Phase 3+, runtime (Vercel and local) | Blob store token. Required even when the store is connected through OIDC: `handleUpload` signs client upload tokens with it, and every server Blob call passes it explicitly. Connect the store with the Development environment included so `vercel env pull` writes it. |
-| `ANTHROPIC_API_KEY` | Phase 3+, runtime | Anthropic API key. Store it in Vercel as type Secret (formerly "Sensitive"): the dashboard and `vercel env ls` show it as Hidden, but `vercel env pull` writes its value when it includes Development. |
+| `BLOB_READ_WRITE_TOKEN` | Phase 3+, runtime (Vercel and local) | Blob store token. Required even when the store is connected through OIDC: `handleUpload` signs client upload tokens with it, and every server Blob call passes it explicitly. The `wardrobe` store is connected to Production only; `wardrobe-dev` to Development and Preview, so `vercel env pull` writes the dev store's token and never production's (D-242, D-246). |
+| `ANTHROPIC_API_KEY` | Phase 3+, runtime | Anthropic API key. Store it in Vercel as type Secret (formerly "Sensitive"), for Production only (D-246): the dashboard and `vercel env ls` show a Secret as Hidden, but `vercel env pull` writes the value of every Secret that is set for Development. |
 | `CLAUDE_TAGGING_MODEL` | Optional | Tagging model. Default `claude-haiku-5-5`. Must be priced in `src/lib/ai/models.ts`. |
 | `CLAUDE_ANALYSIS_MODEL` | Optional | Relocation analysis model. Default `claude-sonnet-5-5`. Must be priced. |
 | `CLAUDE_OUTFIT_MODEL` | Optional (Phase 6) | Model for the `/today` outfit suggestions. Defaults to the analysis model (`claude-sonnet-5-5`); `claude-haiku-5-5` costs about a twentieth (see [Costs](#costs)). Must be priced. |
@@ -96,6 +96,7 @@ Copy `.env.example` to `.env.local`, or get the values with `vercel env pull .en
 | `OPEN_METEO_BASE_URL` | Test only (Phase 6) | Base URL of the forecast API, default `https://api.open-meteo.com` (free, no key). Only the e2e run sets it, to its local stub; leave it unset elsewhere. Must be an http(s) URL without a query or fragment (D-202). |
 | `E2E_TAG` | Test only | Set to `1` in the shell, together with `ANTHROPIC_API_KEY` and `BLOB_READ_WRITE_TOKEN`, to make the Playwright smoke spec tag its photos with Claude (Tag now) instead of by hand. Playwright reads it in the test runner; the e2e server gets real credentials only from the shell, never from `.env.local` (D-113). |
 | `ENABLE_EXPERIMENTAL_COREPACK` | Vercel dashboard only | Set to `1` so Vercel builds with the pnpm version in `packageManager` instead of guessing from the lockfile. |
+| `ALLOW_REMOTE_DB_STUDIO` | One-off, shell only | Set to `1` for a single `pnpm db:studio` run that must open a remote database; without it Studio refuses any URL that is not localhost (D-242). Never put it in a file. |
 
 Variables that Vercel injects on its own (`VERCEL_OIDC_TOKEN`, `BLOB_STORE_ID`, `PG*`, `POSTGRES_*`) are not used: the app passes the Blob token explicitly and reads only the variables above.
 
@@ -104,18 +105,21 @@ Variables that Vercel injects on its own (`VERCEL_OIDC_TOKEN`, `BLOB_STORE_ID`, 
 1. Install Node 26 LTS (on Windows: `winget install --id OpenJS.NodeJS.LTS --exact --source winget`). Node 26 ships without corepack, so pnpm comes from npm.
 2. Install pnpm: `npm i -g pnpm@11.28.9`.
 3. Install dependencies: `pnpm i`.
-4. Install Docker Desktop (on Windows: `winget install --id Docker.DockerDesktop --exact --source winget`; it runs on WSL 2 and asks for administrator rights), start it once and accept its licence. The e2e run always uses the Docker database.
-5. Get the environment: `npm i -g vercel`, `vercel login`, `vercel link --yes --project guardaroba-ai --scope airmaclollo99`, then `vercel env pull .env.local`. Both `vercel link` and `vercel env pull` append `.vercel` and `.env*` to `.gitignore`; both were already listed, and the trailing `.env*` would cancel `!.env.example`, so restore the file each time with `git checkout -- .gitignore`. Phase 1 runs without the environment.
-6. Choose the data. The pulled values point at production: the Development environment shares the Neon database and the Blob store with Production (D-241), so `pnpm dev` and every `pnpm db:*` command work on the real wardrobe, and whatever they save, delete or spend on Claude is real. To work on the Docker database instead, run `docker compose up -d db`, set `DATABASE_URL` and `DATABASE_URL_UNPOOLED` as in [Local database (Docker)](#local-database-docker), then `pnpm db:migrate` and `pnpm db:seed` (the seed is idempotent). Photo uploads still go to the production Blob store unless `BLOB_READ_WRITE_TOKEN` is left empty, which turns uploads off.
-7. The pull also writes the Secret values (see [Connecting the cloud](#connecting-the-cloud-one-time)), so the login password is the production one. For a different local password, run `pnpm hash-password --with-secret` and replace both printed values in `.env.local` (see [Authentication](#authentication)). `pnpm env:check` shows which groups are complete.
+4. Install Docker Desktop (on Windows: `winget install --id Docker.DockerDesktop --exact --source winget`; it runs on WSL 2 and asks for administrator rights), start it once and accept its licence. Local development and the e2e run both use the Docker database.
+5. Get the dev photo store's token: `npm i -g vercel`, `vercel login`, `vercel link --yes --project guardaroba-ai --scope airmaclollo99`, then `vercel env pull .env.local`. The Development environment holds only the `wardrobe-dev` Blob store and nothing of production (D-242, D-246). A pull writes every variable set for Development, Secret ones included, so if it brings a Neon URL, `POSTGRES_*`/`PG*`/`NEON_*` lines or a production secret, Development is still connected to production: delete those lines and fix the environments in the dashboard before running anything. Both `vercel link` and `vercel env pull` append `.vercel` and `.env*` to `.gitignore`; both were already listed, and the trailing `.env*` would cancel `!.env.example`, so restore the file each time with `git checkout -- .gitignore`. Phase 1 runs without the environment.
+6. Start the local database with `docker compose up -d db`, point `.env.local` at it (see [Local database (Docker)](#local-database-docker)), then `pnpm db:migrate` and `pnpm db:seed`. The seed is idempotent. Production uses Neon, which `.env.local` never names.
+7. Set a local password with `pnpm hash-password --with-secret` and put both printed values in `.env.local` (see [Authentication](#authentication)). Use fresh values, never the production pair. `pnpm env:check` shows which groups are complete.
 8. `pnpm dev` and open http://localhost:3000. You land on `/login`.
 9. Beads: `npm i -g @beads/bd`. Its database (`.beads/embeddeddolt/`) is not in git, so a new clone has the tool but no issues until the database is copied from the machine that has it, or pulled from a Dolt remote once one is set up (`bd dolt push` there, `bd dolt pull` here).
 
+`.env.local` is for development only (D-242): the Docker database, the `wardrobe-dev` photo store and local secrets. It never holds production's database URL, Blob token or secrets, because `pnpm dev`, `pnpm db:studio` and the test servers would then carry production authority on this machine. Production commands get production's variables from Vercel for one run instead (`pnpm db:migrate:prod`, `vercel env run -e production -- <command>`).
+
 Notes:
 
+- `pnpm dev` and `pnpm start` listen on localhost only (D-242), so other machines on the network cannot reach the dev server or its dev-only endpoints.
 - The session cookie is `Secure`. Chromium and Firefox accept it on `http://localhost`; Safari may not, so use `pnpm dev --experimental-https` there.
 - Five failed logins from one client lock that client out for 15 minutes. `pnpm auth:unlock` clears all recorded attempts.
-- Testing on a phone (camera, HEIC, install) needs real HTTPS. The simplest route is the production deployment (a preview works too, on the same data; see [Deploy](#deploy)). The alternative is LAN HTTPS with a certificate issued for the LAN IP (`--experimental-https-key` and `--experimental-https-cert`) and the mkcert root CA installed on the phone; plain `--experimental-https` is not trusted over a LAN IP.
+- Testing on a phone (camera, HEIC, install) needs real HTTPS. The simplest route is a preview deploy, which has its own data (see [Deploy](#deploy)), or the production deployment. The alternative is LAN HTTPS: `pnpm exec next dev -H 0.0.0.0 --experimental-https --experimental-https-key <key> --experimental-https-cert <cert>` with a certificate issued for the LAN IP and the mkcert root CA installed on the phone (plain `--experimental-https` is not trusted over a LAN IP). That opens the dev server to the network, so do it only with the development `.env.local` and on a network you trust.
 
 ## Database
 
@@ -125,7 +129,7 @@ Besides the owner's data, three tables are the app's own bookkeeping and are lef
 
 ### Local database (Docker)
 
-`docker compose up -d db` starts Postgres 18 on `localhost:5433` with two databases: `wardrobe` for local development and `wardrobe_e2e`, which the Playwright run empties and refills. The user and password are both `wardrobe`; they are local-only and not secret. For local development, put this in `.env.local`:
+`docker compose up -d db` starts Postgres 18 on `127.0.0.1:5433` with two databases: `wardrobe` for local development and `wardrobe_e2e`, which the Playwright run empties and refills. The user and password are both `wardrobe`; they are public (they are in this repository), so the port is published on 127.0.0.1 only and other machines cannot reach it (D-242). For local development, put this in `.env.local`:
 
 ```text
 DATABASE_URL=postgres://wardrobe:wardrobe@localhost:5433/wardrobe
@@ -139,9 +143,10 @@ The init script that creates `wardrobe_e2e` runs only on an empty volume. `docke
 | Command | What it does |
 |---|---|
 | `pnpm db:generate --name <name>` | Writes a new migration folder from the changes in `schema.ts`. Needs no database. Review the SQL, then commit it. |
-| `pnpm db:migrate` | Applies pending migrations over `DATABASE_URL_UNPOOLED`. |
-| `pnpm db:seed` | Seeds the climate profiles and the `app_settings` row (see below). Safe to run again. |
-| `pnpm db:studio` | Opens Drizzle Studio on the `DATABASE_URL_UNPOOLED` database. |
+| `pnpm db:migrate` | Applies pending migrations over `DATABASE_URL_UNPOOLED` (the local database). |
+| `pnpm db:migrate:prod` | Applies pending migrations to production Neon, with production's variables fetched from Vercel for this run only (`vercel env run -e production`); they are never written to disk (D-242). |
+| `pnpm db:seed` | Seeds the climate profiles and the `app_settings` row (see below). Safe to run again. For production: `vercel env run -e production -- pnpm db:seed`. |
+| `pnpm db:studio` | Opens Drizzle Studio on the `DATABASE_URL_UNPOOLED` database, local databases only. Studio serves an unauthenticated SQL endpoint that any web page can call, so it refuses a remote URL unless `ALLOW_REMOTE_DB_STUDIO=1` is set for that one run (D-242). |
 | `pnpm db:seed:demo [--clean]` | Inserts (or with `--clean` removes) 300 synthetic items for checking the grid; local databases only (see [Demo data](#demo-data)). |
 
 Migrations always run over `DATABASE_URL_UNPOOLED`, the direct connection: DDL and the migrator's lock do not belong on Neon's pooled endpoint. If the variable is missing, `drizzle.config.ts` stops with an error naming it; there is no fallback to the pooled `DATABASE_URL`, which the app uses at runtime. Migrations never run during the Vercel build, and `drizzle-kit push` is not used.
@@ -150,19 +155,30 @@ The seed restores Hamburg to the reference values on every run and makes it the 
 
 ### Neon
 
-Once the Neon integration exists, `vercel env pull .env.local` writes Neon's pooled `DATABASE_URL` and direct `DATABASE_URL_UNPOOLED` into `.env.local`, replacing the Docker values. The same commands then target Neon, which is the production database: Development has no database of its own. The order before a deploy is in [Deploy](#deploy).
+Production's database (`neon-green-lighthouse`, aws-eu-central-1) is connected to the Production environment only, and previews have a separate Neon database of their own (D-246). Development has no Neon database, so neither reaches `.env.local`: local commands target the Docker database, `pnpm db:migrate:prod` targets production, and `vercel env run -e preview -- pnpm db:migrate` the preview database. The order before a deploy is in [Deploy](#deploy).
 
 ## Authentication
 
 There is one user and one password. `proxy.ts` makes a fast first check of the session cookie, and every Server Action, Route Handler and server read checks the session again itself.
 
-- Setting the password: `pnpm hash-password --with-secret` asks for the password twice without echoing it (at least 10 characters, at most 72 bytes) and prints `APP_PASSWORD_HASH=…` and `SESSION_SECRET=…`. Put both lines in `.env.local` and in the Vercel dashboard for all environments. To change only the password, run it without `--with-secret` and replace `APP_PASSWORD_HASH`. Changing the password does not sign anyone out, and neither does logging out elsewhere: sessions are stateless tokens. If the password or a device may be compromised, also rotate `SESSION_SECRET` (`pnpm hash-password --with-secret`); that invalidates every existing session and also resets the rate-limit counts.
+- Setting the password: `pnpm hash-password --with-secret` asks for the password twice without echoing it (at least 10 characters, at most 72 bytes) and prints `APP_PASSWORD_HASH=…` and `SESSION_SECRET=…`. Each environment gets its own pair (D-242, D-246): production's goes in the Vercel dashboard for Production only, previews get a different pair under Preview, and `.env.local` gets a local one. To change only the password, run it without `--with-secret` and replace `APP_PASSWORD_HASH`. Changing the password does not sign anyone out, and neither does logging out elsewhere: sessions are stateless tokens. If the password or a device may be compromised, rotate both, following [Rotating credentials](#rotating-credentials); a new `SESSION_SECRET` invalidates every existing session and also resets the rate-limit counts.
 - `APP_PASSWORD_HASH` is the base64 encoding of a bcrypt hash (cost 12), not the raw `$2b$…` hash: `@next/env` expands `$` in `.env` files and would corrupt it. A raw hash is rejected with a hint.
 - Sessions: after signing in, the browser holds a signed token in the `__Host-wardrobe_session` cookie (httpOnly, Secure, SameSite=Lax, `Path=/`, no Domain) for 30 days. The `__Host-` prefix stops a subdomain or a plain-HTTP response from planting or shadowing it. Changing `SESSION_SECRET` signs out every device.
 - Signed out, every page redirects to `/login?next=<path>`, and signing in returns there; `/api/*` answers 401 with a JSON error instead. Signed in, `/login` redirects to the app. The PWA files (manifest, icons, `/sw.js`), `/offline`, `/api/blob/upload` and `/api/cron/*` stay public; the last two check their own credentials.
 - Log out from Settings (Account) or from the sidebar footer on desktop.
+
+### Rotating credentials
+
+A rotation is the only way to end sessions, and Vercel bakes environment values into each deployment when it is built, so older deployments keep accepting the old password and old sessions until they are gone (D-247). When the password, a session or a device may be compromised:
+
+1. `pnpm hash-password --with-secret`, then set the new `APP_PASSWORD_HASH` and `SESSION_SECRET` in the Vercel dashboard for Production only.
+2. Redeploy production (push to `main`, or Redeploy in the Deployments tab): environment changes apply only to new deployments.
+3. Remove the older deployments: `vercel ls` lists them, `vercel inspect <deployment-url>` shows each one's id (`dpl_…`), and `vercel remove <dpl_id> --safe` deletes it; `--safe` skips any deployment with an active alias, such as the new production one. Never pass the project name to `vercel remove`: that deletes every deployment of the project.
+4. Do not Instant Rollback to a deployment from before the rotation; it would bring the old values back. Roll forward with a fix instead.
+5. Check Settings > Deployment Protection: Vercel Authentication (Standard Protection) keeps generated deployment URLs behind your Vercel login.
+6. Rotate `CRON_SECRET` too if it may have leaked; the crons pick up the new value on the next deployment.
 - The login form works without JavaScript too.
-- Rate limit: 5 failed logins from one client within 15 minutes lock that client until the oldest failure is 15 minutes old. A client is identified by a hash of its IP address and `SESSION_SECRET`; raw IP addresses are not stored. An IPv6 client counts as its whole /64 network, and an IPv4-mapped IPv6 address as the plain IPv4 address. The client address comes from `x-forwarded-for` (then `x-real-ip`), so the limit is only trustworthy behind a proxy that overwrites those headers, as Vercel does: a self-hosted `next start` keeps a client-supplied `x-forwarded-for`, which lets clients choose their own key. There is no global lock, because anyone could trigger it and lock the owner out; more than 200 failures in an hour across all clients only log a warning. `pnpm auth:unlock` deletes every recorded attempt and unlocks everyone.
+- Rate limit: 5 failed logins from one client within 15 minutes lock that client until the oldest failure is 15 minutes old. A client is identified by a hash of its IP address and `SESSION_SECRET`; raw IP addresses are not stored. An IPv6 client counts as its whole /64 network, and an IPv4-mapped IPv6 address as the plain IPv4 address. An IPv6 client's /48 also has a limit of its own, 25 failures in 15 minutes, because one site often holds a /56 or a /48 and could otherwise rotate through hundreds of /64s (D-243). The client address comes from `x-forwarded-for` (then `x-real-ip`), so the limit is only trustworthy behind a proxy that overwrites those headers, as Vercel does: a self-hosted `next start` keeps a client-supplied `x-forwarded-for`, which lets clients choose their own key. There is no global lock, because anyone could trigger it and lock the owner out; more than 200 failures in an hour across all clients only log a warning. `pnpm auth:unlock` deletes every recorded attempt and unlocks everyone.
 
 ## Adding items
 
@@ -305,29 +321,36 @@ With `FEATURE_SHOPPING_AI=true`, `/shopping` gets a "What to buy next" section b
 
 ## Connecting the cloud (one time)
 
-1. `npm i -g vercel`, then `vercel login` and `vercel link`.
-2. Neon: `vercel integration add neon --meta region=fra1 --meta auth=false`. The CLI no longer prompts: without `--meta region=fra1` (Frankfurt, aws-eu-central-1) it creates the database in us-east-1, and a Neon region cannot be changed later. `auth=false` leaves Neon Auth off, since the app has its own login. Check that preview branching is off on the database's page in the Vercel Storage tab.
-3. Blob: `vercel blob create-store wardrobe --access public --region fra1 --yes` (`--yes` connects all environments, including Development).
-4. In the Vercel dashboard, add for Production (and Preview, if you use preview deploys): `ANTHROPIC_API_KEY` (type Secret), `APP_PASSWORD_HASH` and `SESSION_SECRET` (from `pnpm hash-password --with-secret`, available from Phase 2), `CRON_SECRET`, and `ENABLE_EXPERIMENTAL_COREPACK=1`. `vercel.json` pins the Function region to fra1.
-5. `vercel env pull .env.local`. It merges into an existing file and brings down the Development environment: the Neon and Blob variables, and the Secret ones set for Development too (`ANTHROPIC_API_KEY`, `APP_PASSWORD_HASH`, `SESSION_SECRET`, `CRON_SECRET`). `vercel env ls` shows those as Hidden, but on 2026-11-05 a pull with Vercel CLI 65.11.0 wrote their real values. A variable without Development has to be added to `.env.local` by hand. `pnpm env:check` shows which groups are still missing.
-6. `pnpm db:migrate`, then `pnpm db:seed`, both against Neon.
-7. Connect the Vercel project to the GitHub repository: `vercel git connect` in the project folder (it reads the `origin` remote), or the dashboard's Settings → Git → Connect Git Repository. If Vercel's GitHub app cannot see the repository, grant it access (GitHub → Settings → Applications → Vercel → Repository access) and run it again. Connect only after steps 4 to 6: from then on every push to `main` deploys to production.
+Production, previews and local development each have their own database, photo store and secrets (D-242, D-246).
 
-The code lives at https://github.com/muylolito1999/AIguardaroba (public), and the Vercel project is connected to it with `main` as the production branch (D-240).
+1. `npm i -g vercel`, then `vercel login` and `vercel link --yes --project guardaroba-ai --scope airmaclollo99`. Restore `.gitignore` afterwards with `git checkout -- .gitignore` (see [Local setup](#local-setup)).
+2. Neon for production: `vercel integration add neon --meta region=fra1 --meta auth=false -e production`. The CLI no longer prompts: without `--meta region=fra1` (Frankfurt, aws-eu-central-1) it creates the database in us-east-1, and a Neon region cannot be changed later. `auth=false` leaves Neon Auth off, since the app has its own login. Check that preview branching is off on the database's page in the Vercel Storage tab.
+3. Neon for previews: `vercel integration add neon --name wardrobe-preview --meta region=fra1 --meta auth=false -e preview`. It starts empty and never holds production data.
+4. Blob: `vercel blob create-store wardrobe --access public --region fra1` connected to Production only, and `wardrobe-dev` (same options) connected to Development and Preview. Check each store's environments on its page in the Storage tab.
+5. In the Vercel dashboard, add the app's variables, type Secret:
+   - Production: `ANTHROPIC_API_KEY`, `APP_PASSWORD_HASH` and `SESSION_SECRET` (from `pnpm hash-password --with-secret`), `CRON_SECRET`, and `ENABLE_EXPERIMENTAL_COREPACK=1`.
+   - Preview: its own `APP_PASSWORD_HASH` and `SESSION_SECRET` from a separate `pnpm hash-password --with-secret` run, and `ENABLE_EXPERIMENTAL_COREPACK=1`. No `CRON_SECRET` (crons run only on production) and no Anthropic key, so AI calls on a preview stop with a configuration error.
+   - Development: nothing beyond the dev Blob store; local secrets live in `.env.local`.
+   - `vercel.json` pins the Function region to fra1.
+6. Locally: `vercel env pull .env.local` brings the dev store's token; add the Docker database URLs and a local password pair by hand (see [Local setup](#local-setup)). A pull writes the value of every variable set for Development, Secret ones included (`vercel env ls` shows a Secret as Hidden, but on 2026-11-05 a pull with Vercel CLI 65.11.0 wrote the real values), which is why no production secret may have Development ticked. `pnpm env:check` shows which groups are still missing.
+7. Databases: `pnpm db:migrate:prod` and `vercel env run -e production -- pnpm db:seed` for production; `vercel env run -e preview -- pnpm db:migrate` and `… pnpm db:seed` for the preview database.
+8. Connect the Vercel project to the GitHub repository: `vercel git connect` in the project folder (it reads the `origin` remote), or the dashboard's Settings → Git → Connect Git Repository. If Vercel's GitHub app cannot see the repository, grant it access (GitHub → Settings → Applications → Vercel → Repository access) and run it again. Connect only after steps 5 to 7: from then on every push to `main` deploys to production.
+
+The code lives at https://github.com/muylolito1999/AIguardaroba (public), and the Vercel project is connected to it with `main` as the production branch (D-240). A pull request from a fork builds only after the owner authorizes it on the pull request (Vercel's rule for public repositories); authorize only code you have read.
 
 ## Deploy
 
 A push to `main` is a production deploy:
 
-1. If the commits being pushed add a migration (a new folder under `drizzle/`), run `pnpm db:migrate` against Neon first. Vercel does not run migrations.
+1. If the commits being pushed add a migration (a new folder under `drizzle/`), run `pnpm db:migrate:prod` first (and `vercel env run -e preview -- pnpm db:migrate` for the preview database). Vercel does not run migrations.
 2. `git push origin main`. Vercel builds the pushed commit and, once the build passes, makes it the production deployment.
 3. Follow it in the dashboard's Deployments tab, or with `vercel ls` and `vercel inspect <deployment-url> --logs`. The build log should show pnpm 11 through corepack and Next.js 16.4.5.
 
 The crons in `vercel.json` belong to the production deployment, so a deploy also updates their schedule. `vercel --prod` still deploys the local folder without a push, uncommitted changes included; prefer a push, so production always matches a commit on `main`. To go back, `vercel rollback <deployment-url>` (or the Deployments tab) restores an earlier production deployment; it does not undo a migration.
 
-Other branches get preview deploys. A preview has the app's variables (D-241), so it is a full copy of the app, but it uses the same Neon database and Blob store as production: whatever it saves, deletes or spends on Claude is real. The crons run only on production. Push only to `main` until previews get data of their own.
+Other branches get preview deploys with data of their own (D-246): the `wardrobe-preview` Neon database, the `wardrobe-dev` photo store, and a preview password and session secret that production does not accept. Previews have no Anthropic key and run no crons. Sign in to a preview with the preview password.
 
-Migrations never run during the build. Re-run `pnpm db:migrate` against Neon before any deploy that ships a new migration: the code expects its tables, and, for example, Delete on the item page fails without `blob_cleanup` and `deleted_items`, and a register without `deleted_items` (`drizzle/20261104003955_item-deletion`). `CRON_SECRET` and `BLOB_READ_WRITE_TOKEN` must be set before the first deploy with the crons, or their runs answer 500.
+Migrations never run during the build. Re-run `pnpm db:migrate:prod` before any deploy that ships a new migration: the code expects its tables, and, for example, Delete on the item page fails without `blob_cleanup` and `deleted_items`, and a register without `deleted_items` (`drizzle/20261104003955_item-deletion`). `CRON_SECRET` and `BLOB_READ_WRITE_TOKEN` must be set before the first deploy with the crons, or their runs answer 500.
 
 ## Costs
 
@@ -379,7 +402,7 @@ A different tagging model applies to new items and to items you re-tag; existing
 `/settings/export` (Settings, Your data) offers three kinds of download. Every download needs the session, is sent with `Cache-Control: no-store` as an attachment, and is refused when another site starts it (`Sec-Fetch-Site: cross-site`). The links are plain links, so an error, such as an expired session, opens as a readable message instead of a broken file.
 
 - JSON (`GET /api/export/json`, `wardrobe-YYYY-MM-DD.json`, dated in UTC): `{ version: 1, exportedAt, items, climateProfiles, appSettings, analyses, analysisParts, shoppingListItems, packingChecklistItems, outfits, outfitItems, wearLogs, aiCalls, aiBatches }`. Rows have camelCase keys, ISO timestamps and money as numbers; each item carries its photo rows (URL, kind, size, dimensions). `login_attempts` is left out: it only holds keyed hashes of client addresses for the rate limit; so are `blob_cleanup`, the photo files of deleted items still to be removed from Blob (D-234), and `deleted_items`, the ids of deleted items (D-238).
-- CSV (`GET /api/export/csv`): items only, archived ones included, one row each with 35 snake_case columns ending in the processed, original and cut-out photo URLs. RFC 4180 quoting, CRLF line ends, UTF-8 with a byte-order mark so Excel shows accents, lists joined with `; `, booleans as `true`/`false`. Text that a spreadsheet would run as a formula (starting with `=`, `+`, `-`, `@`, a tab or a carriage return) gets a leading apostrophe.
+- CSV (`GET /api/export/csv`): items only, archived ones included, one row each with 35 snake_case columns ending in the processed, original and cut-out photo URLs. RFC 4180 quoting (fields containing `;` or a tab are quoted too), CRLF line ends, UTF-8 with a byte-order mark so Excel shows accents, lists joined with `; `, booleans as `true`/`false`. Text that a spreadsheet would run as a formula (starting with `=`, `+`, `-`, `@`, a tab or a carriage return) gets a leading apostrophe, and so does any `=`, `+`, `-` or `@` that follows a `;` or a tab inside a field, for spreadsheets that split the file on those, such as Excel with an Italian list separator (D-244).
 
   Both files stream from the database 200 rows at a time (items oldest first) and are not one consistent snapshot. If a read fails part-way, the download ends with an error rather than a short file that looks complete.
 - Photos (`GET /api/export/images?kind=processed|original|nobg&part=N`): ZIP files of at most 100 photos each, so a part of 10 MB originals still streams well within the 300-second function limit. Inside, a folder per category holds `<name>-<first 8 characters of the id>-<kind>.<ext>`, unique ignoring case across all parts of a kind, so every part can be extracted into one folder; `manifest.json` comes first and lists every file's item, source URL and size. The page lists each part with its exact size (or "about" when a size is unknown). Like the wardrobe, it reads itself again when you come back to it after an item changed in this tab (a new upload, a cut-out, a delete), so new photos get their part listed (D-138). The server fetches each photo one at a time from the Blob store (only stored `*.public.blob.vercel-storage.com` URLs over https, no redirects), with a 30-second timeout per photo and a check against the stored size; a photo that cannot be fetched ends the download with an error, so a part that finishes is always complete. When every size is known the response has an exact `Content-Length`, so the browser can spot a cut-off file. On Vercel, `vercel.json` sets `supportsCancellation` for this route, so a cancelled download stops fetching photos.

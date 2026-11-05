@@ -104,9 +104,11 @@ const SESSIONLESS_SERVICE_FUNCTIONS: Record<string, readonly string[]> = {
   // Cron, authenticated by CRON_SECRET: the daily Vercel cron has no session
   // cookie. The session-checked variant for the review page is pollTaggingBatches.
   "src/server/services/batches.ts": ["runBatchPoll"],
-  // Cron, authenticated by CRON_SECRET: deletes the Blob files of deleted items
-  // that are still queued (D-234, D-235). deleteItem calls it after its own session check.
-  "src/server/services/blob-cleanup.ts": ["runBlobCleanup"],
+  // Cron, authenticated by CRON_SECRET: deletes the Blob files still queued
+  // (D-234, D-235). deleteItem and attachNobgImage call it after their own
+  // session check. deleteOrQueue (D-245) is called only by registerUpload and
+  // attachNobgImage after theirs, often on an error path where it must not throw.
+  "src/server/services/blob-cleanup.ts": ["runBlobCleanup", "deleteOrQueue"],
 };
 const TEST_FILE = /\.test\.[cm]?[jt]sx?$/;
 

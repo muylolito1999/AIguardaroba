@@ -6,7 +6,7 @@ import type { Route } from "next";
 import { z } from "zod";
 
 import { passwordEnv, sessionEnv } from "@/env";
-import { clientKeyHash, getClientIp } from "@/lib/auth/client-key";
+import { clientKeyHash, clientPrefixHash, getClientIp } from "@/lib/auth/client-key";
 import { nextFromLoginReferer, safeRedirect } from "@/lib/auth/safe-redirect";
 import { clearSessionCookie, setSessionCookie } from "@/lib/auth/session";
 import { signSessionToken } from "@/lib/auth/token";
@@ -46,10 +46,12 @@ export async function login(_previous: LoginState, formData: FormData): Promise<
     const { SESSION_SECRET } = sessionEnv();
     const { passwordHash } = passwordEnv();
     const now = new Date();
+    const clientIp = getClientIp(requestHeaders);
     const result = await attemptLogin({
       db: getDb(),
       password: parsed.data.password,
-      keyHash: clientKeyHash(getClientIp(requestHeaders), SESSION_SECRET),
+      keyHash: clientKeyHash(clientIp, SESSION_SECRET),
+      prefixHash: clientPrefixHash(clientIp, SESSION_SECRET),
       now,
       passwordHash,
     });

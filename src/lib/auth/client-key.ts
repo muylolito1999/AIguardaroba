@@ -55,6 +55,27 @@ export function clientKeyHash(ip: string, secret: string): string {
 }
 
 /**
+ * The wider network a client's guesses also count against (D-243). An IPv6
+ * client counts as its /48 as well: an end site is routinely given a /56 or a
+ * /48, so per-/64 keys alone would let one site rotate through 256 to 65,536
+ * keys. Everything else (IPv4, IPv4-mapped, "unknown") has no wider network
+ * here, so its prefix is the same address as its key.
+ */
+export function rateLimitPrefix(ip: string): string {
+  const address = rateLimitAddress(ip);
+  if (!address.endsWith("::/64")) return address;
+  return `${address.split(":").slice(0, 3).join(":")}::/48`;
+}
+
+/**
+ * Hex sha256 of `rateLimitPrefix(ip)|secret`. For an IPv4 client it equals
+ * clientKeyHash, so the per-prefix limit adds nothing for IPv4.
+ */
+export function clientPrefixHash(ip: string, secret: string): string {
+  return createHash("sha256").update(`${rateLimitPrefix(ip)}|${secret}`, "utf8").digest("hex");
+}
+
+/**
  * The client IP from proxy headers: the first `x-forwarded-for` entry, then
  * `x-real-ip`, otherwise one shared "unknown" bucket.
  *

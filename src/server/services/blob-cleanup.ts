@@ -14,7 +14,48 @@ import { AppError, toErrorPayload, type AppErrorPayload } from "@/lib/result";
 // Deleting is idempotent (a file the store no longer has counts as deleted),
 // so two runs that pick the same row at once do no harm.
 
-export type BlobCleanupReason = "item_deleted";
+/**
+ * Why a file is queued: its item was deleted; it was the item's cut-out until
+ * a new one replaced it; or it was an upload no row ever kept (a duplicate, an
+ * unreadable photo, a failed save), queued only when deleting it at once
+ * failed (D-245).
+ */
+export type BlobCleanupReason = "item_deleted" | "cutout_replaced" | "upload_abandoned";
+
+/** How long deleteOrQueue waits for Blob before it queues the files instead. */
+export const DELETE_OR_QUEUE_TIMEOUT_MS = 8_000;
+
+/**
+ * Deletes files a request no longer needs and that no database row points at
+ * (an abandoned upload). When Blob fails or does not answer in time, the files
+ * are queued in blob_cleanup for the cron instead of only being logged, so no
+ * public file is left behind unrecorded (D-245). Never throws: callers are
+ * often on an error path already, and their own error must win.
+ */
+export async function deleteOrQueue(
+  db: Db,
+  storage: BlobStorage,
+  urls: readonly string[],
+  itemId: string,
+  reason: BlobCleanupReason,
+  why: string,
+): Promise<void> {
+  if (urls.length === 0) return;
+  try {
+    await storage.del(urls, { timeoutMs: DELETE_OR_QUEUE_TIMEOUT_MS });
+    return;
+  } catch (error) {
+    console.error(`[blob-cleanup] could not delete ${urls.length} file(s) after ${why}; queuing them:`, urls, error);
+  }
+  try {
+    await db
+      .insert(blobCleanup)
+      .values(urls.map((url) => ({ url, itemId, reason })))
+      .onConflictDoNothing({ target: blobCleanup.url });
+  } catch (error) {
+    console.error(`[blob-cleanup] could not queue ${urls.length} file(s) after ${why}; delete them by hand:`, urls, error);
+  }
+}
 
 export type BlobCleanupDeps = {
   db: Db;
@@ -132,11 +173,11 @@ export async function runBlobCleanup(deps: BlobCleanupDeps, options: BlobCleanup
       await storage.del(urls, { timeoutMs: Math.min(CLEANUP_CALL_TIMEOUT_MS, leftMs) });
     } catch (error) {
       console.error(
-        `[blob-cleanup] deleting ${urls.length} file(s) of deleted item ${group.itemId} failed; they stay queued:`,
+        `[blob-cleanup] deleting ${urls.length} queued file(s) of item ${group.itemId} failed; they stay queued:`,
         urls,
         error,
       );
-      const failure = blobFailure(error, "delete a deleted item's photos");
+      const failure = blobFailure(error, "delete queued photos");
       // The safe message alone would not say what Blob answered.
       const cause = failure.cause instanceof Error ? ` (${failure.cause.message})` : "";
       const lastError = `${failure.code}: ${failure.message}${cause}`.slice(0, LAST_ERROR_MAX_LENGTH);

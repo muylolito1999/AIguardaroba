@@ -5,13 +5,7 @@ import { eq, or, type SQL } from "drizzle-orm";
 import { requireSession } from "@/lib/auth/dal";
 import type { Db } from "@/lib/db/client";
 import { appSettings, deletedItems, itemImages, items, type NewItemImage } from "@/lib/db/schema";
-import {
-  assertRegisteredBlob,
-  deleteBlobsQuietly,
-  type BlobMeta,
-  type BlobStorage,
-  type StoredBlob,
-} from "@/lib/images/blob";
+import { assertRegisteredBlob, type BlobMeta, type BlobStorage, type StoredBlob } from "@/lib/images/blob";
 import { processImage, type ProcessImageResult } from "@/lib/images/server-pipeline";
 import {
   matchesUploadPathname,
@@ -23,6 +17,10 @@ import {
 } from "@/lib/items/contracts";
 import { AppError } from "@/lib/result";
 import { loadItemCard } from "@/server/items/dto";
+import { deleteOrQueue, type BlobCleanupReason } from "@/server/services/blob-cleanup";
+
+/** Files deleted here belong to no item row; when Blob fails they are queued (D-245). */
+const ABANDONED: BlobCleanupReason = "upload_abandoned";
 
 // Turns a browser upload into an item (D-031, D-033): validate the blob,
 // process it once, store the derived images, then create the item and its three
@@ -109,7 +107,7 @@ async function settleExisting(
   original: BlobMeta,
 ): Promise<RegisterData> {
   if (existingItemId === itemId) return registered(deps.db, itemId);
-  await deleteBlobsQuietly(deps.storage, [original.url], "a duplicate upload");
+  await deleteOrQueue(deps.db, deps.storage, [original.url], itemId, ABANDONED, "a duplicate upload");
   return { duplicate: true, existingItemId };
 }
 
@@ -177,6 +175,7 @@ async function fetchOriginal(deps: RegisterUploadDeps, original: BlobMeta): Prom
 
 async function processOrDiscard(
   deps: RegisterUploadDeps,
+  itemId: string,
   original: BlobMeta,
   buffer: Buffer,
 ): Promise<ProcessImageResult> {
@@ -185,7 +184,7 @@ async function processOrDiscard(
   } catch (error) {
     if (error instanceof AppError && error.code === "VALIDATION") {
       // A file sharp refuses can never become an item; keeping it only uses storage.
-      await deleteBlobsQuietly(deps.storage, [original.url], "an unreadable upload");
+      await deleteOrQueue(deps.db, deps.storage, [original.url], itemId, ABANDONED, "an unreadable upload");
     }
     throw error;
   }
@@ -193,6 +192,7 @@ async function processOrDiscard(
 
 /** Stores the processed image and the thumbnail; if either fails, removes the other and rethrows. */
 async function putDerivatives(
+  db: Db,
   storage: BlobStorage,
   itemId: string,
   result: ProcessImageResult,
@@ -206,7 +206,7 @@ async function putDerivatives(
   }
   const written = [processed, thumb].flatMap((outcome) => (outcome.status === "fulfilled" ? [outcome.value.url] : []));
   const reasons = [processed, thumb].flatMap((outcome) => (outcome.status === "rejected" ? [outcome.reason] : []));
-  await deleteBlobsQuietly(storage, written, "a failed image upload");
+  await deleteOrQueue(db, storage, written, itemId, ABANDONED, "a failed image upload");
   throw reasons[0];
 }
 
@@ -311,16 +311,16 @@ export async function registerUpload(deps: RegisterUploadDeps, input: RegisterBo
   const bySource = await findItemId(db, eq(items.sourceHash, input.sourceHash));
   if (bySource !== null) return settleExisting(deps, itemId, bySource, original);
 
-  const result = await processOrDiscard(deps, original, await fetchOriginal(deps, original));
+  const result = await processOrDiscard(deps, itemId, original, await fetchOriginal(deps, original));
 
   const byImage = await findItemId(db, eq(items.imageHash, result.imageHash));
   if (byImage !== null) return settleExisting(deps, itemId, byImage, original);
 
-  const stored = await putDerivatives(storage, itemId, result);
+  const stored = await putDerivatives(db, storage, itemId, result);
   try {
     await insertItem(db, input, result, original, stored);
   } catch (error) {
-    await deleteBlobsQuietly(storage, [stored.processed.url, stored.thumb.url], "a failed registration");
+    await deleteOrQueue(db, storage, [stored.processed.url, stored.thumb.url], itemId, ABANDONED, "a failed registration");
     const constraint = uniqueViolationConstraint(error);
     if (constraint === null || !ITEM_UNIQUE_CONSTRAINTS.has(constraint)) throw error;
     // Lost a race. Which constraint Postgres reports first is not defined when

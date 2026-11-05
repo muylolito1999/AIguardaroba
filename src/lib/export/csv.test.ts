@@ -93,15 +93,27 @@ describe("csvField", () => {
     expect(csvField("+1 555")).toBe("'+1 555");
     expect(csvField("-cheap")).toBe("'-cheap");
     expect(csvField("@SUM(A1)")).toBe("'@SUM(A1)");
-    expect(csvField("\t=1+1")).toBe("'\t=1+1");
+    // The tab is a cell boundary for a tab-splitting reader, so the "=" after it is guarded too, and the field is quoted.
+    expect(csvField("\t=1+1")).toBe(`"'\t'=1+1"`);
     // The apostrophe comes first, then quoting for the CR.
     expect(csvField("\r=1")).toBe(`"'\r=1"`);
     expect(csvField("=1,2")).toBe(`"'=1,2"`);
   });
 
-  it("only guards the start of the text", () => {
+  it("guards only the start of the text and the places after a ';' or a tab", () => {
     expect(csvField("a=b")).toBe("a=b");
     expect(csvField(" =1")).toBe(" =1");
+    expect(csvField("a=b;c")).toBe(`"a=b;c"`);
+  });
+
+  it("guards a formula after a ';' or a tab, for readers that split on them (D-244)", () => {
+    expect(csvField("x;=1+1;y")).toBe(`"x;'=1+1;y"`);
+    expect(csvField("x; =1+1")).toBe(`"x; '=1+1"`);
+    expect(csvField("x;  @SUM(A1)")).toBe(`"x;  '@SUM(A1)"`);
+    expect(csvField("a\t-2+3")).toBe(`"a\t'-2+3"`);
+    expect(csvField(["cotton", "=1+1"])).toBe(`"cotton; '=1+1"`);
+    // Every cell a ';'-splitting reader would see starts safely.
+    for (const cell of guardFormula("x;=1;+2; -3;@4\t=5").split(/[;\t]/)) expect(cell.trimStart(), cell).not.toMatch(/^[=+\-@]/);
   });
 
   it("writes null and undefined as empty, booleans as true/false, dates as ISO", () => {
@@ -119,23 +131,27 @@ describe("csvField", () => {
     expect(csvField(Number.NaN)).toBe("");
   });
 
-  it("joins lists with '; ' and quotes or guards the joined text", () => {
-    expect(csvField(["navy", "black"])).toBe("navy; black");
+  it("joins lists with '; ' and quotes the joined text, guarding each entry", () => {
+    expect(csvField(["navy", "black"])).toBe('"navy; black"');
+    expect(csvField(["navy"])).toBe("navy");
     expect(csvField([])).toBe("");
     expect(csvField(["wool, merino", "silk"])).toBe('"wool, merino; silk"');
-    expect(csvField(["=evil", "ok"])).toBe("'=evil; ok");
+    expect(csvField(["=evil", "ok"])).toBe(`"'=evil; ok"`);
   });
 
   it("exposes the guard and the quoting on their own", () => {
     expect(guardFormula("=1")).toBe("'=1");
     expect(guardFormula("1")).toBe("1");
+    expect(guardFormula("a;=1")).toBe("a;'=1");
     expect(quoteCsvField('"')).toBe('""""');
+    expect(quoteCsvField("a;b")).toBe('"a;b"');
+    expect(quoteCsvField("a\tb")).toBe('"a\tb"');
   });
 });
 
 describe("csvRow", () => {
   it("joins fields with commas and ends with CRLF", () => {
-    expect(csvRow(["a", 1, true, null, ["x", "y"]])).toBe(`a,1,true,,x; y${CSV_EOL}`);
+    expect(csvRow(["a", 1, true, null, ["x", "y"]])).toBe(`a,1,true,,"x; y"${CSV_EOL}`);
   });
 
   it("round-trips through an RFC 4180 reader", () => {

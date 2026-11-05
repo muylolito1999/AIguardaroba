@@ -5,14 +5,8 @@ import sharp, { type Metadata } from "sharp";
 
 import { requireSession } from "@/lib/auth/dal";
 import type { Db } from "@/lib/db/client";
-import { itemImages, items } from "@/lib/db/schema";
-import {
-  assertRegisteredBlob,
-  deleteBlobsQuietly,
-  type BlobMeta,
-  type BlobStorage,
-  type StoredBlob,
-} from "@/lib/images/blob";
+import { blobCleanup, itemImages, items } from "@/lib/db/schema";
+import { assertRegisteredBlob, type BlobMeta, type BlobStorage, type StoredBlob } from "@/lib/images/blob";
 import {
   encodeWebp,
   PROCESSED_LONG_EDGE,
@@ -30,6 +24,17 @@ import {
 } from "@/lib/items/contracts";
 import { AppError } from "@/lib/result";
 import { loadItemCard } from "@/server/items/dto";
+import { deleteOrQueue, runBlobCleanup, type BlobCleanupReason } from "@/server/services/blob-cleanup";
+
+const REPLACED: BlobCleanupReason = "cutout_replaced";
+const ABANDONED: BlobCleanupReason = "upload_abandoned";
+
+/**
+ * The most a save waits for Blob to delete the cut-out it replaced (D-245).
+ * The file is queued in the save's own transaction, so after this long it is
+ * left to the daily cleanup cron and the save still succeeds.
+ */
+export const AFTER_REPLACE_BUDGET_MS = 8_000;
 
 // Attaches a background-removed cut-out to an item (D-034). The browser runs
 // the model and uploads a PNG with real alpha to items/<id>/nobg.png; this
@@ -46,6 +51,8 @@ export type AttachNobgDeps = {
   fetch: typeof fetch;
   /** Defaults to NOBG_FETCH_TIMEOUT_MS. */
   fetchTimeoutMs?: number;
+  /** Tests pass a fixed clock for the cleanup of a replaced cut-out. */
+  now?: () => Date;
 };
 
 /** Leaves room for sharp, one put and the upsert within the route's 60 s. */
@@ -146,6 +153,9 @@ async function encodeCutout(png: Buffer): Promise<EncodedImage> {
  * before, if any. The item row is locked first, so two saves for one item run
  * one after the other and each sees the other's blob as the one to delete;
  * without the lock both could find no previous row and one blob would leak.
+ * The replaced blob is queued in blob_cleanup in this same transaction (D-245),
+ * so a Blob failure after the commit, or a function that stops, never leaves
+ * a public file that nothing records.
  */
 async function upsertNobgRow(
   db: Db,
@@ -178,7 +188,14 @@ async function upsertNobgRow(
         // created_at dates the blob write the usage page counts, so a replacement is a new write.
         set: { ...image, createdAt: new Date() },
       });
-    return previous?.url ?? null;
+    const previousUrl = previous?.url ?? null;
+    if (previousUrl !== null && previousUrl !== stored.url) {
+      await tx
+        .insert(blobCleanup)
+        .values({ url: previousUrl, itemId, reason: REPLACED })
+        .onConflictDoNothing({ target: blobCleanup.url });
+    }
+    return previousUrl;
   });
 }
 
@@ -194,11 +211,20 @@ async function attachValidated(deps: AttachNobgDeps, itemId: string, upload: Blo
   try {
     previousUrl = await upsertNobgRow(db, itemId, stored, cutout);
   } catch (error) {
-    await deleteBlobsQuietly(storage, [stored.url], "a failed cut-out save");
+    await deleteOrQueue(db, storage, [stored.url], itemId, ABANDONED, "a failed cut-out save");
     throw error;
   }
   if (previousUrl !== null && previousUrl !== stored.url) {
-    await deleteBlobsQuietly(storage, [previousUrl], "replacing a cut-out");
+    // Already queued by the commit; this only tries to delete it now. A failure
+    // is stored on the queue row by the cleanup and left to the cron.
+    try {
+      await runBlobCleanup(
+        { db, storage, now: deps.now },
+        { deadlineAt: Date.now() + AFTER_REPLACE_BUDGET_MS, maxItems: 1, firstItemId: itemId },
+      );
+    } catch (error) {
+      console.error(`[nobg] item ${itemId}'s new cut-out is saved, but deleting the replaced one failed:`, error);
+    }
   }
   return { item: await loadItemCard(db, itemId) };
 }
@@ -231,6 +257,6 @@ export async function attachNobgImage(deps: AttachNobgDeps, itemId: string, inpu
   try {
     return await attachValidated(deps, itemId, upload);
   } finally {
-    await deleteBlobsQuietly(storage, [upload.url], "processing an uploaded cut-out");
+    await deleteOrQueue(deps.db, storage, [upload.url], itemId, ABANDONED, "processing an uploaded cut-out");
   }
 }

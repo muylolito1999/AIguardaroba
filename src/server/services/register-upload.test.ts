@@ -206,6 +206,21 @@ describe("registerUpload", () => {
     expect(await itemRows()).toHaveLength(1);
   });
 
+  it("queues a duplicate's original for the cron when deleting it fails (D-245)", async () => {
+    const sourceHash = sha256("the same picked file, while Blob fails");
+    await makeItem(testDb.db, { sourceHash });
+    const { itemId, blob } = upload(otherPhoto);
+    fake.failNext("del", new Error("socket hang up"));
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    try {
+      expect(await registerUpload(deps(), registerBody(itemId, blob, sourceHash))).toMatchObject({ duplicate: true });
+    } finally {
+      consoleError.mockRestore();
+    }
+    expect(fake.blobs.has(blob.url)).toBe(true);
+    expect(await testDb.db.select().from(blobCleanup)).toMatchObject([{ url: blob.url, itemId, reason: "upload_abandoned" }]);
+  });
+
   it("settles a lost source-hash race as a duplicate and removes every blob it wrote", async () => {
     const { itemId, blob } = upload();
     const input = registerBody(itemId, blob);

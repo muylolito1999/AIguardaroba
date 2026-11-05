@@ -462,16 +462,26 @@ export const aiCalls = snakeCase.table(
   ],
 );
 
-/** Login rate limiting, keyed by sha256(ip|SESSION_SECRET); raw IPs are never stored (D-014). */
+/**
+ * Login rate limiting, keyed by sha256(ip|SESSION_SECRET); raw IPs are never
+ * stored (D-014). prefix_hash is the client's wider network, an IPv6 /48
+ * (equal to key_hash for IPv4), counted by its own limit (D-243).
+ */
 export const loginAttempts = snakeCase.table(
   "login_attempts",
   {
     id: id(),
     keyHash: text().notNull(),
+    prefixHash: text().notNull().default(""),
     success: boolean().notNull(),
     attemptedAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
   },
-  (t) => [index("login_attempts_key_hash_attempted_at_idx").on(t.keyHash, t.attemptedAt)],
+  (t) => [
+    index("login_attempts_key_hash_attempted_at_idx").on(t.keyHash, t.attemptedAt),
+    index("login_attempts_prefix_hash_attempted_at_idx").on(t.prefixHash, t.attemptedAt),
+    // The prune and the failure-spike count filter on attempted_at alone.
+    index("login_attempts_attempted_at_idx").on(t.attemptedAt),
+  ],
 );
 
 /** A single row (id 1) of app-wide settings. */

@@ -11,12 +11,15 @@ import { loginAttempts } from "@/lib/db/schema";
 //
 // Per key (sha256 of ip|SESSION_SECRET, see client-key.ts): 5 failures within
 // 15 minutes lock that key until the oldest of them is 15 minutes old.
+// Per prefix (an IPv6 client's /48; for IPv4 the prefix is the key itself):
+// 25 failures within 15 minutes lock every key in it the same way (D-243).
 // Successes never erase failures. There is deliberately no global lock: any
 // anonymous visitor could trip it and lock the owner out. A burst of failures
 // across all keys only logs a warning; `pnpm auth:unlock` clears everything.
 
 export const FAILURE_WINDOW_MS = 15 * 60 * 1000;
 export const MAX_FAILURES_PER_WINDOW = 5;
+export const MAX_FAILURES_PER_PREFIX = 25;
 export const GLOBAL_ALERT_WINDOW_MS = 60 * 60 * 1000;
 export const GLOBAL_ALERT_THRESHOLD = 200;
 export const ATTEMPT_RETENTION_MS = 24 * 60 * 60 * 1000;
@@ -46,36 +49,58 @@ async function warnOnFailureSpike(db: Db, now: Date): Promise<void> {
   }
 }
 
-/** Whether `keyHash` may try a password now; when locked, how long until it may. */
-export async function checkLoginAllowed(db: Db, keyHash: string, now: Date): Promise<LoginGate> {
-  await warnOnFailureSpike(db, now);
-
+/**
+ * When `max` failures in the window lock `column = value`, the gate for it;
+ * otherwise null. It unlocks when the max-th most recent failure leaves the window.
+ */
+async function lockFor(
+  db: Db,
+  column: typeof loginAttempts.keyHash | typeof loginAttempts.prefixHash,
+  value: string,
+  max: number,
+  now: Date,
+): Promise<LoginGate | null> {
   const recentFailures = await db
     .select({ attemptedAt: loginAttempts.attemptedAt })
     .from(loginAttempts)
-    .where(
-      and(
-        eq(loginAttempts.keyHash, keyHash),
-        eq(loginAttempts.success, false),
-        gt(loginAttempts.attemptedAt, before(now, FAILURE_WINDOW_MS)),
-      ),
-    )
+    .where(and(eq(column, value), eq(loginAttempts.success, false), gt(loginAttempts.attemptedAt, before(now, FAILURE_WINDOW_MS))))
     .orderBy(desc(loginAttempts.attemptedAt))
-    .limit(MAX_FAILURES_PER_WINDOW);
+    .limit(max);
 
-  const oldestCounted = recentFailures[MAX_FAILURES_PER_WINDOW - 1];
-  if (oldestCounted === undefined) return { allowed: true };
-
-  // The key unlocks when the 5th most recent failure leaves the window.
+  const oldestCounted = recentFailures[max - 1];
+  if (oldestCounted === undefined) return null;
   const unlocksAt = oldestCounted.attemptedAt.getTime() + FAILURE_WINDOW_MS;
   return { allowed: false, retryAfterSeconds: Math.max(1, Math.ceil((unlocksAt - now.getTime()) / 1000)) };
 }
 
-/** Stores one attempt and returns its id. The key hash is stored, never the IP. */
-export async function recordLoginAttempt(db: Db, keyHash: string, success: boolean, now: Date): Promise<string> {
+/**
+ * Whether `keyHash` may try a password now; when locked, how long until it may.
+ * `prefixHash` (client-key.ts clientPrefixHash) defaults to the key, which is
+ * what it is for IPv4. The per-key gate runs first, so a locked key costs one
+ * indexed query; the table-wide spike count runs only for allowed attempts (D-243).
+ */
+export async function checkLoginAllowed(db: Db, keyHash: string, now: Date, prefixHash: string = keyHash): Promise<LoginGate> {
+  const keyLock = await lockFor(db, loginAttempts.keyHash, keyHash, MAX_FAILURES_PER_WINDOW, now);
+  if (keyLock !== null) return keyLock;
+  if (prefixHash !== keyHash) {
+    const prefixLock = await lockFor(db, loginAttempts.prefixHash, prefixHash, MAX_FAILURES_PER_PREFIX, now);
+    if (prefixLock !== null) return prefixLock;
+  }
+  await warnOnFailureSpike(db, now);
+  return { allowed: true };
+}
+
+/** Stores one attempt and returns its id. The key and prefix hashes are stored, never the IP. */
+export async function recordLoginAttempt(
+  db: Db,
+  keyHash: string,
+  success: boolean,
+  now: Date,
+  prefixHash: string = keyHash,
+): Promise<string> {
   const [row] = await db
     .insert(loginAttempts)
-    .values({ keyHash, success, attemptedAt: now })
+    .values({ keyHash, prefixHash, success, attemptedAt: now })
     .returning({ id: loginAttempts.id });
   if (row === undefined) throw new Error("recordLoginAttempt: insert returned no row");
   return row.id;
@@ -84,18 +109,24 @@ export async function recordLoginAttempt(db: Db, keyHash: string, success: boole
 export type LoginReservation = { allowed: true; attemptId: string } | { allowed: false; retryAfterSeconds: number };
 
 /**
- * Checks the limit and, when allowed, records the attempt as a failure in one
- * step that is serialized per key (a transaction-scoped advisory lock).
- * Without this, parallel requests could all pass the check during the slow
- * bcrypt compare and get far more than 5 guesses. The caller marks the
- * attempt as a success afterwards if the password was right.
+ * Checks the limits and, when allowed, records the attempt as a failure in one
+ * step that is serialized per prefix (a transaction-scoped advisory lock; for
+ * IPv4 the prefix is the key). Without this, parallel requests could all pass
+ * the check during the slow bcrypt compare and get far more guesses than the
+ * limits allow. The caller marks the attempt as a success afterwards if the
+ * password was right.
  */
-export async function reserveLoginAttempt(db: Db, keyHash: string, now: Date): Promise<LoginReservation> {
+export async function reserveLoginAttempt(
+  db: Db,
+  keyHash: string,
+  now: Date,
+  prefixHash: string = keyHash,
+): Promise<LoginReservation> {
   return db.transaction(async (tx) => {
-    await tx.execute(sql`select pg_advisory_xact_lock(${ADVISORY_LOCK_NAMESPACE}, hashtext(${keyHash}))`);
-    const gate = await checkLoginAllowed(tx, keyHash, now);
+    await tx.execute(sql`select pg_advisory_xact_lock(${ADVISORY_LOCK_NAMESPACE}, hashtext(${prefixHash}))`);
+    const gate = await checkLoginAllowed(tx, keyHash, now, prefixHash);
     if (!gate.allowed) return gate;
-    const attemptId = await recordLoginAttempt(tx, keyHash, false, now);
+    const attemptId = await recordLoginAttempt(tx, keyHash, false, now, prefixHash);
     return { allowed: true, attemptId };
   });
 }

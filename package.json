@@ -6,9 +6,9 @@
     "node": "26.x"
   },
   "scripts": {
-    "dev": "pnpm vendor:bg-removal && next dev",
+    "dev": "pnpm vendor:bg-removal && next dev -H localhost",
     "build": "pnpm vendor:bg-removal && next build",
-    "start": "next start",
+    "start": "next start -H localhost",
     "lint": "eslint",
     "typecheck": "next typegen && tsc --noEmit",
     "test": "vitest run",
@@ -16,6 +16,7 @@
     "test:e2e": "playwright test",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
+    "db:migrate:prod": "vercel env run -e production -- drizzle-kit migrate",
     "db:studio": "drizzle-kit studio",
     "db:seed": "tsx --conditions=react-server scripts/seed.ts",
     "db:seed:demo": "tsx --conditions=react-server scripts/seed-demo.ts",

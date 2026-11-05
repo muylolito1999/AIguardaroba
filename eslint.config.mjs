@@ -20,6 +20,8 @@ const eslintConfig = defineConfig([
     ".beads/**",
     // Third-party runtime copied in before every build (scripts/vendor-bg-removal.ts).
     "public/vendor/**",
+    // Locally installed agent skills (gitignored; not part of the app).
+    ".agents/**",
   ]),
 ]);
 
