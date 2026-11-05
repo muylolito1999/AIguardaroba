@@ -82,7 +82,7 @@ Copy `.env.example` to `.env.local`, or get the values with `vercel env pull .en
 | `DATABASE_URL` | Phase 2+, runtime (Vercel and local) | Pooled Postgres connection string. Set by the Neon integration; locally it can point at the Docker database. |
 | `DATABASE_URL_UNPOOLED` | Phase 2+, migrations | Direct (unpooled) connection used by `drizzle-kit`. `drizzle.config.ts` fails with the variable name if it is missing; there is no fallback to the pooled URL. |
 | `BLOB_READ_WRITE_TOKEN` | Phase 3+, runtime (Vercel and local) | Blob store token. Required even when the store is connected through OIDC: `handleUpload` signs client upload tokens with it, and every server Blob call passes it explicitly. Connect the store with the Development environment included so `vercel env pull` writes it. |
-| `ANTHROPIC_API_KEY` | Phase 3+, runtime | Anthropic API key. Store it in Vercel as type Secret (write-only once saved; formerly "Sensitive"). |
+| `ANTHROPIC_API_KEY` | Phase 3+, runtime | Anthropic API key. Store it in Vercel as type Secret (formerly "Sensitive"): the dashboard and `vercel env ls` show it as Hidden, but `vercel env pull` writes its value when it includes Development. |
 | `CLAUDE_TAGGING_MODEL` | Optional | Tagging model. Default `claude-haiku-5-5`. Must be priced in `src/lib/ai/models.ts`. |
 | `CLAUDE_ANALYSIS_MODEL` | Optional | Relocation analysis model. Default `claude-sonnet-5-5`. Must be priced. |
 | `CLAUDE_OUTFIT_MODEL` | Optional (Phase 6) | Model for the `/today` outfit suggestions. Defaults to the analysis model (`claude-sonnet-5-5`); `claude-haiku-5-5` costs about a twentieth (see [Costs](#costs)). Must be priced. |
@@ -101,14 +101,15 @@ Variables that Vercel injects on its own (`VERCEL_OIDC_TOKEN`, `BLOB_STORE_ID`, 
 
 ## Local setup
 
-1. Install Node 26 LTS (on Windows: `winget install --id OpenJS.NodeJS.LTS --exact --source winget`).
+1. Install Node 26 LTS (on Windows: `winget install --id OpenJS.NodeJS.LTS --exact --source winget`). Node 26 ships without corepack, so pnpm comes from npm.
 2. Install pnpm: `npm i -g pnpm@11.28.9`.
 3. Install dependencies: `pnpm i`.
-4. Get the environment: `vercel env pull .env.local` (needs the Vercel project, see "Connecting the cloud" below). Phase 1 runs without it.
-5. Start the local database with `docker compose up -d db` and point `.env.local` at it (see [Database](#database)). Production uses Neon.
-6. `pnpm db:migrate`, then `pnpm db:seed`. The seed is idempotent.
-7. Set the password with `pnpm hash-password --with-secret` and put both printed values in `.env.local` (see [Authentication](#authentication)).
+4. Install Docker Desktop (on Windows: `winget install --id Docker.DockerDesktop --exact --source winget`; it runs on WSL 2 and asks for administrator rights), start it once and accept its licence. The e2e run always uses the Docker database.
+5. Get the environment: `npm i -g vercel`, `vercel login`, `vercel link --yes --project guardaroba-ai --scope airmaclollo99`, then `vercel env pull .env.local`. Both `vercel link` and `vercel env pull` append `.vercel` and `.env*` to `.gitignore`; both were already listed, and the trailing `.env*` would cancel `!.env.example`, so restore the file each time with `git checkout -- .gitignore`. Phase 1 runs without the environment.
+6. Choose the data. The pulled values point at production: the Development environment shares the Neon database and the Blob store with Production (D-241), so `pnpm dev` and every `pnpm db:*` command work on the real wardrobe, and whatever they save, delete or spend on Claude is real. To work on the Docker database instead, run `docker compose up -d db`, set `DATABASE_URL` and `DATABASE_URL_UNPOOLED` as in [Local database (Docker)](#local-database-docker), then `pnpm db:migrate` and `pnpm db:seed` (the seed is idempotent). Photo uploads still go to the production Blob store unless `BLOB_READ_WRITE_TOKEN` is left empty, which turns uploads off.
+7. The pull also writes the Secret values (see [Connecting the cloud](#connecting-the-cloud-one-time)), so the login password is the production one. For a different local password, run `pnpm hash-password --with-secret` and replace both printed values in `.env.local` (see [Authentication](#authentication)). `pnpm env:check` shows which groups are complete.
 8. `pnpm dev` and open http://localhost:3000. You land on `/login`.
+9. Beads: `npm i -g @beads/bd`. Its database (`.beads/embeddeddolt/`) is not in git, so a new clone has the tool but no issues until the database is copied from the machine that has it, or pulled from a Dolt remote once one is set up (`bd dolt push` there, `bd dolt pull` here).
 
 Notes:
 
@@ -149,7 +150,7 @@ The seed restores Hamburg to the reference values on every run and makes it the 
 
 ### Neon
 
-Once the Neon integration exists, `vercel env pull .env.local` writes Neon's pooled `DATABASE_URL` and direct `DATABASE_URL_UNPOOLED` into `.env.local`, replacing the Docker values. The same commands then target Neon; the order before a deploy is in [Deploy](#deploy).
+Once the Neon integration exists, `vercel env pull .env.local` writes Neon's pooled `DATABASE_URL` and direct `DATABASE_URL_UNPOOLED` into `.env.local`, replacing the Docker values. The same commands then target Neon, which is the production database: Development has no database of its own. The order before a deploy is in [Deploy](#deploy).
 
 ## Authentication
 
@@ -308,7 +309,7 @@ With `FEATURE_SHOPPING_AI=true`, `/shopping` gets a "What to buy next" section b
 2. Neon: `vercel integration add neon --meta region=fra1 --meta auth=false`. The CLI no longer prompts: without `--meta region=fra1` (Frankfurt, aws-eu-central-1) it creates the database in us-east-1, and a Neon region cannot be changed later. `auth=false` leaves Neon Auth off, since the app has its own login. Check that preview branching is off on the database's page in the Vercel Storage tab.
 3. Blob: `vercel blob create-store wardrobe --access public --region fra1 --yes` (`--yes` connects all environments, including Development).
 4. In the Vercel dashboard, add for Production (and Preview, if you use preview deploys): `ANTHROPIC_API_KEY` (type Secret), `APP_PASSWORD_HASH` and `SESSION_SECRET` (from `pnpm hash-password --with-secret`, available from Phase 2), `CRON_SECRET`, and `ENABLE_EXPERIMENTAL_COREPACK=1`. `vercel.json` pins the Function region to fra1.
-5. `vercel env pull .env.local`. It merges into an existing file and brings down the Neon and Blob variables. Secret values are write-only, so it never downloads them: to run the app locally, add `APP_PASSWORD_HASH`, `SESSION_SECRET` and `ANTHROPIC_API_KEY` (and `CRON_SECRET`, to call a cron route) to `.env.local` by hand. `pnpm env:check` shows which groups are still missing.
+5. `vercel env pull .env.local`. It merges into an existing file and brings down the Development environment: the Neon and Blob variables, and the Secret ones set for Development too (`ANTHROPIC_API_KEY`, `APP_PASSWORD_HASH`, `SESSION_SECRET`, `CRON_SECRET`). `vercel env ls` shows those as Hidden, but on 2026-11-05 a pull with Vercel CLI 65.11.0 wrote their real values. A variable without Development has to be added to `.env.local` by hand. `pnpm env:check` shows which groups are still missing.
 6. `pnpm db:migrate`, then `pnpm db:seed`, both against Neon.
 7. Connect the Vercel project to the GitHub repository: `vercel git connect` in the project folder (it reads the `origin` remote), or the dashboard's Settings → Git → Connect Git Repository. If Vercel's GitHub app cannot see the repository, grant it access (GitHub → Settings → Applications → Vercel → Repository access) and run it again. Connect only after steps 4 to 6: from then on every push to `main` deploys to production.
 
