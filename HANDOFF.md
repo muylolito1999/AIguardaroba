@@ -6,7 +6,7 @@ Newest entry first. Each entry records the state at the end of a working session
 
 ### State
 
-- **Feature (owner request):** add running gear to the wardrobe but keep it apart from regular clothing, so it never feeds outfits or anything outfit-related. Built, reviewed and checked; **not committed, not migrated in production, not deployed.**
+- **Feature (owner request):** add running gear to the wardrobe but keep it apart from regular clothing, so it never feeds outfits or anything outfit-related. Built, reviewed and checked. At the owner's request: committed as `cd08c5e`, production migrated, and pushed to `main` (see Migration and deploy state).
 - **Owner's decisions, asked before the build:**
   - a Clothes | Running switch on `/wardrobe`;
   - marking through an "Adding running gear" switch on `/add` and a "Running gear" switch on the item page;
@@ -101,9 +101,18 @@ All times local (CET), 2026-11-05. Every gate, e2e and database command ran thro
 
 - **New migration** `drizzle/20261105182528_item-collection`: CREATE TYPE, ADD COLUMN with a constant default (metadata-only), CREATE INDEX. It only adds.
   - Applied to Docker `wardrobe` and `wardrobe_e2e`.
-  - **Not applied to production.**
-- **Order matters:** the new code selects `items.collection` everywhere, so production must be migrated **before** the push that ships it (old code ignores the column).
-- Nothing committed or pushed.
+  - **Production, 23:15:52 to 23:15:58:** `pnpm db:migrate:prod` applied it, after the owner asked to commit and push to production, with `.env.local` moved aside (restored 23:15:58). A read-only check at 23:16:18 to 23:16:20, through `vercel env run -e production -- pnpm exec node <script>` in Git Bash, on host `ep-blue-mountain-ba9oqdsx…eu-central-1.aws.neon.tech`, inside a READ ONLY transaction, found:
+    - `items.collection`: `item_collection`, not null, default `'clothing'`;
+    - enum labels `clothing,running`;
+    - index `items_collection_idx`;
+    - 5 applied migrations;
+    - all 118 items in `clothing`.
+  - Not applied to a preview database: isolated previews (wardrobe-xxi) are still open.
+- **Order kept:** the new code selects `items.collection` everywhere, so production was migrated before the push (old code ignores the column).
+- **Committed and pushed:** `cd08c5e` (123 files, no attribution trailer). `bef210f..cd08c5e` reached `main` at 23:16:28, and the Git integration built production deployment `dpl_7FQ6ktruEnZXX36ujbAeucAXqKeC` (`guardaroba-4m4kyah5t-airmaclollo99.vercel.app`, created 23:16:32, Ready by 23:17:33).
+  - At 23:17:43, `vercel inspect guardaroba-ai-seven.vercel.app` resolved to that deployment.
+  - HEAD-style checks from fra1: `/login` returned 200; `/` returned 307 to `/wardrobe`; `/wardrobe?collection=running` returned 307 to `/login?next=…`.
+  - A sign-in on production was not tried (the agent does not enter passwords). The signed-in checks are the owner's (wardrobe-8n6).
 
 ### Live checks pending
 
@@ -113,16 +122,14 @@ wardrobe-8n6:
 - an outfit and `/today` afterwards;
 - the relocation estimate's wording.
 
-### Owner steps (in this order)
+### Owner steps
 
-1. Review the change and ask for the commit. Per AGENTS.md, the commit carries no attribution trailers.
-2. `pnpm db:migrate:prod`, with your approval, before the push.
-3. Push to `main` (the Git integration deploys, D-240), then the live checks in wardrobe-8n6.
+1. The live checks in wardrobe-8n6 on production (sign in on the phone). The agent does not enter passwords.
 
 ### Next steps
 
-1. Close wardrobe-f7b and wardrobe-f7b.13 at the commit.
-2. wardrobe-8n6: production migration, deploy and live checks.
+1. wardrobe-f7b and wardrobe-f7b.13 were closed at the commit (`cd08c5e`).
+2. wardrobe-8n6: migration and deploy done; the live checks remain.
 3. Small follow-ups from the reviews and the browser check:
    - wardrobe-mfl: the faint badge on an outfit slot's error background in light mode;
    - wardrobe-sak: the switch's focus and label;
