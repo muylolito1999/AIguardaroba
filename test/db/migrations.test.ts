@@ -15,6 +15,7 @@ import {
   FORMALITIES,
   IMAGE_KINDS,
   ITEM_CATEGORIES,
+  ITEM_COLLECTIONS,
   ITEM_CONDITIONS,
   ITEM_DECISIONS,
   ITEM_LOCATIONS,
@@ -142,6 +143,7 @@ describe("migrations", () => {
       item_status: ITEM_STATUSES,
       item_location: ITEM_LOCATIONS,
       item_decision: ITEM_DECISIONS,
+      item_collection: ITEM_COLLECTIONS,
       item_category: ITEM_CATEGORIES,
       formality: FORMALITIES,
       item_condition: ITEM_CONDITIONS,
@@ -171,12 +173,13 @@ describe("migrations", () => {
 });
 
 describe("defaults", () => {
-  it("start a new item as pending, in Bologna, undecided, with empty arrays", async () => {
+  it("start a new item as pending, in Bologna, undecided, clothing, with empty arrays", async () => {
     const item = await makeItem(t.db);
     expect(item).toMatchObject({
       status: "pending_tagging",
       location: "bologna",
       decision: "undecided",
+      collection: "clothing",
       colors: [],
       colorHex: [],
       materials: [],

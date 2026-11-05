@@ -35,6 +35,7 @@ import {
   FORMALITIES,
   IMAGE_KINDS,
   ITEM_CATEGORIES,
+  ITEM_COLLECTIONS,
   ITEM_CONDITIONS,
   ITEM_DECISIONS,
   ITEM_LOCATIONS,
@@ -54,6 +55,7 @@ import {
 export const itemStatusEnum = pgEnum("item_status", ITEM_STATUSES);
 export const itemLocationEnum = pgEnum("item_location", ITEM_LOCATIONS);
 export const itemDecisionEnum = pgEnum("item_decision", ITEM_DECISIONS);
+export const itemCollectionEnum = pgEnum("item_collection", ITEM_COLLECTIONS);
 export const itemCategoryEnum = pgEnum("item_category", ITEM_CATEGORIES);
 export const formalityEnum = pgEnum("formality", FORMALITIES);
 export const itemConditionEnum = pgEnum("item_condition", ITEM_CONDITIONS);
@@ -141,6 +143,12 @@ export const items = snakeCase.table(
     archivedFrom: itemStatusEnum(),
     location: itemLocationEnum().notNull().default("bologna"),
     decision: itemDecisionEnum().notNull().default("undecided"),
+    /**
+     * The collection the item belongs to (D-248). Only "clothing" feeds
+     * outfits, the stats breakdowns and relocation; exclusions test for
+     * "clothing", never for a specific other value.
+     */
+    collection: itemCollectionEnum().notNull().default("clothing"),
     // Tag columns stay null until the item is tagged; the
     // items_tagged_complete_check below enforces them for tagged items.
     name: text(),
@@ -206,6 +214,7 @@ export const items = snakeCase.table(
     index("items_category_idx").on(t.category),
     index("items_location_idx").on(t.location),
     index("items_decision_idx").on(t.decision),
+    index("items_collection_idx").on(t.collection),
     index("items_created_at_idx").on(t.createdAt),
     index("items_tagging_batch_id_idx").on(t.taggingBatchId),
   ],

@@ -65,6 +65,18 @@ describe("resetPanelFilters", () => {
     })
     expect(resetPanelFilters(BUSY_FILTERS).status).toEqual([...DEFAULT_STATUSES])
   })
+
+  it("keeps the Clothes | Running view (D-251)", () => {
+    const running: ItemFilters = { ...BUSY_FILTERS, collection: "running" }
+    expect(resetPanelFilters(running)).toEqual({
+      ...DEFAULT_ITEM_FILTERS,
+      collection: "running",
+      q: "coat",
+      category: ["outerwear"],
+      sort: "warmth_desc",
+    })
+    expect(resetPanelFilters(filters()).collection).toBe("clothing")
+  })
 })
 
 describe("FilterPanel", () => {
@@ -77,6 +89,25 @@ describe("FilterPanel", () => {
     const change = onChange.mock.lastCall?.[0]
     if (typeof change !== "function") throw new Error("expected a functional change")
     expect(change(BUSY_FILTERS)).toEqual(resetPanelFilters(BUSY_FILTERS))
+  })
+
+  it("resets the panel's filters in the Running view without leaving it", async () => {
+    const running: ItemFilters = { ...BUSY_FILTERS, collection: "running" }
+    const { onChange } = renderPanel(running)
+    // The view is not a filter: the badge counts the same ten.
+    expect(screen.getByRole("button", { name: "Filters, 10 active" })).toBeTruthy()
+    const dialog = await openPanel()
+    fireEvent.click(within(dialog).getByRole("button", { name: "Reset filters" }))
+    const change = onChange.mock.lastCall?.[0]
+    if (typeof change !== "function") throw new Error("expected a functional change")
+    expect(change(running)).toMatchObject({ collection: "running", waterproof: null, status: [...DEFAULT_STATUSES] })
+  })
+
+  it("greys out Reset when only the view is set", async () => {
+    renderPanel(filters({ collection: "running" }))
+    expect(screen.getByRole("button", { name: "Filters" })).toBeTruthy()
+    const dialog = await openPanel()
+    expect(within(dialog).getByRole("button", { name: "Reset filters" }).getAttribute("aria-disabled")).toBe("true")
   })
 
   it("greys out Reset when no panel filter is set, keeping it focusable", async () => {

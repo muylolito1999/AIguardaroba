@@ -12,6 +12,12 @@ export type ItemLocation = (typeof ITEM_LOCATIONS)[number];
 export const ITEM_DECISIONS = ["bring", "leave", "donate", "sell", "undecided"] as const;
 export type ItemDecision = (typeof ITEM_DECISIONS)[number];
 
+// Which collection an item belongs to. Only "clothing" feeds outfits, the
+// stats breakdowns and relocation (D-248, D-249). Every exclusion tests for
+// "clothing" (the positive form), so a value added later is left out by default.
+export const ITEM_COLLECTIONS = ["clothing", "running"] as const;
+export type ItemCollection = (typeof ITEM_COLLECTIONS)[number];
+
 export const ITEM_CATEGORIES = [
   "outerwear",
   "top",

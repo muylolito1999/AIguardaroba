@@ -160,12 +160,98 @@ describe("WardrobeResults empty states", () => {
     expect(screen.getByRole("link", { name: "Show archived items" }).getAttribute("href")).toBe(
       "/wardrobe?status=archived"
     )
-    expect(screen.queryByRole("heading", { name: "No items yet" })).toBeNull()
+    expect(screen.queryByRole("heading", { name: "No clothes yet" })).toBeNull()
   })
 
-  it("says the wardrobe is empty when nothing is archived either", () => {
+  it("says there are no clothes yet when nothing is archived either", () => {
     render(<WardrobeResults filters={DEFAULT_ITEM_FILTERS} list={listOf(0)} />)
-    expect(screen.getByRole("heading", { name: "No items yet" })).toBeTruthy()
+    // The Clothes view's own wording: the owner may hold only running gear (D-251).
+    expect(screen.getByRole("heading", { name: "No clothes yet" })).toBeTruthy()
+    expect(screen.getByText(/Running gear is under “Running”/)).toBeTruthy()
+    expect(screen.getByRole("link", { name: "Add items" }).getAttribute("href")).toBe("/add")
+  })
+})
+
+describe("WardrobeResults Clothes | Running switch (D-251)", () => {
+  const RUNNING: ItemFilters = { ...DEFAULT_ITEM_FILTERS, collection: "running" }
+
+  function viewSwitch() {
+    const group = screen.getByRole("group", { name: "Show" })
+    return {
+      clothes: within(group).getByRole("button", { name: "Clothes" }),
+      running: within(group).getByRole("button", { name: "Running" }),
+    }
+  }
+
+  function archivedList(): WardrobeListDto {
+    const list = listOf(0)
+    list.counts.archived = 2
+    return list
+  }
+
+  it("is shown above the results and in every empty state", () => {
+    const cases: [string, ItemFilters, WardrobeListDto][] = [
+      ["items", DEFAULT_ITEM_FILTERS, listOf(2)],
+      ["no clothes", DEFAULT_ITEM_FILTERS, listOf(0)],
+      ["clothes archived", DEFAULT_ITEM_FILTERS, archivedList()],
+      ["no matches", { ...DEFAULT_ITEM_FILTERS, q: "zzz" }, listOf(0)],
+      ["no running gear", RUNNING, listOf(0)],
+      ["running gear archived", RUNNING, archivedList()],
+      ["no running matches", { ...RUNNING, q: "zzz" }, listOf(0)],
+    ]
+    for (const [name, filters, list] of cases) {
+      render(<WardrobeResults filters={filters} list={list} />)
+      const { clothes, running } = viewSwitch()
+      const pressed = filters.collection === "clothing" ? clothes : running
+      expect(pressed.getAttribute("aria-pressed"), name).toBe("true")
+      // Above the toolbar.
+      const search = screen.getByRole("searchbox", { name: "Search your wardrobe" })
+      expect(clothes.compareDocumentPosition(search) & Node.DOCUMENT_POSITION_FOLLOWING, name).toBeTruthy()
+      cleanup()
+    }
+  })
+
+  it("switches the view from an empty state, keeping the search, filters and sort", () => {
+    render(<WardrobeResults filters={DEFAULT_ITEM_FILTERS} list={listOf(0)} />)
+    fireEvent.click(viewSwitch().running)
+    expect(router.replace).toHaveBeenLastCalledWith("/wardrobe?collection=running", { scroll: false })
+    cleanup()
+
+    const busy: ItemFilters = { ...RUNNING, q: "tights", waterproof: true, sort: "wear_desc" }
+    render(<WardrobeResults filters={busy} list={listOf(0)} />)
+    fireEvent.click(viewSwitch().clothes)
+    expect(router.replace).toHaveBeenLastCalledWith("/wardrobe?q=tights&waterproof=true&sort=wear_desc", {
+      scroll: false,
+    })
+  })
+
+  it("tells how to add running gear when the Running view has none", () => {
+    render(<WardrobeResults filters={RUNNING} list={listOf(0)} />)
+    expect(screen.getByRole("heading", { name: "No running gear yet" })).toBeTruthy()
+    expect(screen.queryByRole("heading", { name: "No clothes yet" })).toBeNull()
+    expect(screen.getByText(/“Adding running gear” switch on Add items/)).toBeTruthy()
+    expect(screen.getByText(/“Running gear” switch on its page/)).toBeTruthy()
+    expect(screen.getByRole("link", { name: "Add items" }).getAttribute("href")).toBe("/add")
+    // A view with nothing in it has no chips to press.
+    expect(screen.queryByRole("group", { name: "Category" })).toBeNull()
+  })
+
+  it("links to the archived running gear when all of it is archived", () => {
+    render(<WardrobeResults filters={RUNNING} list={archivedList()} />)
+    expect(screen.getByRole("heading", { name: "All 2 pieces of running gear are archived" })).toBeTruthy()
+    expect(screen.getByRole("link", { name: "Show archived items" }).getAttribute("href")).toBe(
+      "/wardrobe?collection=running&status=archived"
+    )
+    expect(screen.queryByRole("heading", { name: "No running gear yet" })).toBeNull()
+  })
+
+  it("keeps the view when Reset filters clears a search that found nothing", () => {
+    render(<WardrobeResults filters={{ ...RUNNING, q: "zzz", sort: "created_asc" }} list={listOf(0)} />)
+    expect(screen.getByRole("heading", { name: "No items match" })).toBeTruthy()
+    fireEvent.click(screen.getByRole("button", { name: "Reset filters" }))
+    expect(router.replace).toHaveBeenLastCalledWith("/wardrobe?collection=running&sort=created_asc", {
+      scroll: false,
+    })
   })
 })
 
@@ -196,7 +282,7 @@ describe("WardrobeResults focus after Reset filters", () => {
 
   it("does the same when the reset finds an empty wardrobe", () => {
     resetFromNoMatches(listOf(0))
-    expect(screen.getByRole("heading", { name: "No items yet" })).toBeTruthy()
+    expect(screen.getByRole("heading", { name: "No clothes yet" })).toBeTruthy()
     expect(document.activeElement).toBe(screen.getByRole("status"))
   })
 

@@ -290,6 +290,76 @@ describe("saveOutfit", () => {
     ).toBe("NOT_FOUND");
   });
 
+  it("refuses running gear with a not_clothing issue on its slot, writing nothing (D-250)", async () => {
+    const [sweater, runningTights] = await Promise.all([item("sweater"), item("jeans", { collection: "running" })]);
+
+    const refused = await appError(
+      saveOutfit(
+        testDb.db,
+        input([
+          { slot: "top", itemId: sweater.id },
+          { slot: "bottom", itemId: runningTights.id },
+        ]),
+      ),
+    );
+    expect(refused.code).toBe("VALIDATION");
+    expect(refused.message).toBe("This item is running gear, which outfits leave out.");
+    expect(refused.details?.outfitIssues).toEqual([
+      {
+        code: "not_clothing",
+        slot: "bottom",
+        itemId: runningTights.id,
+        message: "This item is running gear, which outfits leave out.",
+      },
+    ]);
+    expect(await counts()).toEqual({ outfits: 0, outfitItems: 0 });
+  });
+
+  it("keeps listing an item moved to running gear, and refuses a re-save until it is swapped out (D-250)", async () => {
+    const [sweater, jeans, chinos] = await Promise.all([item("sweater"), item("jeans"), item("chinos")]);
+    const entries: OutfitInputValues["items"] = [
+      { slot: "top", itemId: sweater.id },
+      { slot: "bottom", itemId: jeans.id },
+    ];
+    const saved = await saveOutfit(testDb.db, input(entries));
+    expect(saved.items.map((entry) => entry.collection)).toEqual(["clothing", "clothing"]);
+
+    await testDb.db.update(items).set({ collection: "running" }).where(eq(items.id, jeans.id));
+
+    // The outfit still lists the piece, flagged by its collection.
+    const moved = await getOutfit(testDb.db, saved.id);
+    expect(moved.items.find((entry) => entry.itemId === jeans.id)).toMatchObject({
+      slot: "bottom",
+      collection: "running",
+      status: "confirmed",
+      exists: true,
+    });
+    const [listed] = await listOutfits(testDb.db);
+    expect(listed?.items.map((entry) => [entry.itemId, entry.collection])).toEqual([
+      [sweater.id, "clothing"],
+      [jeans.id, "running"],
+    ]);
+
+    // Saved again unchanged: refused, and the stored outfit stays as it was.
+    const refused = await appError(saveOutfit(testDb.db, input(entries, { name: "Should not stick" }), saved.id));
+    expect(refused.code).toBe("VALIDATION");
+    expect(refused.details?.outfitIssues).toEqual([
+      expect.objectContaining({ code: "not_clothing", slot: "bottom", itemId: jeans.id }),
+    ]);
+    expect(await getOutfit(testDb.db, saved.id)).toEqual(moved);
+
+    // Swapped for clothing, it saves.
+    const swapped = await saveOutfit(
+      testDb.db,
+      input([
+        { slot: "top", itemId: sweater.id },
+        { slot: "bottom", itemId: chinos.id },
+      ]),
+      saved.id,
+    );
+    expect(swapped.items.map((entry) => entry.itemId)).toEqual([sweater.id, chinos.id]);
+  });
+
   it("saves an AI suggestion with its source and reason", async () => {
     const [sweater, jeans] = await Promise.all([item("sweater"), item("jeans")]);
     const saved = await saveOutfit(
@@ -401,5 +471,30 @@ describe("slot candidates", () => {
     expect(bySlot.top.map((candidate) => candidate.id)).toEqual(tops.map((candidate) => candidate.id));
     expect(bySlot.bottom).toHaveLength(1);
     expect(bySlot.hat).toEqual([]);
+  });
+
+  it("leaves running gear out of every slot, searched or not (D-249)", async () => {
+    const [sweater, jeans, runningTop, runningShoes] = await Promise.all([
+      item("sweater"),
+      item("jeans"),
+      item("tee", { name: "Neon running tee", collection: "running" }),
+      item("sneakers", { name: "Trail running shoes", collection: "running" }),
+    ]);
+
+    expect((await listSlotCandidates(testDb.db, "top")).map((candidate) => candidate.id)).toEqual([sweater.id]);
+    expect(await listSlotCandidates(testDb.db, "top", "running")).toEqual([]);
+    expect(await listSlotCandidates(testDb.db, "shoes")).toEqual([]);
+
+    const bySlot = await listCandidatesBySlot(testDb.db);
+    const offered = Object.values(bySlot).flatMap((candidates) => candidates.map((candidate) => candidate.id));
+    expect(offered).not.toContain(runningTop.id);
+    expect(offered).not.toContain(runningShoes.id);
+    expect(bySlot.top.map((candidate) => candidate.id)).toEqual([sweater.id]);
+    expect(bySlot.bottom.map((candidate) => candidate.id)).toEqual([jeans.id]);
+    expect(bySlot.shoes).toEqual([]);
+
+    // Moved back to clothing, the item is offered again.
+    await testDb.db.update(items).set({ collection: "clothing" }).where(eq(items.id, runningShoes.id));
+    expect((await listSlotCandidates(testDb.db, "shoes")).map((candidate) => candidate.id)).toEqual([runningShoes.id]);
   });
 });

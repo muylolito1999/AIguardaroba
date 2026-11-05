@@ -263,6 +263,9 @@ async function insertItem(
       id: itemId,
       status: "pending_tagging",
       location: settings.location,
+      // Stamped on /add when the photo was queued; RegisterBodySchema makes a
+      // body without it (a tab older than the field) clothing (D-252).
+      collection: input.collection,
       sourceHash: input.sourceHash,
       imageHash: result.imageHash,
     });
@@ -289,7 +292,8 @@ export async function registerUpload(deps: RegisterUploadDeps, input: RegisterBo
   const { db, storage } = deps;
   const { itemId } = input;
 
-  // A retry after a lost response: the item exists, nothing is redone.
+  // A retry after a lost response: the item exists, nothing is redone, and its
+  // collection stays as stored, whatever this body says (D-252).
   if ((await findItemId(db, eq(items.id, itemId))) !== null) return registered(db, itemId);
   // A retry after the item was deleted meanwhile: refused before anything is
   // read, processed or stored. insertItem checks again for a delete that
@@ -308,6 +312,8 @@ export async function registerUpload(deps: RegisterUploadDeps, input: RegisterBo
     throw new AppError("VALIDATION", "That upload belongs to a different photo.", { reason: "wrong_pathname" });
   }
 
+  // A duplicate (by source or, below, by image) leaves the existing item and
+  // its collection alone; this body's collection is not applied (D-252).
   const bySource = await findItemId(db, eq(items.sourceHash, input.sourceHash));
   if (bySource !== null) return settleExisting(deps, itemId, bySource, original);
 

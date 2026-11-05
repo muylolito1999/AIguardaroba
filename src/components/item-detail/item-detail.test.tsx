@@ -7,7 +7,7 @@ import { pendingCard, taggedCard } from "@/components/items/test-fixtures"
 import { toast } from "@/components/ui/toast"
 import type { ItemCardDto, TagData } from "@/lib/items/contracts"
 import type { ItemDetailDto } from "@/lib/items/wardrobe"
-import { noteWardrobeChange } from "@/lib/items/wardrobe-changes"
+import { noteWardrobeChange, wardrobeChangeCount } from "@/lib/items/wardrobe-changes"
 import { err, ok, type Result } from "@/lib/result"
 
 import type { ItemDetailActions } from "./detail-actions"
@@ -27,6 +27,7 @@ vi.mock("@/components/items/remove-background-button", () => ({
 beforeEach(() => {
   vi.spyOn(toast, "add").mockReturnValue("toast-id")
   router.refresh.mockClear()
+  router.replace.mockClear()
 })
 
 afterEach(() => {
@@ -52,6 +53,7 @@ function fakeActions(): { [K in keyof ItemDetailActions]: ReturnType<typeof vi.f
     tagItemByHand: vi.fn<ItemDetailActions["tagItemByHand"]>(),
     setItemDecision: vi.fn<ItemDetailActions["setItemDecision"]>(),
     setItemLocation: vi.fn<ItemDetailActions["setItemLocation"]>(),
+    setItemCollection: vi.fn<ItemDetailActions["setItemCollection"]>(),
     archiveItem: vi.fn<ItemDetailActions["archiveItem"]>(),
     unarchiveItem: vi.fn<ItemDetailActions["unarchiveItem"]>(),
     deleteItem: vi.fn<ItemDetailActions["deleteItem"]>(),
@@ -179,6 +181,122 @@ describe("ItemDetail", () => {
     await waitFor(() => expect(actions.updateItemTags).toHaveBeenCalledWith({ id: item.id, patch: { brand: "Barbour" } }))
     await waitFor(() => expect(screen.getByRole("status").textContent).toBe("Saved."))
     expect(screen.getByRole("button", { name: "Donate" }).getAttribute("aria-pressed")).toBe("true")
+  })
+})
+
+// The running gear switch and badge (D-252).
+describe("ItemDetail running gear", () => {
+  function header(): HTMLElement {
+    const element = screen.getByRole("heading", { level: 1 }).closest("header")
+    if (element === null) throw new Error("no page header")
+    return element
+  }
+
+  function runningSwitch(): HTMLElement {
+    return screen.getByRole("switch", { name: "Running gear" })
+  }
+
+  function backHref(): string | null {
+    return screen.getByRole("link", { name: "Back to wardrobe" }).getAttribute("href")
+  }
+
+  it("puts the running gear switch first in Plan and location", () => {
+    render(<ItemDetail item={detailOf(taggedCard({ status: "confirmed" }))} actions={fakeActions()} />)
+
+    const section = screen.getByRole("region", { name: "Plan and location" })
+    const running = within(section).getByRole("switch", { name: "Running gear" })
+    expect(section.querySelector('[role="switch"], button')).toBe(running)
+    const plan = within(section).getByRole("group", { name: "Plan for the move" })
+    expect(running.compareDocumentPosition(plan) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(running.getAttribute("aria-checked")).toBe("false")
+  })
+
+  it("shows a Running gear badge in the header for running gear, and none for clothing", () => {
+    const view = render(
+      <ItemDetail item={detailOf(taggedCard({ status: "confirmed", collection: "running" }))} actions={fakeActions()} />
+    )
+    expect(within(header()).getByText("Running gear")).toBeTruthy()
+    expect(runningSwitch().getAttribute("aria-checked")).toBe("true")
+    view.unmount()
+
+    render(<ItemDetail item={detailOf(taggedCard({ status: "confirmed" }))} actions={fakeActions()} />)
+    expect(within(header()).queryByText("Running gear")).toBeNull()
+  })
+
+  it("moves an archived item into running gear: the badge follows and the wardrobe is told", async () => {
+    const item = detailOf(taggedCard({ status: "archived" }))
+    const actions = fakeActions()
+    actions.setItemCollection.mockResolvedValue(ok({ ...item, collection: "running" }))
+    render(<ItemDetail item={item} actions={actions} />)
+    const changesBefore = wardrobeChangeCount()
+
+    fireEvent.click(runningSwitch())
+
+    expect(actions.setItemCollection).toHaveBeenCalledWith({ id: item.id, collection: "running" })
+    await waitFor(() => expect(within(header()).getByText("Running gear")).toBeTruthy())
+    expect(runningSwitch().getAttribute("aria-checked")).toBe("true")
+    expect(wardrobeChangeCount()).toBe(changesBefore + 1)
+  })
+
+  it("keeps the item in clothing, without a badge, when the move fails", async () => {
+    const item = detailOf(taggedCard({ status: "confirmed" }))
+    const actions = fakeActions()
+    actions.setItemCollection.mockResolvedValue(err("NOT_FOUND", "That item no longer exists."))
+    render(<ItemDetail item={item} actions={actions} />)
+    const changesBefore = wardrobeChangeCount()
+
+    fireEvent.click(runningSwitch())
+
+    await waitFor(() => expect(toast.add).toHaveBeenCalledWith(expect.objectContaining({ type: "error" })))
+    await waitFor(() => expect(runningSwitch().getAttribute("aria-checked")).toBe("false"))
+    expect(within(header()).queryByText("Running gear")).toBeNull()
+    expect(wardrobeChangeCount()).toBe(changesBefore)
+    expect(backHref()).toBe("/wardrobe")
+  })
+
+  // The plain Back link (no wardrobe list in the previous history entry) opens
+  // the view that lists the item (D-251).
+  it("points the Back link at the view of the item's collection", () => {
+    const view = render(
+      <ItemDetail item={detailOf(taggedCard({ status: "confirmed", collection: "running" }))} actions={fakeActions()} />
+    )
+    expect(backHref()).toBe("/wardrobe?collection=running")
+    view.unmount()
+
+    render(<ItemDetail item={detailOf(taggedCard({ status: "confirmed" }))} actions={fakeActions()} />)
+    expect(backHref()).toBe("/wardrobe")
+  })
+
+  it("moves the Back link to the other view once a move is saved", async () => {
+    const item = detailOf(taggedCard({ status: "confirmed" }))
+    const actions = fakeActions()
+    actions.setItemCollection.mockImplementation(async ({ collection }) => ok({ ...item, collection }))
+    render(<ItemDetail item={item} actions={actions} />)
+    expect(backHref()).toBe("/wardrobe")
+
+    fireEvent.click(runningSwitch())
+    await waitFor(() => expect(backHref()).toBe("/wardrobe?collection=running"))
+
+    fireEvent.click(runningSwitch())
+    await waitFor(() => expect(backHref()).toBe("/wardrobe"))
+    expect(actions.setItemCollection).toHaveBeenLastCalledWith({ id: item.id, collection: "clothing" })
+  })
+
+  it("shows the Running gear view after deleting an item just moved into running gear", async () => {
+    const item = detailOf(taggedCard({ status: "confirmed" }))
+    const actions = fakeActions()
+    actions.setItemCollection.mockResolvedValue(ok({ ...item, collection: "running" }))
+    actions.deleteItem.mockResolvedValue(ok({ deleted: true }))
+    render(<ItemDetail item={item} actions={actions} />)
+
+    fireEvent.click(runningSwitch())
+    await waitFor(() => expect(within(header()).getByText("Running gear")).toBeTruthy())
+    fireEvent.click(screen.getByRole("button", { name: "Delete item" }))
+    const dialog = await screen.findByRole("alertdialog")
+    fireEvent.click(within(dialog).getByRole("button", { name: "Delete" }))
+
+    await waitFor(() => expect(router.replace).toHaveBeenCalledTimes(1))
+    expect(router.replace).toHaveBeenCalledWith("/wardrobe?collection=running")
   })
 })
 

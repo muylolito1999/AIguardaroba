@@ -3,6 +3,8 @@
 // render and the browser's hydration print the same text.
 
 import { formatDay } from "@/components/item-detail/format"
+import { COLLECTION_LABELS } from "@/components/items/tag-options"
+import { outfitItemProblem, type OutfitItemDto } from "@/lib/outfits/contracts"
 
 const DAY = new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "short", year: "numeric", timeZone: "UTC" })
 const CELSIUS = new Intl.NumberFormat("en-US", { maximumFractionDigits: 1 })
@@ -42,6 +44,18 @@ export function formatTimesWorn(count: number): string {
 /** "Rated 4 of 5". */
 export function formatRating(rating: number): string {
   return `Rated ${rating} of 5`
+}
+
+/**
+ * The badge for an outfit item that cannot be used now: "Deleted", "Archived",
+ * the label of the collection it moved to ("Running gear"), or null (D-250).
+ */
+export function itemProblemLabel(item: Pick<OutfitItemDto, "exists" | "status" | "collection">): string | null {
+  const problem = outfitItemProblem(item)
+  if (problem === "deleted") return "Deleted"
+  if (problem === "archived") return "Archived"
+  if (problem === "not_clothing" && item.collection !== null) return COLLECTION_LABELS[item.collection]
+  return null
 }
 
 /** A temperature field's text as a number: a comma counts as the decimal point; empty is null, other text NaN. */

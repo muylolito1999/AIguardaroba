@@ -6,7 +6,12 @@
 
 import { MONTH_NAMES } from "@/lib/climate/range"
 import type { ItemDecision, PackingGroup } from "@/lib/db/enums"
-import type { BuyTiming, RelocationDecision, RelocationPriority } from "@/lib/relocation/contracts"
+import type {
+  BuyTiming,
+  RelocationDecision,
+  RelocationEstimateDto,
+  RelocationPriority,
+} from "@/lib/relocation/contracts"
 import type { WarningKind } from "@/lib/relocation/schemas"
 
 export { formatUsd, formatUsdEstimate, modelLabel } from "@/components/add/cost-quote"
@@ -145,12 +150,16 @@ export function formatMonths(months: readonly number[]): string {
   return `${monthName(first)}–${monthName(last)}`
 }
 
-/** "12 waiting for tags, 1 archived and 3 not confirmed", or null when nothing was left out. */
-export function describeExcluded(excluded: { pending: number; archived: number; unconfirmed: number }): string | null {
+/**
+ * "12 waiting for tags, 1 archived, 3 not confirmed and 2 running gear items",
+ * or null when nothing was left out. Running gear is never analysed (D-249).
+ */
+export function describeExcluded(excluded: RelocationEstimateDto["excluded"]): string | null {
   const parts = [
     excluded.pending > 0 ? `${INTEGER.format(excluded.pending)} waiting for tags` : null,
     excluded.archived > 0 ? `${INTEGER.format(excluded.archived)} archived` : null,
     excluded.unconfirmed > 0 ? `${INTEGER.format(excluded.unconfirmed)} not confirmed` : null,
+    excluded.running > 0 ? plural(excluded.running, "running gear item", "running gear items") : null,
   ].filter((part): part is string => part !== null)
   if (parts.length === 0) return null
   if (parts.length === 1) return parts[0] ?? null

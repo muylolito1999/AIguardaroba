@@ -32,6 +32,20 @@ describe("LogWearInputSchema", () => {
     expect(LogWearInputSchema.parse({ kind: "items", itemIds, weather: null }).weather).toBeNull();
   });
 
+  it("accepts asOutfit on items, the flag a /today card that is not saved yet sends (D-250)", () => {
+    const itemIds = ids(2);
+    expect(LogWearInputSchema.parse({ kind: "items", itemIds, asOutfit: true })).toEqual({
+      kind: "items",
+      itemIds,
+      asOutfit: true,
+    });
+    expect(LogWearInputSchema.parse({ kind: "items", itemIds, asOutfit: false })).toMatchObject({ asOutfit: false });
+    expect(LogWearInputSchema.parse({ kind: "items", itemIds })).not.toHaveProperty("asOutfit");
+    expect(LogWearInputSchema.safeParse({ kind: "items", itemIds, asOutfit: "yes" }).success).toBe(false);
+    expect(LogWearInputSchema.safeParse({ kind: "items", itemIds, asOutfit: true, note: "x" }).success).toBe(false);
+    expect(LogWearInputSchema.safeParse({ kind: "outfit", outfitId: randomUUID(), asOutfit: true }).success).toBe(false);
+  });
+
   it(`accepts 1 to ${MAX_WEAR_ITEMS} distinct items`, () => {
     expect(LogWearInputSchema.safeParse({ kind: "items", itemIds: ids(MAX_WEAR_ITEMS) }).success).toBe(true);
   });

@@ -34,7 +34,7 @@ function readinessItem(overrides: Partial<WinterReadinessItem>): WinterReadiness
 
 function stats(overrides: Partial<WardrobeStatsDto> = {}): WardrobeStatsDto {
   return {
-    totals: { all: 7, confirmed: 4, tagged: 1, pending: 2, archived: 3 },
+    totals: { all: 7, confirmed: 4, tagged: 1, pending: 2, archived: 3, running: 2 },
     byCategory: {
       outerwear: 2,
       top: 0,
@@ -187,7 +187,13 @@ describe("StatsView", () => {
       ["Tagged, not confirmed", "1"],
       ["Waiting for tags", "2"],
       ["Archived", "3"],
+      ["Running gear", "2"],
     ])
+    expect(
+      within(overview).getByText(
+        "Items counts your clothes except archived ones. Archived items and running gear are counted only in their own tiles; the winter checklist also counts running gear."
+      )
+    ).toBeDefined()
     expect(within(overview).getByText(/2 items are waiting for tags/)).toBeDefined()
     expect(within(overview).getByRole("link", { name: "Review untagged items" }).getAttribute("href")).toBe(
       "/add/review"
@@ -203,13 +209,16 @@ describe("StatsView", () => {
     expect(countIn("Warmth", /^4 Warm/)).toBe("2")
     expect(countIn("Warmth", /^1 Summer, very light/)).toBe("0")
     expect(descriptionOf(screen.getByRole("table", { name: "Warmth" }))).toBe(
-      "Tagged and confirmed items (5). From 1, summer and very light, to 5, heavy winter."
+      "Tagged and confirmed clothes (5). From 1, summer and very light, to 5, heavy winter."
     )
 
     expect(countIn("Weather protection", "Waterproof")).toBe("2")
     expect(countIn("Weather protection", "Windproof")).toBe("3")
     expect(countIn("Weather protection", "Insulated")).toBe("1")
 
+    expect(descriptionOf(screen.getByRole("table", { name: "Decisions" }))).toBe(
+      "All clothes except archived ones, untagged included (7)."
+    )
     expect(countIn("Decisions", "Bring")).toBe("3")
     expect(countIn("Decisions", "Undecided")).toBe("3")
     expect(countIn("Locations", "Bologna")).toBe("6")
@@ -219,23 +228,43 @@ describe("StatsView", () => {
   })
 
   it("leaves out the review prompt when nothing is waiting", () => {
-    render(<StatsView stats={stats({ totals: { all: 5, confirmed: 4, tagged: 1, pending: 0, archived: 0 } })} />)
+    render(
+      <StatsView stats={stats({ totals: { all: 5, confirmed: 4, tagged: 1, pending: 0, archived: 0, running: 0 } })} />
+    )
     expect(screen.queryByRole("link", { name: "Review untagged items" })).toBeNull()
   })
 
   it("replaces the tag-based charts with a note while nothing is tagged", () => {
-    render(<StatsView stats={stats({ totals: { all: 2, confirmed: 0, tagged: 0, pending: 2, archived: 0 } })} />)
+    render(
+      <StatsView stats={stats({ totals: { all: 2, confirmed: 0, tagged: 0, pending: 2, archived: 0, running: 0 } })} />
+    )
     expect(screen.queryByRole("table", { name: "By category" })).toBeNull()
-    expect(screen.getByText("These appear once at least one item is tagged.")).toBeDefined()
+    expect(screen.getByText("These appear once at least one piece of clothing is tagged.")).toBeDefined()
     expect(screen.getByRole("table", { name: "Decisions" })).toBeDefined()
   })
 
   it("shows an empty state with an add link when there are no items", () => {
-    render(<StatsView stats={stats({ totals: { all: 0, confirmed: 0, tagged: 0, pending: 0, archived: 2 } })} />)
+    render(
+      <StatsView stats={stats({ totals: { all: 0, confirmed: 0, tagged: 0, pending: 0, archived: 2, running: 0 } })} />
+    )
     expect(screen.getByText("No items yet")).toBeDefined()
     expect(screen.getByText(/2 items archived and not counted/)).toBeDefined()
     expect(screen.getByRole("link", { name: "Add items" }).getAttribute("href")).toBe("/add")
     expect(screen.queryByRole("table")).toBeNull()
+  })
+
+  it("shows the page, not the empty state, for a wardrobe of running gear only (D-249)", () => {
+    render(
+      <StatsView stats={stats({ totals: { all: 0, confirmed: 0, tagged: 0, pending: 0, archived: 1, running: 3 } })} />
+    )
+
+    expect(screen.queryByText("No items yet")).toBeNull()
+    const overview = screen.getByRole("region", { name: "Overview" })
+    const running = within(overview).getByText("Running gear", { selector: "dt" })
+    expect(running.nextSibling?.textContent).toBe("3")
+    // The checklist counts running gear, so it stays on the page.
+    expect(screen.getByRole("region", { name: "Winter-ready checklist" })).toBeDefined()
+    expect(screen.getByText("These appear once at least one piece of clothing is tagged.")).toBeDefined()
   })
 })
 

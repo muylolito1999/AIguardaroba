@@ -2,10 +2,20 @@ import { randomUUID } from "node:crypto";
 
 import { describe, expect, it } from "vitest";
 
-import { ITEM_CATEGORIES, OUTFIT_SLOTS, type ItemCategory, type ItemStatus, type OutfitSlot } from "@/lib/db/enums";
+import {
+  ITEM_CATEGORIES,
+  OUTFIT_SLOTS,
+  type ItemCategory,
+  type ItemCollection,
+  type ItemStatus,
+  type OutfitSlot,
+} from "@/lib/db/enums";
 import {
   MAX_ACCESSORIES,
   MAX_OUTFIT_ITEMS,
+  NOT_CLOTHING_MESSAGE,
+  OUTFIT_ISSUE_CODES,
+  outfitItemProblem,
   OutfitInputSchema,
   SLOT_CATEGORIES,
   SLOT_LABELS,
@@ -18,8 +28,12 @@ import {
   type OutfitInputValues,
 } from "@/lib/outfits/contracts";
 
-function item(category: ItemCategory | null, status: ItemStatus = "confirmed"): OutfitCheckItem {
-  return { id: randomUUID(), category, status };
+function item(
+  category: ItemCategory | null,
+  status: ItemStatus = "confirmed",
+  collection: ItemCollection = "clothing",
+): OutfitCheckItem {
+  return { id: randomUUID(), category, status, collection };
 }
 
 /** Entries plus the item map for [slot, item] pairs. */
@@ -188,6 +202,50 @@ describe("validateOutfit", () => {
     ]);
   });
 
+  it("rejects running gear with exactly a not_clothing issue on its slot (D-250)", () => {
+    const runningShoes = item("shoes", "confirmed", "running");
+    const { entries, items } = outfit(["top", top], ["bottom", bottom], ["shoes", runningShoes]);
+    expect(validateOutfit(entries, items)).toEqual({
+      ok: false,
+      issues: [
+        {
+          code: "not_clothing",
+          slot: "shoes",
+          itemId: runningShoes.id,
+          message: "This item is running gear, which outfits leave out.",
+        },
+      ],
+    });
+  });
+
+  it("reports an archived running item as archived and not clothing, and still checks its category", () => {
+    const archivedRunning = item("shoes", "archived", "running");
+    const { entries, items } = outfit(["top", archivedRunning], ["bottom", bottom]);
+    const result = validateOutfit(entries, items);
+    expect(result.ok ? [] : result.issues.map(({ code, slot, itemId }) => ({ code, slot, itemId }))).toEqual([
+      { code: "archived_item", slot: "top", itemId: archivedRunning.id },
+      { code: "not_clothing", slot: "top", itemId: archivedRunning.id },
+      { code: "wrong_category", slot: "top", itemId: archivedRunning.id },
+    ]);
+  });
+
+  it("still names a collection the database knows before this code does (D-248)", () => {
+    // A value added to the enum ahead of the code that labels it: still not clothing, still a message.
+    const cycling = { ...item("shoes", "confirmed"), collection: "cycling" as unknown as ItemCollection };
+    const { entries, items } = outfit(["top", top], ["bottom", bottom], ["shoes", cycling]);
+    expect(validateOutfit(entries, items)).toEqual({
+      ok: false,
+      issues: [
+        { code: "not_clothing", slot: "shoes", itemId: cycling.id, message: "This item is not clothing, which outfits leave out." },
+      ],
+    });
+  });
+
+  it("lists not_clothing right after archived_item, with a message for every other collection", () => {
+    expect(OUTFIT_ISSUE_CODES.indexOf("not_clothing")).toBe(OUTFIT_ISSUE_CODES.indexOf("archived_item") + 1);
+    expect(NOT_CLOTHING_MESSAGE.running).toMatch(/^[A-Z].*\.$/);
+  });
+
   it("rejects an item listed twice, even in another slot, without a slot_taken for it", () => {
     const { entries, items } = outfit(["top", top], ["bottom", bottom]);
     const result = validateOutfit([...entries, { slot: "accessory", itemId: top.id }], items);
@@ -207,10 +265,31 @@ describe("validateOutfit", () => {
   });
 
   it("gives every issue a plain English message", () => {
-    const { entries, items } = outfit(["top", item("shoes", "archived")], ["top", top]);
+    const { entries, items } = outfit(["top", item("shoes", "archived", "running")], ["top", top]);
     const result = validateOutfit(entries, items);
     expect(result.ok).toBe(false);
     for (const issue of result.ok ? [] : result.issues) expect(issue.message).toMatch(/^[A-Z].*\.$/);
+  });
+});
+
+describe("outfitItemProblem", () => {
+  const usable = { exists: true, status: "confirmed", collection: "clothing" } as const;
+
+  it("finds nothing wrong with a clothing item that exists and is not archived", () => {
+    expect(outfitItemProblem(usable)).toBeNull();
+    expect(outfitItemProblem({ ...usable, status: "pending_tagging" })).toBeNull();
+  });
+
+  it("names the first problem: deleted, then archived, then not clothing", () => {
+    expect(outfitItemProblem({ exists: false, status: null, collection: null })).toBe("deleted");
+    expect(outfitItemProblem({ exists: false, status: "archived", collection: "running" })).toBe("deleted");
+    expect(outfitItemProblem({ exists: true, status: "archived", collection: "running" })).toBe("archived");
+    expect(outfitItemProblem({ ...usable, status: "archived" })).toBe("archived");
+    expect(outfitItemProblem({ ...usable, collection: "running" })).toBe("not_clothing");
+  });
+
+  it("counts an unknown collection as clothing", () => {
+    expect(outfitItemProblem({ ...usable, collection: null })).toBeNull();
   });
 });
 

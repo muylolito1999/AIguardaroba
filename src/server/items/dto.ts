@@ -62,6 +62,7 @@ export function toItemCardDto(item: Item, images: readonly ItemImage[]): ItemCar
     purchaseDate: item.purchaseDate,
     location: item.location,
     decision: item.decision,
+    collection: item.collection,
     aiConfidence: item.aiConfidence,
     multipleItemsDetected: multipleItemsDetected(item.aiRaw),
     userEditedFields: item.userEditedFields,

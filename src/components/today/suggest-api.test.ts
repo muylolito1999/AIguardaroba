@@ -43,6 +43,7 @@ const SUGGESTION: TodaySuggestionDto = {
           category: "top",
           thumbUrl: null,
           status: "confirmed",
+          collection: "clothing",
           wearCount: 0,
           exists: true,
         },

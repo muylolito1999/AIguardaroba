@@ -19,11 +19,23 @@ describe("relocation formatting", () => {
   })
 
   it("lists what the snapshot left out, with and and commas", () => {
-    expect(describeExcluded({ pending: 0, archived: 0, unconfirmed: 0 })).toBeNull()
-    expect(describeExcluded({ pending: 1, archived: 0, unconfirmed: 0 })).toBe("1 waiting for tags")
-    expect(describeExcluded({ pending: 12, archived: 0, unconfirmed: 3 })).toBe("12 waiting for tags and 3 not confirmed")
-    expect(describeExcluded({ pending: 2, archived: 1, unconfirmed: 1_200 })).toBe(
+    expect(describeExcluded({ pending: 0, archived: 0, unconfirmed: 0, running: 0 })).toBeNull()
+    expect(describeExcluded({ pending: 1, archived: 0, unconfirmed: 0, running: 0 })).toBe("1 waiting for tags")
+    expect(describeExcluded({ pending: 12, archived: 0, unconfirmed: 3, running: 0 })).toBe(
+      "12 waiting for tags and 3 not confirmed"
+    )
+    expect(describeExcluded({ pending: 2, archived: 1, unconfirmed: 1_200, running: 0 })).toBe(
       "2 waiting for tags, 1 archived and 1,200 not confirmed"
+    )
+  })
+
+  it("names running gear among what was left out (D-249)", () => {
+    expect(describeExcluded({ pending: 0, archived: 0, unconfirmed: 0, running: 1 })).toBe("1 running gear item")
+    expect(describeExcluded({ pending: 0, archived: 2, unconfirmed: 0, running: 1_500 })).toBe(
+      "2 archived and 1,500 running gear items"
+    )
+    expect(describeExcluded({ pending: 12, archived: 1, unconfirmed: 3, running: 4 })).toBe(
+      "12 waiting for tags, 1 archived, 3 not confirmed and 4 running gear items"
     )
   })
 

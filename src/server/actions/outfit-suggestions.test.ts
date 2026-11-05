@@ -114,7 +114,7 @@ describe("saveSuggestedOutfit action", () => {
     await testDb.db.update(items).set({ status: "archived" }).where(eq(items.id, firstTop));
     expect(await saveSuggestedOutfit({ analysisId, index: 0 })).toMatchObject({
       ok: false,
-      error: { code: "CONFLICT", message: expect.stringContaining("deleted or archived") },
+      error: { code: "CONFLICT", message: expect.stringContaining("deleted, archived or moved to running gear") },
     });
   });
 

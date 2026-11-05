@@ -31,7 +31,16 @@ const wearOptions = {
 };
 
 export const LogWearInputSchema = z.discriminatedUnion("kind", [
-  z.strictObject({ kind: z.literal("items"), itemIds: ids("item"), ...wearOptions }),
+  z.strictObject({
+    kind: z.literal("items"),
+    itemIds: ids("item"),
+    /**
+     * Set by a /today card that is not saved yet, so the server applies the
+     * outfit rules to these items: running gear is refused (D-250).
+     */
+    asOutfit: z.boolean().optional(),
+    ...wearOptions,
+  }),
   z.strictObject({ kind: z.literal("outfit"), outfitId: z.uuid(), ...wearOptions }),
 ]);
 export type LogWearInput = z.infer<typeof LogWearInputSchema>;

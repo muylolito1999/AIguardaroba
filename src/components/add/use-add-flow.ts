@@ -5,9 +5,10 @@
 // parallel work, because Next runs actions one at a time per client (D-035).
 
 import pLimit from "p-limit"
-import { useLayoutEffect, useReducer, useRef, useState } from "react"
+import { useEffect, useLayoutEffect, useReducer, useRef, useState } from "react"
 
 import { toast } from "@/components/ui/toast"
+import type { ItemCollection } from "@/lib/db/enums"
 import type { PreparedImage } from "@/lib/images/client-pipeline"
 import {
   TAGGING_LIMITS,
@@ -22,6 +23,7 @@ import { describeError, prepareFailure, toastIdFor, type AddFlowStep } from "./a
 import { formatResetDate, formatUsd, type TaggingSetup } from "./cost-quote"
 import { createHashBatcher } from "./hash-batcher"
 import {
+  INITIAL_ADD_FLOW_STATE,
   addFlowReducer,
   countEntries,
   isUntaggedReady,
@@ -60,6 +62,8 @@ type Job = {
   file: File
   /** Chosen once, so a retried upload or register stays idempotent on the server. */
   itemId: string
+  /** The switch's value when the photo was queued; every register attempt sends it (D-252). */
+  collection: ItemCollection
   prepared: PreparedImage | null
   checked: boolean
   uploaded: UploadedBlob | null
@@ -78,7 +82,10 @@ export type AddFlow = {
   state: AddFlowState
   counts: QueueCounts
   batchPending: boolean
+  /** Stamps the switch's current collection on each photo (D-252). */
   addFiles(files: readonly File[]): void
+  /** The "Adding running gear" switch; photos already queued keep their stamp. */
+  setCollection(collection: ItemCollection): void
   retryUpload(key: string): void
   retryTag(key: string): void
   remove(key: string): void
@@ -116,7 +123,7 @@ function countLabel(count: number, noun: string): string {
 
 export function useAddFlow(deps: AddFlowDeps, { serverSetup, taggingAvailable, onTaggingSettled }: AddFlowOptions): AddFlow {
   const [state, dispatch] = useReducer(addFlowReducer, serverSetup, (setup) => ({
-    entries: [],
+    ...INITIAL_ADD_FLOW_STATE,
     budgetBlock: budgetBlockFor(setup),
   }))
   const [budgetSource, setBudgetSource] = useState(serverSetup)
@@ -159,8 +166,8 @@ export function useAddFlow(deps: AddFlowDeps, { serverSetup, taggingAvailable, o
   // the owner navigates away from in a hidden <Activity> instead of
   // unmounting it: state survives, and this cleanup runs on the hide just as
   // on an unmount. So the queue is emptied here too, and a return to the page
-  // starts fresh instead of showing rows whose work was cancelled. A layout
-  // effect, so no stale frame is shown.
+  // starts fresh instead of showing rows whose work was cancelled, with the
+  // running-gear switch off (D-252). A layout effect, so no stale frame is shown.
   useLayoutEffect(() => {
     const jobs = jobsRef.current
     const hashOwners = hashOwnersRef.current
@@ -179,6 +186,18 @@ export function useAddFlow(deps: AddFlowDeps, { serverSetup, taggingAvailable, o
       dispatch({ type: "reset" })
     }
   }, [uploadLimit, tagLimit])
+
+  // A page the browser restores from its back/forward cache runs no cleanup
+  // and keeps every state as it was, the switch included. It is turned off
+  // again there too, so returning to /add never marks clothes as running gear
+  // unasked (D-252). Rows already queued keep their stamp.
+  useEffect(() => {
+    function onPageShow(event: PageTransitionEvent) {
+      if (event.persisted) dispatch({ type: "setCollection", collection: "clothing" })
+    }
+    window.addEventListener("pageshow", onPageShow)
+    return () => window.removeEventListener("pageshow", onPageShow)
+  }, [])
 
   function notify(step: AddFlowStep, error: AppErrorPayload): AppErrorPayload {
     const described = describeError(step, error)
@@ -238,6 +257,8 @@ export function useAddFlow(deps: AddFlowDeps, { serverSetup, taggingAvailable, o
       const lookup = await batcher.lookup(prepared.sourceHash)
       if (job.removed) return
       if (!lookup.ok) return failUpload(key, "check", lookup.error)
+      // Skipped before upload: the existing item keeps its own collection,
+      // whatever this photo was stamped with (D-252).
       if (lookup.data !== null) return markDuplicate(key, job, { where: "wardrobe", existingItemId: lookup.data })
       job.checked = true
     }
@@ -272,6 +293,8 @@ export function useAddFlow(deps: AddFlowDeps, { serverSetup, taggingAvailable, o
         pathname: job.uploaded.pathname,
         sourceHash: prepared.sourceHash,
         originalFilename: prepared.originalFilename.slice(0, 255),
+        // The stamp from when the photo was queued, so a Retry sends the same (D-252).
+        collection: job.collection,
       },
       job.controller.signal,
     )
@@ -357,11 +380,15 @@ export function useAddFlow(deps: AddFlowDeps, { serverSetup, taggingAvailable, o
     addFiles(files) {
       if (files.length === 0) return
       const jobs = jobsRef.current
+      // Read once, so the job and its row carry the same stamp: the switch as
+      // this render shows it.
+      const { collection } = state
       const added = files.map((file) => {
         const key = crypto.randomUUID()
         jobs.set(key, {
           file,
           itemId: crypto.randomUUID(),
+          collection,
           prepared: null,
           checked: false,
           uploaded: null,
@@ -371,10 +398,14 @@ export function useAddFlow(deps: AddFlowDeps, { serverSetup, taggingAvailable, o
           removed: false,
           duplicateOf: null,
         })
-        return { key, fileName: file.name === "" ? "Photo" : file.name }
+        return { key, fileName: file.name === "" ? "Photo" : file.name, collection }
       })
       dispatch({ type: "add", entries: added })
       for (const { key } of added) enqueueUpload(key)
+    },
+
+    setCollection(collection) {
+      dispatch({ type: "setCollection", collection })
     },
 
     retryUpload(key) {

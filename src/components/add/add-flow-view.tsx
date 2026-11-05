@@ -15,6 +15,8 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
+import { Field, FieldContent, FieldDescription, FieldLabel } from "@/components/ui/field"
+import { Switch } from "@/components/ui/switch"
 import { toast } from "@/components/ui/toast"
 import { isLikelyImageFile } from "@/lib/images/client-pipeline"
 import type { Result } from "@/lib/result"
@@ -37,6 +39,8 @@ export type AddFlowProps = {
 }
 
 const QUEUE_HEADING_ID = "add-queue-heading"
+const COLLECTION_SWITCH_ID = "add-collection-switch"
+const COLLECTION_HINT_ID = "add-collection-hint"
 /** Focus styles for the elements that only receive focus from code. */
 const FOCUS_TARGET = "outline-none focus-visible:rounded-sm focus-visible:ring-3 focus-visible:ring-ring/50"
 
@@ -68,7 +72,7 @@ export function AddFlowView({ setup: serverSetup, deps }: AddFlowProps & { deps:
   }, [deps])
 
   const flow = useAddFlow(deps, { serverSetup, taggingAvailable: setup.ok, onTaggingSettled: rereadSetup })
-  const { entries, budgetBlock } = flow.state
+  const { entries, budgetBlock, collection } = flow.state
   const { counts } = flow
   // Leaving hides the page (cacheComponents keeps it in a hidden <Activity>),
   // which the flow treats as leaving: it cancels uploads and queued tagging
@@ -132,6 +136,24 @@ export function AddFlowView({ setup: serverSetup, deps }: AddFlowProps & { deps:
 
   return (
     <div className="flex flex-col gap-6">
+      {/* Stamped on each photo as it is queued (D-252); off again whenever the page is left. */}
+      <Field orientation="horizontal" className="min-h-11 items-center justify-between gap-4">
+        <FieldContent>
+          <FieldLabel htmlFor={COLLECTION_SWITCH_ID}>Adding running gear</FieldLabel>
+          <FieldDescription id={COLLECTION_HINT_ID}>
+            Photos you add while this is on go to Running gear, kept out of outfits.
+          </FieldDescription>
+        </FieldContent>
+        <Switch
+          id={COLLECTION_SWITCH_ID}
+          checked={collection !== "clothing"}
+          onCheckedChange={(checked) => flow.setCollection(checked ? "running" : "clothing")}
+          aria-describedby={COLLECTION_HINT_ID}
+          // Taller invisible hit area: 18 px switch plus 14 px above and below is 46 px.
+          className="after:-inset-y-3.5"
+        />
+      </Field>
+
       <div ref={pickersRef}>
         <FilePickers onFiles={handleFiles} />
       </div>

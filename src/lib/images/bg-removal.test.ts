@@ -280,6 +280,7 @@ function cardWithNobg(): ItemCardDto {
     purchaseDate: null,
     location: "hamburg",
     decision: "undecided",
+    collection: "clothing",
     aiConfidence: null,
     multipleItemsDetected: false,
     userEditedFields: [],

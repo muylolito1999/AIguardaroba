@@ -5,7 +5,7 @@
 
 import { z } from "zod"
 
-import { OUTFIT_SLOTS, type ItemCategory, type ItemStatus, type OutfitSlot } from "@/lib/db/enums"
+import { OUTFIT_SLOTS, type ItemCategory, type ItemCollection, type ItemStatus, type OutfitSlot } from "@/lib/db/enums"
 import {
   OUTFIT_ISSUE_CODES,
   OutfitInputSchema,
@@ -47,6 +47,11 @@ export type ItemInfo = {
   category: ItemCategory | null
   /** null when the server did not say; only "archived" matters to the checks. */
   status: ItemStatus | null
+  /**
+   * null when the server did not say (the item is gone); null counts as
+   * clothing. Any collection other than clothing fails the checks (not_clothing, D-250).
+   */
+  collection: ItemCollection | null
   thumbUrl: string | null
 }
 
@@ -130,18 +135,22 @@ export function slotMessagesFrom(issues: readonly OutfitIssue[]): SlotMessages {
 
 /**
  * The items as validateOutfit sees them. A slot candidate is never archived
- * (the server lists none), so an item without a status counts as confirmed.
+ * (the server lists none), so an item without a status counts as confirmed;
+ * an item without a collection counts as clothing.
  */
 export function checkItems(info: ReadonlyMap<string, ItemInfo>): Map<string, OutfitCheckItem> {
   return new Map(
-    [...info.values()].map((item) => [item.id, { id: item.id, category: item.category, status: item.status ?? "confirmed" }])
+    [...info.values()].map((item) => [
+      item.id,
+      { id: item.id, category: item.category, status: item.status ?? "confirmed", collection: item.collection ?? "clothing" },
+    ])
   )
 }
 
 /**
  * What the builder knows about each item: the slot candidates (current names
  * and photos) and the outfit's own items, which may include an archived one
- * no slot lists any more.
+ * or one moved to running gear, which no slot lists any more (D-250).
  */
 export function itemInfoFrom(
   candidates: Readonly<Record<OutfitSlot, readonly SlotCandidateDto[]>>,
@@ -154,6 +163,7 @@ export function itemInfoFrom(
       name: item.name,
       category: item.category,
       status: item.status,
+      collection: item.collection,
       thumbUrl: item.thumbUrl,
     })
   }
@@ -166,6 +176,12 @@ export function itemInfoFrom(
         category: candidate.category,
         // A candidate is not archived; keep a status the outfit's read gave.
         status: known?.status === "archived" ? null : (known?.status ?? null),
+        // A candidate carries no collection; the server lists only clothing
+        // (D-249), so clothing is the default. A collection the outfit's own
+        // read gave still wins: it is the column's value, while the default is
+        // only what the list implies, so an item moved to running gear stays
+        // flagged even if a candidate list read at another moment holds it.
+        collection: known?.collection ?? "clothing",
         thumbUrl: candidate.thumbUrl,
       })
     }

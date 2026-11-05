@@ -24,6 +24,7 @@ import { err, type AppErrorPayload, type Result } from "@/lib/result"
 import { toastError } from "@/lib/toast-result"
 
 import type { ArchiveItemAction, DeleteItemAction, UnarchiveItemAction } from "./detail-actions"
+import { wardrobeListHref } from "./wardrobe-return"
 
 /** Runs an action; a rejected call (offline, an action unknown after a redeploy) becomes a network error. */
 async function settle<T>(call: () => Promise<Result<T>>): Promise<Result<T>> {
@@ -45,7 +46,8 @@ export function unarchivedDescription(name: string, status: ItemDetailDto["statu
 }
 
 export type DangerZoneProps = {
-  item: Pick<ItemDetailDto, "id" | "status" | "wearCount">
+  /** collection is the current one, possibly just moved on this page; it picks the view shown after a delete. */
+  item: Pick<ItemDetailDto, "id" | "status" | "wearCount" | "collection">
   /** The item's display name, for the dialog and the toasts. */
   name: string
   archiveItem: ArchiveItemAction
@@ -57,8 +59,9 @@ export type DangerZoneProps = {
 
 /**
  * Archive (reversible, from any status) and Delete (final, behind a
- * confirmation). After a delete the page is replaced by the wardrobe, so Back
- * does not return to an item that no longer exists.
+ * confirmation). After a delete the page is replaced by the wardrobe view of
+ * the item's collection (D-251), so Back does not return to an item that no
+ * longer exists, and running gear lands among running gear.
  */
 export function DangerZone({ item, name, archiveItem, unarchiveItem, deleteItem, onStatusChange }: DangerZoneProps) {
   const router = useRouter()
@@ -113,7 +116,7 @@ export function DangerZone({ item, name, archiveItem, unarchiveItem, deleteItem,
     // Next's back/forward cache still show the item until they read again (D-107).
     noteWardrobeChange()
     toast.add({ title: "Item deleted", description: `${name} and its photos are gone.`, type: "success" })
-    router.replace("/wardrobe")
+    router.replace(wardrobeListHref(item.collection))
   }
 
   return (

@@ -9,7 +9,7 @@ import type {
   TagItemByHandAction,
   UpdateItemTagsAction,
 } from "@/components/items/review-actions"
-import type { ItemDecision, ItemLocation } from "@/lib/db/enums"
+import type { ItemCollection, ItemDecision, ItemLocation } from "@/lib/db/enums"
 import type { ItemCardDto } from "@/lib/items/contracts"
 import type { ItemDetailDto } from "@/lib/items/wardrobe"
 import type { Result } from "@/lib/result"
@@ -17,6 +17,12 @@ import type { Result } from "@/lib/result"
 export type SetItemDecisionAction = (input: { id: string; decision: ItemDecision }) => Promise<Result<ItemCardDto>>
 
 export type SetItemLocationAction = (input: { id: string; location: ItemLocation }) => Promise<Result<ItemCardDto>>
+
+/** Moves the item into or out of running gear, from any status (D-252). */
+export type SetItemCollectionAction = (input: {
+  id: string
+  collection: ItemCollection
+}) => Promise<Result<ItemCardDto>>
 
 /** Archived from any status; archiving again changes nothing. */
 export type ArchiveItemAction = (input: { id: string }) => Promise<Result<ItemDetailDto>>
@@ -33,6 +39,7 @@ export type ItemDetailActions = {
   tagItemByHand: TagItemByHandAction
   setItemDecision: SetItemDecisionAction
   setItemLocation: SetItemLocationAction
+  setItemCollection: SetItemCollectionAction
   archiveItem: ArchiveItemAction
   unarchiveItem: UnarchiveItemAction
   deleteItem: DeleteItemAction

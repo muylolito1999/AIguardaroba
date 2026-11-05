@@ -88,17 +88,27 @@ async function homeTimeZone(db: Tx): Promise<string> {
 
 /**
  * Locks the items in id order (every wear transaction takes them in the same
- * order, so concurrent ones queue instead of deadlocking) and checks that each
- * exists and is not archived: an archived item has left the wardrobe.
+ * order, so concurrent ones queue instead of deadlocking) and checks them
+ * before anything is written, in this order: each exists (NOT_FOUND), none is
+ * archived (an archived item has left the wardrobe), and, with
+ * `clothingOnly`, each is clothing. `clothingOnly` is set for a wear logged as
+ * an outfit (a saved outfit, or a /today card sent with asOutfit): running
+ * gear never counts as part of an outfit, so a saved outfit still holding a
+ * piece moved to running gear is refused until it is swapped out (D-250). A
+ * wear of items on their own ("+1 worn today") takes any collection.
  */
-async function lockItems(tx: Tx, itemIds: readonly string[]): Promise<void> {
+async function lockItems(
+  tx: Tx,
+  itemIds: readonly string[],
+  { clothingOnly }: { clothingOnly: boolean },
+): Promise<void> {
   const rows = await tx
-    .select({ id: items.id, status: items.status })
+    .select({ id: items.id, status: items.status, collection: items.collection })
     .from(items)
     .where(inArray(items.id, [...itemIds]))
     .orderBy(asc(items.id))
     .for("update");
-  const found = new Map(rows.map((row) => [row.id, row.status]));
+  const found = new Map(rows.map((row) => [row.id, row]));
   const missing = itemIds.filter((id) => !found.has(id));
   if (missing.length > 0) {
     throw new AppError(
@@ -107,9 +117,19 @@ async function lockItems(tx: Tx, itemIds: readonly string[]): Promise<void> {
       { itemIds: missing },
     );
   }
-  const archived = itemIds.filter((id) => found.get(id) === "archived");
+  const archived = itemIds.filter((id) => found.get(id)?.status === "archived");
   if (archived.length > 0) {
     throw new AppError("VALIDATION", "Archived items cannot be logged as worn.", { itemIds: archived });
+  }
+  if (clothingOnly) {
+    // Positive form (D-248): only clothing passes, whatever collections exist.
+    const notClothing = itemIds.filter((id) => found.get(id)?.collection !== "clothing");
+    if (notClothing.length > 0) {
+      throw new AppError("VALIDATION", "Running gear cannot be logged as part of an outfit. Swap it out first.", {
+        itemIds: notClothing,
+        reason: "not_clothing",
+      });
+    }
   }
 }
 
@@ -156,6 +176,11 @@ async function outfitItemIds(tx: Tx, outfitId: string): Promise<string[]> {
  * counted again. Each new log adds one to its item's wear_count and moves
  * last_worn_at to noon of the worn day, never backwards. The logs' created_at
  * is `deps.now`, which the Undo window is measured from.
+ *
+ * A wear logged as an outfit (kind "outfit", or kind "items" with asOutfit
+ * from a /today card not saved yet) takes clothing only: one running item
+ * refuses the whole wear with VALIDATION, reason "not_clothing", and nothing
+ * is written. Items logged on their own may be running gear (D-250).
  */
 export async function logWear(db: Db, input: LogWearInput, deps: WearDeps): Promise<WearLogResultDto> {
   await requireSession();
@@ -170,7 +195,8 @@ export async function logWear(db: Db, input: LogWearInput, deps: WearDeps): Prom
 
     const outfitId = request.kind === "outfit" ? request.outfitId : null;
     const itemIds = request.kind === "outfit" ? await outfitItemIds(tx, request.outfitId) : request.itemIds;
-    await lockItems(tx, itemIds);
+    const clothingOnly = request.kind === "outfit" || (request.kind === "items" && request.asOutfit === true);
+    await lockItems(tx, itemIds, { clothingOnly });
 
     // Read under the item locks, so a concurrent log of the same items has
     // either committed (and is seen here) or waits for this one.

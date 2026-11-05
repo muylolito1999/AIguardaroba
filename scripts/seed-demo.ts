@@ -1,5 +1,6 @@
 // `pnpm db:seed:demo`: inserts 300 synthetic confirmed items for checking the
-// wardrobe grid (virtualisation, filters, sorting) at a realistic size.
+// wardrobe grid (virtualisation, filters, sorting) at a realistic size; a few
+// of them are running gear, so the Clothes | Running switch has both sides.
 // `pnpm db:seed:demo --clean` removes them again. Local databases only: it
 // refuses to run unless DATABASE_URL points at localhost or 127.0.0.1.
 //
@@ -23,6 +24,7 @@ import type { Db } from "@/lib/db/client";
 import type {
   Formality,
   ItemCategory,
+  ItemCollection,
   ItemCondition,
   ItemDecision,
   ItemLocation,
@@ -213,6 +215,30 @@ function capitalize(text: string): string {
   return text.charAt(0).toUpperCase() + text.slice(1);
 }
 
+/** CATALOGUE subcategories a runner would plausibly wear; loafers, boots, trousers and sweaters are not among them. */
+const RUNNING_KINDS: ReadonlySet<string> = new Set([
+  "sneakers",
+  "t-shirt",
+  "hoodie",
+  "shorts",
+  "leggings",
+  "thermal top",
+  "cap",
+  "rain jacket",
+]);
+
+/**
+ * Every 6th demo item from index 3 on goes in the running collection when its
+ * subcategory is in RUNNING_KINDS; every other item is clothing (D-248). With
+ * the fixed seed that is 13 items: tees, hoodies, leggings, sneakers, a rain
+ * shell, shorts and a cap. The choice reads only the index and the already
+ * drawn subcategory, so it draws no random number and the rest of the demo
+ * wardrobe stays exactly as it was.
+ */
+function demoCollection(index: number, subcategory: string): ItemCollection {
+  return index % 6 === 3 && RUNNING_KINDS.has(subcategory) ? "running" : "clothing";
+}
+
 /** The deterministic image hash of demo item `index` (sha256 hex, like a real one). */
 export function demoImageHash(index: number): string {
   return createHash("sha256").update(`${DEMO_MARKER}:${index}`).digest("hex");
@@ -242,6 +268,7 @@ export function buildDemoItems(count: number, now: Date): NewItem[] {
       createdAt,
       location: weighted(random, LOCATION_WEIGHTS),
       decision: weighted(random, DECISION_WEIGHTS),
+      collection: demoCollection(index, kind.subcategory),
       name,
       category,
       subcategory: kind.subcategory,

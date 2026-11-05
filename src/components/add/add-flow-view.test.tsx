@@ -92,6 +92,19 @@ function choose(files: File[]) {
   fireEvent.change(screen.getByLabelText("Choose photos"), { target: { files } })
 }
 
+function runningSwitch(): HTMLElement {
+  return screen.getByRole("switch", { name: "Adding running gear" })
+}
+
+function isOn(element: HTMLElement): boolean {
+  return element.getAttribute("aria-checked") === "true"
+}
+
+/** The collection each register call sent, by file name. */
+function registeredCollections(fakes: Fakes): Record<string, string> {
+  return Object.fromEntries(fakes.register.mock.calls.map(([body]) => [body.originalFilename, body.collection]))
+}
+
 function rowFor(fileName: string): HTMLElement {
   const row = screen.getAllByRole("listitem").find((item) => within(item).queryByTitle(fileName) !== null)
   if (row === undefined) throw new Error(`no row for ${fileName}`)
@@ -204,7 +217,12 @@ describe("uploads", () => {
     expect(fakes.checkHashes.mock.calls[0]?.[0]).toEqual([fakeHash("coat.jpg"), fakeHash("boots.jpg")])
     expect(fakes.uploadOriginal).toHaveBeenCalledTimes(2)
     const [registered] = fakes.register.mock.calls[0] ?? []
-    expect(registered).toMatchObject({ sourceHash: fakeHash("coat.jpg"), originalFilename: "coat.jpg" })
+    expect(registered).toMatchObject({
+      sourceHash: fakeHash("coat.jpg"),
+      originalFilename: "coat.jpg",
+      // With the running-gear switch off, as it starts.
+      collection: "clothing",
+    })
     // The upload and the register use the same client-chosen item id.
     expect(registered?.itemId).toBe(fakes.uploadOriginal.mock.calls[0]?.[0].itemId)
 
@@ -309,6 +327,86 @@ describe("uploads", () => {
 
     expect(screen.queryAllByRole("listitem")).toHaveLength(0)
     expect(revokeObjectURL).toHaveBeenCalledWith("blob:preview-1")
+  })
+})
+
+describe("the running-gear switch (D-252)", () => {
+  it("is off to start with, labelled and explained", () => {
+    renderFlow(makeFakes())
+
+    const toggle = runningSwitch()
+    expect(isOn(toggle)).toBe(false)
+    const hint = document.getElementById(toggle.getAttribute("aria-describedby") ?? "")
+    expect(hint?.textContent).toBe("Photos you add while this is on go to Running gear, kept out of outfits.")
+  })
+
+  it("stamps photos when they are queued: switching off later changes neither their register nor their badge", async () => {
+    const fakes = makeFakes()
+    // The first upload waits until the switch is off again, so its register comes after.
+    let finishUpload = () => {}
+    fakes.uploadOriginal.mockImplementationOnce(
+      ({ itemId }) =>
+        new Promise((resolve) => {
+          finishUpload = () =>
+            resolve(ok({ url: `https://store.public.blob.vercel-storage.com/items/${itemId}/o.jpg`, pathname: `items/${itemId}/o.jpg` }))
+        }),
+    )
+    renderFlow(fakes)
+
+    fireEvent.click(runningSwitch())
+    expect(isOn(runningSwitch())).toBe(true)
+    choose([photo("shoes.jpg")])
+    await waitFor(() => expect(fakes.uploadOriginal).toHaveBeenCalledTimes(1), LONG_WAIT)
+
+    fireEvent.click(runningSwitch())
+    expect(isOn(runningSwitch())).toBe(false)
+    choose([photo("coat.jpg")])
+    await waitForReady(1)
+    finishUpload()
+    await waitForReady(2)
+
+    expect(registeredCollections(fakes)).toEqual({ "shoes.jpg": "running", "coat.jpg": "clothing" })
+    expect(within(rowFor("shoes.jpg")).getByText("Running gear")).toBeTruthy()
+    expect(within(rowFor("coat.jpg")).queryByText("Running gear")).toBeNull()
+  })
+
+  it("sends the stamp again when a failed register is retried with the switch off", async () => {
+    const fakes = makeFakes()
+    fakes.register.mockResolvedValueOnce(err("UPSTREAM", "Could not reach the server. Check your connection."))
+    renderFlow(fakes)
+
+    fireEvent.click(runningSwitch())
+    choose([photo("shoes.jpg")])
+    const retry = await screen.findByRole("button", { name: "Retry shoes.jpg" }, LONG_WAIT)
+    fireEvent.click(runningSwitch())
+    fireEvent.click(retry)
+
+    await waitForReady(1)
+    expect(fakes.register.mock.calls.map(([body]) => body.collection)).toEqual(["running", "running"])
+  })
+
+  it("is turned off when the browser restores the page from its back/forward cache, and rows keep their stamp", async () => {
+    const fakes = makeFakes()
+    renderFlow(fakes)
+    fireEvent.click(runningSwitch())
+    choose([photo("shoes.jpg")])
+    await waitForReady(1)
+
+    // The first load's pageshow is not a restore and changes nothing.
+    act(() => {
+      window.dispatchEvent(new PageTransitionEvent("pageshow", { persisted: false }))
+    })
+    expect(isOn(runningSwitch())).toBe(true)
+
+    act(() => {
+      window.dispatchEvent(new PageTransitionEvent("pageshow", { persisted: true }))
+    })
+    expect(isOn(runningSwitch())).toBe(false)
+    expect(within(rowFor("shoes.jpg")).getByText("Running gear")).toBeTruthy()
+
+    choose([photo("coat.jpg")])
+    await waitForReady(2)
+    expect(registeredCollections(fakes)).toEqual({ "shoes.jpg": "running", "coat.jpg": "clothing" })
   })
 })
 
@@ -642,6 +740,22 @@ describe("leaving through a hidden <Activity> and coming back", () => {
     await waitFor(() => expect(screen.getAllByText("Tagged")).toHaveLength(1), LONG_WAIT)
     expect(fakes.tagItem).toHaveBeenCalledTimes(1)
     expect(screen.getByRole("status").textContent).toBe("1 of 1 photo uploaded, 1 tagged.")
+  })
+
+  it("turns the running-gear switch off, so photos picked on return are clothing (D-252)", async () => {
+    const fakes = makeFakes()
+    const page = renderInActivity(fakes)
+    fireEvent.click(runningSwitch())
+    expect(isOn(runningSwitch())).toBe(true)
+
+    page.hide()
+    page.show()
+
+    expect(isOn(runningSwitch())).toBe(false)
+    choose([photo("coat.jpg")])
+    await waitForReady(1)
+    expect(registeredCollections(fakes)).toEqual({ "coat.jpg": "clothing" })
+    expect(within(rowFor("coat.jpg")).queryByText("Running gear")).toBeNull()
   })
 
   it("aborts an upload that is still running when the page is hidden", async () => {

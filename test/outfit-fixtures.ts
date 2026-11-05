@@ -95,6 +95,7 @@ export function makeOutfitItem(overrides: Partial<OutfitFixtureItem> = {}): Outf
     condition: "good",
     status: "confirmed",
     location: "hamburg",
+    collection: "clothing",
     decision: "bring",
     aiConfidence: null,
     userEditedFields: [],
@@ -102,6 +103,30 @@ export function makeOutfitItem(overrides: Partial<OutfitFixtureItem> = {}): Outf
     lastWornAt: null,
     ...overrides,
   };
+}
+
+/**
+ * Running gear that is otherwise eligible for today (confirmed, at home in
+ * Hamburg, bring, a category a slot takes): a running shirt in the top slot
+ * unless the overrides say otherwise. Outfits leave it out (D-249, D-250).
+ */
+export function makeRunningItem(overrides: Partial<OutfitFixtureItem> = {}): OutfitFixtureItem {
+  return makeOutfitItem({
+    name: "Neon running shirt",
+    category: "top",
+    subcategory: "running shirt",
+    colors: ["neon yellow"],
+    materials: ["polyester"],
+    warmthLevel: 1,
+    waterproof: false,
+    windproof: false,
+    insulated: false,
+    breathable: true,
+    seasons: ["spring", "summer", "autumn"],
+    formality: "athletic",
+    collection: "running",
+    ...overrides,
+  });
 }
 
 /** One item per template key, in OUTFIT_TEMPLATES order, with per-key overrides. */

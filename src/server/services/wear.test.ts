@@ -259,6 +259,95 @@ describe("undoWear", () => {
   });
 });
 
+describe("running gear (D-250)", () => {
+  const NOT_CLOTHING_MESSAGE = "Running gear cannot be logged as part of an outfit. Swap it out first.";
+
+  function runningItem(key: OutfitTemplateKey, overrides: Partial<Item> = {}): Promise<Item> {
+    return item(key, { collection: "running", ...overrides });
+  }
+
+  async function expectNothingWritten(ids: readonly string[]): Promise<void> {
+    expect(await testDb.db.select().from(wearLogs)).toEqual([]);
+    for (const id of ids) expect(await stored(id)).toMatchObject({ wearCount: 0, lastWornAt: null });
+  }
+
+  it("counts a +1 of running gear logged on the item alone", async () => {
+    const runner = await runningItem("sneakers");
+    const result = await logWear(testDb.db, { kind: "items", itemIds: [runner.id] }, at(0));
+    expect(result.logIds).toHaveLength(1);
+    expect(result.items).toEqual([{ id: runner.id, wearCount: 1, lastWornAt: NOON_NOV_3 }]);
+    expect(await stored(runner.id)).toMatchObject({ wearCount: 1, lastWornAt: NOON_NOV_3 });
+
+    // asOutfit false is the same as leaving it out.
+    const tee = await runningItem("tee");
+    const explicit = await logWear(testDb.db, { kind: "items", itemIds: [tee.id], asOutfit: false }, at(1_000));
+    expect(explicit.logIds).toHaveLength(1);
+    expect(await stored(tee.id)).toMatchObject({ wearCount: 1 });
+  });
+
+  it("refuses an outfit wear holding running gear, writing nothing for any of its items", async () => {
+    const [sweater, jeans, runner] = await Promise.all([item("sweater"), item("jeans"), runningItem("sneakers")]);
+    const outfitId = await outfitOf([
+      { slot: "top", item: sweater },
+      { slot: "bottom", item: jeans },
+      { slot: "shoes", item: runner },
+    ]);
+
+    const error = await appError(logWear(testDb.db, { kind: "outfit", outfitId }, at(0)));
+    expect(error).toMatchObject({
+      code: "VALIDATION",
+      message: NOT_CLOTHING_MESSAGE,
+      details: { itemIds: [runner.id], reason: "not_clothing" },
+    });
+    await expectNothingWritten([sweater.id, jeans.id, runner.id]);
+  });
+
+  it("applies the outfit rule to items sent asOutfit, and lets clothing through", async () => {
+    const [sweater, jeans, runner] = await Promise.all([item("sweater"), item("jeans"), runningItem("sneakers")]);
+
+    const error = await appError(
+      logWear(testDb.db, { kind: "items", itemIds: [sweater.id, runner.id], asOutfit: true }, at(0)),
+    );
+    expect(error).toMatchObject({
+      code: "VALIDATION",
+      message: NOT_CLOTHING_MESSAGE,
+      details: { itemIds: [runner.id], reason: "not_clothing" },
+    });
+    await expectNothingWritten([sweater.id, jeans.id, runner.id]);
+
+    const clothing = await logWear(testDb.db, { kind: "items", itemIds: [sweater.id, jeans.id], asOutfit: true }, at(0));
+    expect(clothing.logIds).toHaveLength(2);
+    expect(await stored(sweater.id)).toMatchObject({ wearCount: 1, lastWornAt: NOON_NOV_3 });
+    expect(await stored(jeans.id)).toMatchObject({ wearCount: 1, lastWornAt: NOON_NOV_3 });
+    expect(await stored(runner.id)).toMatchObject({ wearCount: 0, lastWornAt: null });
+  });
+
+  it("reports an archived running item as archived first", async () => {
+    const [sweater, retired] = await Promise.all([
+      item("sweater"),
+      runningItem("sneakers", { status: "archived" }),
+    ]);
+    const outfitId = await outfitOf([
+      { slot: "top", item: sweater },
+      { slot: "shoes", item: retired },
+    ]);
+
+    const error = await appError(logWear(testDb.db, { kind: "outfit", outfitId }, at(0)));
+    expect(error.code).toBe("VALIDATION");
+    expect(error.message).toBe("Archived items cannot be logged as worn.");
+    expect(error.details).toEqual({ itemIds: [retired.id] });
+    await expectNothingWritten([sweater.id, retired.id]);
+  });
+
+  it("undoes a +1 of running gear", async () => {
+    const runner = await runningItem("sneakers");
+    const logged = await logWear(testDb.db, { kind: "items", itemIds: [runner.id] }, at(0));
+    const undone = await undoWear(testDb.db, { logIds: logged.logIds }, at(5_000));
+    expect(undone).toEqual({ undone: logged.logIds, items: [{ id: runner.id, wearCount: 0, lastWornAt: null }] });
+    await expectNothingWritten([runner.id]);
+  });
+});
+
 describe("listRecentWears", () => {
   it("lists the newest days first, with the outfit's name, for one item or all", async () => {
     const [sweater, jeans] = await Promise.all([item("sweater"), item("jeans")]);

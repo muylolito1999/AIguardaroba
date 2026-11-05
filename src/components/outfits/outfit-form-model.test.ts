@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest"
 
 import type { OutfitSlot } from "@/lib/db/enums"
-import type { OutfitDetailDto, SlotCandidateDto } from "@/lib/outfits/contracts"
+import type { OutfitDetailDto, OutfitItemDto, SlotCandidateDto } from "@/lib/outfits/contracts"
 
 import {
   checkForm,
@@ -18,6 +18,7 @@ const DRESS = "22222222-2222-4222-8222-222222222222"
 const BOTTOM = "33333333-3333-4333-8333-333333333333"
 const BELT = "44444444-4444-4444-8444-444444444444"
 const ARCHIVED = "55555555-5555-4555-8555-555555555555"
+const RUNNING = "66666666-6666-4666-8666-666666666666"
 
 function candidate(id: string, category: SlotCandidateDto["category"], name: string): SlotCandidateDto {
   return {
@@ -133,6 +134,7 @@ describe("outfit form model", () => {
         category: "bottom",
         thumbUrl: null,
         status: "archived",
+        collection: "clothing",
         wearCount: 2,
         exists: true,
       },
@@ -149,6 +151,42 @@ describe("outfit form model", () => {
     expect(check).toMatchObject({ ok: false, slots: { bottom: ["This item is archived."] } })
   })
 
+  it("flags an item the outfit holds that moved to running gear, before sending (D-250)", () => {
+    const running: OutfitItemDto = {
+      itemId: RUNNING,
+      slot: "bottom",
+      name: "Running tights",
+      category: "bottom",
+      thumbUrl: null,
+      status: "confirmed",
+      collection: "running",
+      wearCount: 4,
+      exists: true,
+    }
+    const entries = [
+      { slot: "top" as const, itemId: TOP },
+      { slot: "bottom" as const, itemId: RUNNING },
+    ]
+    expect(itemInfoFrom(CANDIDATES, [running]).get(RUNNING)?.collection).toBe("running")
+    expect(checkForm(values({ entries }), itemInfoFrom(CANDIDATES, [running]))).toEqual({
+      ok: false,
+      fields: {},
+      slots: { bottom: ["This item is running gear, which outfits leave out."] },
+    })
+
+    // A candidate list read at another moment may still hold the item: the
+    // collection the outfit's read gave wins over the candidates' default.
+    const listed = { ...CANDIDATES, bottom: [...CANDIDATES.bottom, candidate(RUNNING, "bottom", "Running tights")] }
+    const info = itemInfoFrom(listed, [running])
+    expect(info.get(RUNNING)).toMatchObject({ collection: "running", name: "Running tights" })
+    expect(checkForm(values({ entries }), info)).toMatchObject({
+      ok: false,
+      slots: { bottom: ["This item is running gear, which outfits leave out."] },
+    })
+    // A candidate the outfit does not hold counts as clothing.
+    expect(info.get(BOTTOM)?.collection).toBe("clothing")
+  })
+
   it("reads the server's slot and field issues, and nothing else", () => {
     expect(
       serverErrorsFrom({
@@ -157,6 +195,17 @@ describe("outfit form model", () => {
         details: { outfitIssues: [{ code: "archived_item", slot: "bottom", itemId: BOTTOM, message: "This item is archived." }] },
       })
     ).toEqual({ fields: {}, slots: { bottom: ["This item is archived."] } })
+    expect(
+      serverErrorsFrom({
+        code: "VALIDATION",
+        message: "This item is running gear, which outfits leave out.",
+        details: {
+          outfitIssues: [
+            { code: "not_clothing", slot: "bottom", itemId: RUNNING, message: "This item is running gear, which outfits leave out." },
+          ],
+        },
+      })
+    ).toEqual({ fields: {}, slots: { bottom: ["This item is running gear, which outfits leave out."] } })
     expect(
       serverErrorsFrom({
         code: "VALIDATION",

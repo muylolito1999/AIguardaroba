@@ -151,7 +151,7 @@ Each entry records one decision and the reason for it. "Deviates from spec" comp
 - Why: Numbers are needed for the budget checks; enums and arrays validate cleanly.
 
 ### D-028 Relocation inputs and caching
-- Date: 2026-11-01 · Status: accepted; refined by D-139 (the snapshot), D-141 (the lines and lc: codes), D-142 (the cache key) and D-150 (the result screen) · Deviates from spec: no
+- Date: 2026-11-01 · Status: accepted; refined by D-139 (the snapshot), D-141 (the lines and lc: codes), D-142 (the cache key), D-150 (the result screen) and D-249 (running gear left out and counted) · Deviates from spec: no
 - Decision: The snapshot holds tagged and confirmed items only (pending and archived items are excluded, and the form shows how many). Each line carries a low-confidence marker for unedited fields with `ai_confidence` below 0.6. The form takes an explicit purchase budget in EUR. An identical earlier run is reused unless the user chooses "Re-run anyway". AI decisions are never written to `items.decision` without an explicit action.
 - Why: The warnings can flag uncertain tags, the gap list can be checked against a budget, and the owner's own decisions are never overwritten silently.
 
@@ -400,7 +400,7 @@ Each entry records one decision and the reason for it. "Deviates from spec" comp
 - Why: Transparent PNGs would otherwise turn black, and hashing needs a secure context.
 
 ### D-074 Add flow behaviour
-- Date: 2026-11-02 · Status: accepted; the page refresh after tagging replaced by D-096; refined by D-238 (a Retry of the register for an item deleted meanwhile is refused) · Deviates from spec: no
+- Date: 2026-11-02 · Status: accepted; the page refresh after tagging replaced by D-096; refined by D-238 (a Retry of the register for an item deleted meanwhile is refused) and D-252 (each photo stamped with the running-gear switch when queued) · Deviates from spec: no
 - Decision: Per photo: prepare, in-list duplicate check, batched source-hash check (lookups within 50 ms grouped, up to 500 per request), upload, register; three photos at a time and four tagging calls at a time from the start of a run. The item id is generated in the browser once per photo, so Retry resumes idempotently from the failed step. Toasts have one id per step and error code. The CONFIG hints describe the setting ("the Blob store's read-write token", "the Anthropic API key") rather than naming the variable. The page receives the per-item cost rates from the server and rounds estimates to cents ("< $0.01"); the usage page shows sub-cent amounts. A tagging run or a started batch refreshes the page so the remaining budget is current.
 - Why: Starting with four parallel calls can write the prompt cache up to four times instead of once, which costs well under a cent per run and keeps the first results fast. Keeping server variable names out of client code means the build check for leaked secrets finds none of the app's own strings. `src/lib/ai/cost.ts` imports the pricing table, which client code must not load.
 
@@ -579,7 +579,7 @@ Each entry records one decision and the reason for it. "Deviates from spec" comp
 - Why: Refreshing on every return would re-read up to 2,000 rows each time the owner looks at an item; a `bfcacheId` key would throw away the list's state and scroll position, which the Next docs advise against; calling `refresh()` in the Server Actions would re-render the item page on every toggle and render the not-found page after a delete, and would not cover the tag and register route handlers. Checked in a visible browser on 2026-11-02 against the production build: with both refresh calls disabled, Back after a plan change showed the old badge on `/wardrobe` and the donated item still linked on `/stats`, and the browser sent no request for either page; with them, a plan change, a rename, and archive and unarchive all showed on the list after Back, and the donated item left the checklist.
 
 ### D-108 Wardrobe filters live in the URL (refines D-037)
-- Date: 2026-11-02 · Status: accepted; refined by D-119, D-120 and D-125 · Deviates from spec: no
+- Date: 2026-11-02 · Status: accepted; refined by D-119, D-120, D-125 and D-251 (the Clothes | Running view, first in the URL) · Deviates from spec: no
 - Decision: `src/lib/items/filters.ts` (client- and server-safe) parses and serialises the filters by hand. `parseItemFilters` never throws: unknown keys are ignored, invalid values dropped one by one (warmth must match `^[1-5]$`, booleans are exactly `true` or `false`, enum values are case-sensitive, colours longer than 40 characters are dropped and the rest sorted, then cut to 10, `q` is cut to 100 UTF-16 code units without splitting a character), `warmthMin` above `warmthMax` is swapped, and no valid status means the default three (archived hidden). `serializeItemFilters` writes the canonical form in a fixed key order with defaults left out, so parse and serialise round-trip byte for byte, and `itemFiltersKey` is that string, used as the "did anything change" check. Values within one field are alternatives (OR), fields combine with AND, warmth bounds are inclusive and leave out items with no warmth, a category filter leaves out uncategorised items, and colour matching is case-insensitive on any of the item's colours. Changes go through `useWardrobeFilters`: `router.replace(href, { scroll: false })` in a transition, with `useOptimistic` showing the requested filters at once so two quick changes build on each other; when the request ends the server's parsed filters take over again. `replace`, not `push`, so Back leaves the page instead of undoing a filter. The Untagged chip stands for `status=pending_tagging` with no category (enforced since D-119). The filter panel (one Base UI Drawer: from the bottom below `md`, from the right above) applies each change at once; "Show N items" only closes it. Its Reset clears only the panel's fields; the empty state's Reset clears everything but the sort. The Filters badge counts fields, not values (search and category have their own controls), at most 10. Colour options are a free-text field plus, since D-120, a server facet of the colours the other filters leave (it was the colours of the current results, which hid every other colour once one was chosen). The design's zod `ItemFiltersSchema`, `serializeFilters` and `categoryCounts()` became these names, and the counts come back inside the list (`WardrobeListDto.counts`).
 - Why: The URL is shareable and survives reloads, and with Cache Components the page reads `searchParams` on the server anyway (D-041). A zod schema would reject a whole URL for one bad value.
 
@@ -599,7 +599,7 @@ Each entry records one decision and the reason for it. "Deviates from spec" comp
 - Why: Since D-234 the transaction decides: either the item is gone and its files are queued, or nothing changed, so a failure never leaves rows pointing at missing blobs, and no Blob call is made while the row lock is held. The first version deleted the photos before the transaction to the same end, but a transaction that failed after the `del()` left exactly such rows (D-234).
 
 ### D-112 Stats scope and the winter-readiness rules
-- Date: 2026-11-02 · Status: accepted · Deviates from spec: no
+- Date: 2026-11-02 · Status: accepted; refined by D-249 (the breakdowns count clothing; running gear has its own tile and stays in the checklist) · Deviates from spec: no
 - Decision: `/stats` counts every item except archived ones as "Items"; archived items appear only in their own count. Category, warmth and weather numbers and the checklist use tagged and confirmed items only; decisions and locations include pending items, since those are the owner's choices, not tags; pending items get a "Review untagged items" link. `computeWinterReadiness` (pure) checks, in this order, a waterproof shell (outerwear, waterproof), insulated waterproof footwear, windproof gloves, a warm beanie (warmth 3 or more), a scarf, and at least 2 merino, wool or thermal base layers (a case-insensitive match on materials, material guess, subcategory and name). Items marked Leave, Donate or Sell never count, since they will not be in Hamburg. An unmet rule can still list evidence ("1 of 2 so far"); up to six evidence links show per rule, then "and N more". Charts are real tables with the bar hidden from screen readers and the count as text, one neutral colour in both themes, no chart library; categories sort largest first, warmth, decisions and locations keep their order, and weather bars are a share of all tagged and confirmed items. The checklist comes right after the overview so it is not below five charts on a phone; there are no hover tooltips, since every value is printed. The Wardrobe tab stays marked on `/stats` (`alsoActiveOn` in `nav-items.ts`), which is reached from the wardrobe's Stats button; there is still no sixth tab.
 - Why: The checklist answers "is the wardrobe ready for Hamburg", which only items that are going there can answer.
 
@@ -609,7 +609,7 @@ Each entry records one decision and the reason for it. "Deviates from spec" comp
 - Why: The smoke test must reach a real store to mean anything, but a real token in `.env.local` must never reach the other specs, which would upload to it and pay for Claude calls.
 
 ### D-114 What the JSON and CSV exports contain
-- Date: 2026-11-02 · Status: accepted; refined by D-135 and D-244 (guard after ; and tab) · Deviates from spec: no
+- Date: 2026-11-02 · Status: accepted; refined by D-135, D-244 (guard after ; and tab) and D-252 (`collection` as CSV column 36) · Deviates from spec: no
 - Decision: The JSON (format version 1) holds every table except `login_attempts`, which only stores keyed hashes of client addresses derived from `SESSION_SECRET`; `analysisParts` is included too. Each table is an array of rows with camelCase keys, ISO timestamps and money as numbers; items carry their photo rows (URL, kind, size, dimensions). The CSV has one row per item, archived ones included, 35 snake_case columns ending in the processed, original and cut-out photo URLs (thumbnails are derived copies and left out); only text gets the formula guard, while numbers, booleans and dates are written as they are. Both stream 200 rows per database read, items oldest first by creation time with the id as tie-break, paged with a UTC cursor that keeps microseconds so no row is skipped or repeated; the export is not one consistent snapshot. A read that fails part-way ends the stream with an error and is logged, so a short file never looks complete. File names are dated in UTC (`wardrobe-YYYY-MM-DD`). The download links are plain links without `download`, so an error (an expired session) opens as a readable message.
 - Why: Portable data the owner can read without the app; streaming keeps memory flat whatever the wardrobe's size.
 
@@ -619,7 +619,7 @@ Each entry records one decision and the reason for it. "Deviates from spec" comp
 - Why: 100 originals of up to 10 MB still stream well within 300 s; a partial archive that looks complete would be worse than a failed download.
 
 ### D-116 Demo seed for local checks
-- Date: 2026-11-02 · Status: accepted; refined by D-126 · Deviates from spec: no
+- Date: 2026-11-02 · Status: accepted; refined by D-126 and D-252 (13 items are running gear) · Deviates from spec: no
 - Decision: `pnpm db:seed:demo` inserts 300 confirmed items from a fixed random seed and refuses to run unless `DATABASE_URL` points at `localhost` or `127.0.0.1` (and, since D-126, names no other host in its query string). Rows are marked `notes = 'demo-seed'`, image rows use `blob_pathname 'demo-seed/<id>/<kind>'` and the relative URL `/icons/icon-192.png` (not the design's `/demo/thumb.webp`), and image hashes come from each item's index, so running it again adds nothing. `--clean` deletes exactly the marked rows. Delete and the photo ZIP do not work on demo items, because their photo URLs are not in a Blob store.
 - Why: Virtualisation, filters and stats need a realistic size to check, without touching a Blob store.
 
@@ -646,7 +646,7 @@ Each entry records one decision and the reason for it. "Deviates from spec" comp
 - Why: Built from the listed tiles, the options dropped every other colour once one was chosen, against the panel's own "several chosen means any of them", and missed colours seen only past the 2,000-item cap.
 
 ### D-121 An all-archived wardrobe says so, and Reset filters keeps focus on the page
-- Date: 2026-11-02 · Status: accepted · Deviates from spec: no
+- Date: 2026-11-02 · Status: accepted; refined by D-251 (each view has its own empty states) · Deviates from spec: no
 - Decision: When no filter is set and nothing shows but archived items exist (`counts.archived`), `/wardrobe` shows "All N items are archived" (one item: "Your only item is archived") with "Show archived items" (`/wardrobe?status=archived`) and Add items, instead of "No items yet". After "Reset filters" in the no-matches state, once the new list replaces the empty state (and with it the focused button), focus moves to the result count (`tabIndex={-1}`, a focus ring), only when focus was lost, once per reset (compared by list object, so an Activity return or a refresh never moves it). `focusWasLost` now lives in `src/lib/focus.ts`, shared by the review page, the item page and the grid.
 - Why: "No items yet" with an Add button made archived items look lost; focus fell to `<body>` and keyboard and screen-reader users started again at the top of the page.
 
@@ -882,7 +882,7 @@ Each entry records one decision and the reason for it. "Deviates from spec" comp
 - Why: The structured-outputs documentation says the grammar does not guarantee the capitalisation of enum values and tells callers to compare them case-insensitively; a reply that differed only in case cost a whole paid retry (a 70-item chunk or a 19,000-token synthesis). D-144's "the output grammar enforces the enums" overstated that.
 
 ### D-166 "Apply AI decisions" locks its rows in a fixed order first (refines D-150)
-- Date: 2026-11-03 · Status: accepted · Deviates from spec: no
+- Date: 2026-11-03 · Status: accepted; refined by D-249 (both predicates also require clothing) · Deviates from spec: no
 - Decision: `applyAiDecisionsToUndecided` first selects every candidate item (the result's items that are undecided and not archived, the same predicate as its updates) ordered by id `FOR NO KEY UPDATE`, then runs its per-decision updates as before. A PGlite test checks that this select comes before the first update; `src/server/services/relocation-apply.pg.test.ts` (opt-in, `TEST_DATABASE_URL`, its own rows only) applies two runs with crossing decision groups at once for 20 rounds.
 - Why: Each update locked its rows in its own order, so two applies of different runs at once (two tabs or devices) deadlocked: on a scratch Docker database the crossing case failed with 40P01 in every round of the review's check, and the opt-in test failed with "40P01 deadlock detected" without the lock and passed with it. The project already locks in a fixed order where batches claim items.
 
@@ -1033,7 +1033,7 @@ Each entry records one decision and the reason for it. "Deviates from spec" comp
 - Why: A wear is a calendar day, and the owner lives in one city at a time. Noon keeps the day the same in any nearby zone.
 
 ### D-195 The outfit form's rules
-- Date: 2026-11-03 · Status: accepted · Deviates from spec: no
+- Date: 2026-11-03 · Status: accepted; refined by D-250 (an item that is not clothing fails with not_clothing) · Deviates from spec: no
 - Decision: `OutfitInputSchema`: a name of 1 to 80 characters; an occasion of up to 80, stored as null when empty; temperatures from −40 to 50 °C with at most one decimal, min not above max; rain OK; a rating of 1 to 5 or none; notes up to 1,000; 1 to 12 items. Every field is sent, with no defaults. `validateOutfit` checks the slot rules on the server inside the save's transaction, with the items read there: exactly one item in the top slot, a bottom unless that item is a dress, one item per slot except up to three accessories, each item's category allowed in its slot (`SLOT_CATEGORIES`), no archived, missing or repeated item, at most 12 items. The browser runs the same checks first and shows them per slot.
 - Why: The same rules everywhere, enforced where the data is; the database has no constraint that could express them.
 
@@ -1048,7 +1048,7 @@ Each entry records one decision and the reason for it. "Deviates from spec" comp
 - Why: "Last changed" tells the owner when the item's tags or plans were edited; wearing it is not one.
 
 ### D-198 Archived items cannot be worn, and an outfit with no items left cannot be logged
-- Date: 2026-11-03 · Status: accepted · Deviates from spec: no
+- Date: 2026-11-03 · Status: accepted; refined by D-250 (a wear logged as an outfit refuses running gear) · Deviates from spec: no
 - Decision: `logWear` refuses an archived item with VALIDATION and a missing one with NOT_FOUND, and an outfit whose items are all gone with VALIDATION. The item page hides "+1 worn today" for an archived item.
 - Why: An archived item is out of the wardrobe; counting wears for it would distort "most worn" and the stats.
 
@@ -1078,7 +1078,7 @@ Each entry records one decision and the reason for it. "Deviates from spec" comp
 - Why: Open-Meteo rate-limits per IP and Vercel's IPs are shared (D-039). A cached function cannot check the session itself, so the guard keeps it unreachable except through a caller that does.
 
 ### D-204 How a suggestion run is recorded
-- Date: 2026-11-03 · Status: accepted; refined by D-221 (the stored suggestion checked again under the lock) · Deviates from spec: no
+- Date: 2026-11-03 · Status: accepted; refined by D-221 (the stored suggestion checked again under the lock) and D-249 (only clothing is eligible) · Deviates from spec: no
 - Decision: `suggestOutfits` checks, in order: the eligible items (`isEligibleForToday`: tagged or confirmed, located in the home city or unknown, not marked donate or sell, with a category), that three outfits are possible (D-189), the reuse key (D-205), the monthly budget against `estimateOutfitSuggestionUsd`, the API key, and that no other run is under way. It then inserts an `analyses` row (kind `outfit_suggestion`, status running) before the call, so every `ai_calls` row links to it; while another run is less than 130 s old (`SUGGESTION_LEASE_MS`) a new request gets CONFLICT, a check that holds a lock on the settings row. Each paid attempt's cost is added to the row as it is logged (D-168, D-178). A complete run stores the result (three outfits with item ids, the weather snapshot and meta), the model, effort, prompt version and estimated cost; a failed one is marked failed and keeps its cost.
 - Why: The same accounting as the relocation parts, so the usage page and the row agree, and two tabs cannot both pay for today's outfits.
 
@@ -1093,12 +1093,12 @@ Each entry records one decision and the reason for it. "Deviates from spec" comp
 - Why: Yesterday's outfits were for yesterday's weather; after a change of home city the old city's outfits do not apply.
 
 ### D-207 Saving a suggested outfit
-- Date: 2026-11-03 · Status: accepted · Deviates from spec: no
+- Date: 2026-11-03 · Status: accepted; refined by D-250 (an item moved to running gear since is CONFLICT too) · Deviates from spec: no
 - Decision: `saveSuggestedOutfit({ analysisId, index })` creates an outfit with source `ai`, the title as its name and the `why` as `ai_reasoning`, through the builder's `saveOutfit` inside the same transaction, so `validateOutfit` runs on the items as they are now. Its weather range is the suggestion's feels-like range (null outside −40 to 50 °C) and rain OK is the outfit's `rain_ok`. `analyses.params.savedOutfitIds[i]` records what Save made, and saving again returns that outfit while it exists ("Already saved"). An item deleted or archived since, or another slot-rule failure, is CONFLICT with the issues; the page then reads itself again.
 - Why: One saved copy per suggestion, and no outfit saved with an item the owner no longer has.
 
 ### D-208 "Wore this today" on a suggestion
-- Date: 2026-11-03 · Status: accepted; refined by D-222 · Deviates from spec: no
+- Date: 2026-11-03 · Status: accepted; refined by D-222 and D-250 (a card not saved yet logs its items as an outfit, `asOutfit`) · Deviates from spec: no
 - Decision: It logs the outfit's items with today's weather snapshot, or, once the suggestion is saved, the saved outfit as itself. The button is disabled once every item of that outfit has a log for today, so logging the items and then the saved outfit never counts the same wear twice; since D-222 Save also moves such a wear to the new outfit, so the outfit's own page does not count it again either.
 - Why: A wear is per item and day (D-196); the saved outfit only adds where it came from.
 
@@ -1118,7 +1118,7 @@ Each entry records one decision and the reason for it. "Deviates from spec" comp
 - Why: Short keys keep the prompt small and cannot be confused with ids; a gap the owner already bought or skipped is not offered again.
 
 ### D-212 The wardrobe the unlock counts use
-- Date: 2026-11-03 · Status: accepted · Deviates from spec: no
+- Date: 2026-11-03 · Status: accepted; refined by D-249 (clothing only) · Deviates from spec: no
 - Decision: Items that are tagged or confirmed, have a category, are not marked donate or sell, and are not marked leave unless they are already in Hamburg or on the way. The Hamburg profile is found by its slug.
 - Why: The advice is for life in Hamburg: what stays behind cannot be combined there.
 
@@ -1346,3 +1346,63 @@ The installed `security-audit` skill (run-1, source-only) left 14 leads that nee
 
   The code fix, a credential-generation fingerprint and `sessions_valid_after` in `app_settings`, checked in `getSession` and `attemptLogin`, is tracked as wardrobe-tkp.
 - Why: Audit lead 9. Rotation is the only revocation, and each Vercel deployment keeps the values it was built with. Older deployments, and a rollback across a rotation, therefore still accept the old password and old sessions on production data. The runbook closes this operationally. The code fix would protect only deployments built after it ships, so it waits.
+
+## Added for running gear (2026-11-05)
+
+The owner keeps running gear in the app apart from everyday clothing: it is photographed, browsed, worn item by item and exported like any item, but never feeds anything outfit-related.
+
+### D-248 Running gear is a second item collection, and every exclusion tests for clothing
+- Date: 2026-11-05 · Status: accepted · Deviates from spec: yes (additions only)
+- Decision: `items.collection`, enum `item_collection` (`clothing`, `running`; `ITEM_COLLECTIONS` in `enums.ts`), not null, default `clothing`, with the index `items_collection_idx`. Migration `drizzle/20261105182528_item-collection`: CREATE TYPE, ADD COLUMN with a constant default (metadata-only, no table rewrite) and CREATE INDEX. It only adds, so it is safe to apply before the deploy, and every existing item becomes clothing.
+  - Positive form: every exclusion tests for clothing (`=== "clothing"`, `eq(items.collection, "clothing")`), never for running, so a value added later is left out by default. `validateOutfit` falls back to "This item is not clothing, which outfits leave out." for a value the database knows before the code does.
+  - The collection is not part of an item line (`itemLineBody`), so the stored relocation and suggestion hashes of clothing stay valid and no prompt version changes.
+  - Deploy skew: `ItemCardDtoSchema` reads a card without the field as clothing, the `/today` `OutfitItemSchema` reads it as null (which counts as clothing), and `RegisterBodySchema` registers a body without it as clothing.
+  - Tested in `test/db/migrations.test.ts` (the enum and the default), `src/lib/items/contracts.test.ts`, `src/lib/outfits/contracts.test.ts` (the fallback) and `src/lib/relocation/payload.test.ts` (a clothing-only wardrobe keeps its hash).
+- Why: The owner wants running gear in the app without it mixing with clothes. An enum rather than a boolean leaves room for other sports and reads well in a URL (`collection=running`). No shared "eligible items" predicate existed, so each consumer gets its own clothing condition; the positive form keeps a future collection out of outfits, stats and relocation until someone decides otherwise.
+
+### D-249 What leaves running gear out, and what keeps it (refines D-028, D-112, D-166, D-204 and D-212)
+- Date: 2026-11-05 · Status: accepted · Deviates from spec: yes (additions only)
+- Decision: Left out:
+  - The outfit builder: `candidateRows` lists clothing only, so no slot picker offers running gear, and a save holding it fails the check (D-250).
+  - `/today`: `isEligibleForToday` and the `eligibleItems` query require clothing, so running gear is never in the prompt, the item count under the button or the three-outfit check (D-189).
+  - Outfit wears: a saved outfit's "Wore this today", and a `/today` card not saved yet, which sends `asOutfit` (D-250).
+  - "What to buy next": `wardrobeForCounts` reads clothing only, so running gear neither adds outfits nor raises an unlock count. The counts are part of the advice's cache key, so moving an item between collections marks stored advice out of date (D-213).
+  - Stats: the breakdowns and the Items tile count clothing; non-archived running gear has a "Running gear" tile of its own. Archived is checked first, so archived running gear counts under Archived. The empty state shows only when there is neither clothing nor running gear.
+  - Relocation: `buildSnapshot` checks the collection first, so running gear, archived or untagged included, is counted once as running and named in the estimate's left-out sentence ("… and 2 running gear items are left out"). When only running gear stands in the way, Run's blocker and the server's `no_items` refusal say "Only running gear is in the wardrobe, which the analysis leaves out. Add or confirm some clothes first." `applyAiDecisionsToUndecided` requires clothing in its lock and its update predicate, one `applicableItems` helper for both (D-166), so an item moved to running gear after a run keeps no AI decision. The result page's item refs carry `collection` too, and its "Apply AI decisions to N undecided items" button counts clothing only, so it never offers a decision the server would skip. A run's other tabs are left as the run made them: an item moved to running gear afterwards still shows the AI's suggestion on its card, can still be decided by hand, and an undecided one still counts by that suggestion on the Packing tab and the print checklist, as any result of that run does; a new run leaves it out.
+
+  Kept: the winter-readiness checklist (the owner's choice), item-level "+1 worn today" and its Undo, the shopping list's "Link to an item I own" picker, both exports and the review queue. Tested in `outfits.test.ts`, `outfit-suggestions.test.ts`, `shopping-advice.test.ts`, `stats.test.ts` (the tile, archived running gear, the checklist), `stats-view.test.tsx`, `relocation.test.ts`, `payload.test.ts`, `relocation-form.test.tsx`, `relocation-results.test.tsx`, `relocation-apply.pg.test.ts`, `e2e/relocate.spec.ts`, `e2e/stats.spec.ts` and `wear.test.ts`.
+- Why: The owner's decisions of 2026-11-05: running gear must never feed anything outfit-related, nor the wardrobe numbers or the move plan, which are about clothes. The checklist asks whether the owner will be warm in Hamburg, and running gloves or a beanie answer that too. Stats keeps Archived as the count of everything archived (D-112), while the relocation sentence names running gear first because a running item is never analysed, whatever its status.
+
+### D-250 An outfit or stored suggestion holding an item moved to running gear flags it, and refuses saves and outfit wears until it is swapped out (refines D-195, D-198, D-207 and D-208)
+- Date: 2026-11-05 · Status: accepted · Deviates from spec: yes (additions only)
+- Decision: An item in a saved outfit may still be moved to running gear (the owner's decision); the outfit then treats it like an archived item.
+  - Check: `validateOutfit` adds the issue `not_clothing` ("This item is running gear, which outfits leave out.") after `archived_item`; an archived running item carries both. `OutfitCheckItem.collection` is required, so every caller passes it: the builder, `saveOutfit` (through `lockCheckItems`, which reads it under its FOR SHARE locks) and the AI reply check.
+  - Builder: saved outfits still list the item, with a "Running gear" badge beside where "Archived" would be and the check's message next to its slot. `saveOutfit` refuses a re-save that keeps it with VALIDATION and the issue.
+  - Wear: `logWear` with kind `outfit`, or kind `items` with `asOutfit: true` (a `/today` card before Save), takes clothing only. The check runs under the item locks, after the missing (NOT_FOUND) and archived checks and before anything is written: VALIDATION "Running gear cannot be logged as part of an outfit. Swap it out first.", reason `not_clothing`, and no log for any item. Items logged on their own ("+1 worn today") may be in any collection.
+  - `/today`: `outfitItemProblem` (client-safe: deleted, then archived, then not clothing) sets a stored suggestion's `available`, and the card's badge comes from the same helper (`itemProblemLabel`: "Running gear"), so the two always agree. Save and "Wore this today" are disabled, and the card says the item was "deleted, archived or moved to running gear". `saveSuggestedOutfit`'s CONFLICT uses the same words. D-222's wear move and D-236's locks are unchanged: `saveOutfit`'s check refuses such a suggestion before any wear is moved. No prompt version changes.
+  - Accepted risk: the wear input is a strict object, so after a rollback to a build without `asOutfit`, a `/today` tab still on the new bundle gets VALIDATION for "Wore this today" on an unsaved card until it reloads (the same kind of risk D-252 accepts for the register body). Forward deploys are fine: an older tab leaves the key out, which reads as a plain item wear.
+  - Tested in `src/lib/outfits/contracts.test.ts`, `outfits.test.ts`, `wear.test.ts`, `outfit-suggestions.test.ts`, `outfit-form.test.tsx` and `today-view.test.tsx`.
+- Why: Refusing the move would make the owner dismantle outfits first; flagging the piece like an archived one reuses a pattern the builder already has. `asOutfit` is needed because an unsaved card logs its items with kind `items`, the same as "+1 worn today", so without it the server could not tell an outfit wear from an item wear.
+
+### D-251 The Clothes | Running switch on /wardrobe is a view, kept in the URL as `collection` (refines D-108 and D-121)
+- Date: 2026-11-05 · Status: accepted · Deviates from spec: yes (additions only)
+- Decision: `ItemFilters.collection` holds one value, parsed like `sort` (the first valid value of a repeated key wins; none or an unknown one means clothing). It is the first parameter in `ITEM_FILTER_PARAMS`, and the default is left out: `/wardrobe` is the Clothes view, `/wardrobe?collection=running&q=…` the Running view.
+  - Not a filter: `activeFilterCount` and `hasActiveFilters` ignore it, so the Filters badge leaves it out and each view has its own empty states.
+  - Scoped: `filterConditions` always puts it in `rest`, so the list, every chip count, the archived count and the colour facet keep to the view. The status filter still applies, so archived running gear is hidden by default too.
+  - Kept: both Resets (the panel's and the empty state's) and the chips keep the view; switching keeps the search, filters and sort.
+  - `CollectionSwitch` (a ToggleGroup named "Show", with "Clothes" and "Running", full width on a phone) is always rendered, empty states included, and the page's skeleton keeps its row.
+  - Empty states: the Clothes view's "No clothes yet" says running gear is under Running; the Running view has "No running gear yet", which points to the switches on Add items and on the item page, and "All N pieces of running gear are archived" ("Your only piece of running gear is archived"), whose "Show archived items" keeps the view.
+  - The item page's "Back to wardrobe" still goes back in history to the list it came from, view included (D-107). Its fallback link (no list entry in history: a new tab, a deep link, arriving from Stats or the review page) and the redirect after a delete go to the item's own view: `/wardrobe?collection=running` for running gear, `/wardrobe` for clothes.
+  - Tested in `filters.test.ts`, `items-query.test.ts`, `wardrobe-results.test.tsx`, `collection-switch.test.tsx`, `filter-panel.test.tsx`, `category-chips.test.tsx` and `wardrobe-toolbar.test.tsx`; the item page's view in `item-detail.test.tsx`, `danger-zone.test.tsx` and `wardrobe-return.test.ts`.
+- Why: The owner browses running gear apart from clothes, not as one more narrowing filter. Counted as a filter, an empty Running view would read "No matches" and Reset would throw the owner back to the clothes. It comes first in the URL because it says which wardrobe the other parameters apply to.
+
+### D-252 Items are marked as running gear on /add when queued and on the item page at any time; the CSV gains a `collection` column (refines D-074, D-114 and D-116)
+- Date: 2026-11-05 · Status: accepted · Deviates from spec: yes (additions only)
+- Decision:
+  - `/add`: an "Adding running gear" switch above the pickers, off by default. Its value is stamped on each photo when it is queued (`Job.collection`, `QueueEntry.collection`), shown as a "Running gear" badge on the row and sent with every register attempt, retries included; turning the switch later changes no queued photo. It is off again whenever the page is left or hidden (the queue's `reset`) and when the browser restores the page from its back/forward cache (`pageshow` with `persisted`).
+  - Register: `insertItem` writes the body's collection. A body without it (a tab loaded before the deploy) registers clothing. A retry for an item that already exists, and a duplicate photo (by source or image hash), leave the existing item's collection as it is. Accepted risk: `RegisterBodySchema` is strict, so if the deploy is rolled back to a build without the column, an `/add` tab already on the new bundle gets VALIDATION on every register until it reloads.
+  - Item page: a "Running gear" switch, first in "Plan and location", moves the item in or out from any status (`setItemCollection`, an `authedAction` that calls `updateItem`). It flips at once, falls back with an error toast when the save fails, and notes a wardrobe change (D-107). `collection` is in `ItemPatch` but is not a tag field, so `user_edited_fields` is untouched. The page header shows a "Running gear" badge for anything but clothing, and so do the review cards.
+  - Export: the CSV appends `collection` as column 36, after the photo URLs; the JSON export carries it with the rest of the item row.
+  - Demo seed: every 6th item from index 3 whose subcategory a runner would wear (sneakers, t-shirt, hoodie, shorts, leggings, thermal top, cap, rain jacket) is running gear, 13 of the 300. The rule reads only the index and the subcategory already drawn, so no random number is added and every other field stays as it was (`scripts/seed-demo.test.ts` pins a hash of them).
+  - Tested in `upload-queue.test.ts`, `add-flow-view.test.tsx`, `register-upload.test.ts`, the register `route.test.ts`, `src/server/actions/items.test.ts`, `items.test.ts`, `running-gear-toggle.test.tsx`, `item-detail.test.tsx`, `review-list.test.tsx`, `csv.test.ts` and `export.test.ts`.
+- Why: Stamping at queue time makes a photo's collection what the switch said when it was picked, whatever happens to the switch while uploads run, and switching it off on leave keeps a later visit from marking clothes unasked. The item page switch corrects a wrong mark and lets an item change role. New CSV columns go at the end, so spreadsheets built on the 35-column export keep working.

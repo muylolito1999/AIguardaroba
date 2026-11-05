@@ -31,7 +31,7 @@ export const PICK_TITLES: Readonly<Record<OutfitSlot, string>> = {
 export type SlotPickerDialogProps = {
   /** The slot being filled; null when the dialog is closed. */
   slot: OutfitSlot | null
-  /** The slot's items (its categories, not archived), by name. */
+  /** The slot's items (its categories, not archived, clothing only: D-249), by name. */
   candidates: readonly SlotCandidateDto[]
   /** Items already in the outfit: shown as chosen and not offered again. */
   chosenIds: ReadonlySet<string>

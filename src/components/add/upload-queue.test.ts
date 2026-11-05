@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest"
 
+import type { ItemCollection } from "@/lib/db/enums"
 import type { ItemCardDto } from "@/lib/items/contracts"
 
 import {
@@ -16,9 +17,13 @@ import {
 import { cardFor } from "./test-fixtures"
 
 function withEntries(...keys: string[]): AddFlowState {
-  return addFlowReducer(INITIAL_ADD_FLOW_STATE, {
+  return addEntries(INITIAL_ADD_FLOW_STATE, "clothing", ...keys)
+}
+
+function addEntries(state: AddFlowState, collection: ItemCollection, ...keys: string[]): AddFlowState {
+  return addFlowReducer(state, {
     type: "add",
-    entries: keys.map((key) => ({ key, fileName: `${key}.jpg` })),
+    entries: keys.map((key) => ({ key, fileName: `${key}.jpg`, collection })),
   })
 }
 
@@ -83,7 +88,7 @@ describe("addFlowReducer", () => {
     let state = registered(withEntries("a", "b"), "a")
     state = addFlowReducer(state, { type: "budgetBlocked", error })
     state = addFlowReducer(state, { type: "reset" })
-    expect(state).toEqual({ entries: [], budgetBlock: error })
+    expect(state).toEqual({ entries: [], budgetBlock: error, collection: "clothing" })
   })
 
   it("lifts the budget block, and keeps the same state when there is none", () => {
@@ -95,6 +100,51 @@ describe("addFlowReducer", () => {
     expect(lifted.budgetBlock).toBeNull()
     expect(lifted.entries).toBe(blocked.entries)
     expect(addFlowReducer(lifted, { type: "budgetLifted" })).toBe(lifted)
+  })
+})
+
+describe("the running-gear switch (D-252)", () => {
+  it("starts off", () => {
+    expect(INITIAL_ADD_FLOW_STATE.collection).toBe("clothing")
+  })
+
+  it("stamps entries with the collection they were queued with, which a later switch does not change", () => {
+    let state = addFlowReducer(INITIAL_ADD_FLOW_STATE, { type: "setCollection", collection: "running" })
+    expect(state.collection).toBe("running")
+    state = addEntries(state, "running", "shoes")
+    state = addFlowReducer(state, { type: "setCollection", collection: "clothing" })
+    state = addEntries(state, "clothing", "coat")
+    state = registered(state, "shoes")
+
+    expect(state.collection).toBe("clothing")
+    expect(state.entries.map((entry) => [entry.key, entry.collection])).toEqual([
+      ["shoes", "running"],
+      ["coat", "clothing"],
+    ])
+  })
+
+  it("keeps the same state when the switch is set to what it already is", () => {
+    const state = withEntries("a")
+    expect(addFlowReducer(state, { type: "setCollection", collection: "clothing" })).toBe(state)
+  })
+
+  it("is turned off again when the page is left, together with emptying the list", () => {
+    let state = addFlowReducer(INITIAL_ADD_FLOW_STATE, { type: "setCollection", collection: "running" })
+    state = addEntries(state, "running", "shoes")
+    state = addFlowReducer(state, { type: "reset" })
+    expect(state.collection).toBe("clothing")
+    expect(state.entries).toEqual([])
+  })
+
+  it("stays on when the budget blocks or lifts", () => {
+    let state = addFlowReducer(INITIAL_ADD_FLOW_STATE, { type: "setCollection", collection: "running" })
+    state = addFlowReducer(state, {
+      type: "budgetBlocked",
+      error: { code: "BUDGET_EXCEEDED", message: "Budget reached." },
+    })
+    expect(state.collection).toBe("running")
+    state = addFlowReducer(state, { type: "budgetLifted" })
+    expect(state.collection).toBe("running")
   })
 })
 

@@ -11,6 +11,7 @@ import {
   ITEM_CATEGORIES,
   type AnalysisStatus,
   type ItemCategory,
+  type ItemCollection,
   type ItemDecision,
   type ItemLocation,
   type ItemStatus,
@@ -196,8 +197,11 @@ export type RelocationParamsInput = z.input<typeof RelocationParamsSchema>;
 export type RelocationEstimateDto = {
   /** Items the snapshot holds (the run decides each). */
   itemCount: number;
-  /** Items left out and why (D-028). unconfirmed is 0 when tagged items are included. */
-  excluded: { pending: number; archived: number; unconfirmed: number };
+  /**
+   * Items left out and why (D-028). unconfirmed is 0 when tagged items are
+   * included; running counts running gear, whatever its status (D-249).
+   */
+  excluded: { pending: number; archived: number; unconfirmed: number; running: number };
   chunkCount: number;
   /** Months of the range in order, the arrival month first. */
   months: number[];
@@ -271,6 +275,12 @@ export type RelocationItemRefDto = {
    * (placeAtDestination, D-170), need no packing, whatever the run decided.
    */
   location: ItemLocation | null;
+  /**
+   * The item's collection now; null when it no longer exists. "Apply AI
+   * decisions" writes only to clothing, so an item moved to running gear
+   * since the run is not counted as undecided for it (D-249).
+   */
+  collection: ItemCollection | null;
   /** false = deleted since the run; status "archived" = archived since. */
   exists: boolean;
 };

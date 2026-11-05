@@ -50,6 +50,14 @@ describe("applyChip", () => {
     expect(applyChip(untagged, "all")).toMatchObject({ category: [], status: [...DEFAULT_STATUSES] })
   })
 
+  it("keeps the Clothes | Running view whatever chip is pressed (D-251)", () => {
+    const running = filters({ collection: "running", q: "tights", category: ["shoes"] })
+    for (const key of ["all", "untagged", "shoes", "bottom"] as const) {
+      expect(applyChip(running, key).collection, key).toBe("running")
+    }
+    expect(applyChip(applyChip(running, "untagged"), "untagged").collection).toBe("running")
+  })
+
   it("keeps a custom status set when switching categories outside the Untagged view", () => {
     const archived = filters({ status: ["archived"] })
     expect(applyChip(archived, "shoes").status).toEqual(["archived"])
@@ -147,6 +155,15 @@ describe("CategoryChips", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Untagged, 2 items" }))
     expect(applied()).toMatchObject({ category: [], status: ["pending_tagging"] })
+  })
+
+  it("keeps the view when a chip is pressed in the Running view", () => {
+    const running = filters({ collection: "running" })
+    const { applied } = renderChips(running, counts({ shoes: 2 }, 1))
+    fireEvent.click(screen.getByRole("button", { name: "Shoes, 2 items" }))
+    expect(applied()).toMatchObject({ collection: "running", category: ["shoes"] })
+    fireEvent.click(screen.getByRole("button", { name: "Untagged, 1 item" }))
+    expect(applied()).toMatchObject({ collection: "running", status: ["pending_tagging"] })
   })
 
   it("clears the categories when All is pressed", () => {

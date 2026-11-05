@@ -142,6 +142,38 @@ describe("updateItem", () => {
   });
 });
 
+// The running gear switch on the item page (D-252): collection is not a tag
+// field, so a move never marks one as the owner's (D-248), and it works from
+// any status.
+describe("updateItem with a collection", () => {
+  it("moves a tagged item into running gear and back without touching user_edited_fields", async () => {
+    const item = await makeTaggedCoat({ userEditedFields: ["pattern"] });
+
+    const card = await updateItem(testDb.db, item.id, { collection: "running" });
+
+    expect(card).toMatchObject({ id: item.id, collection: "running", status: "tagged", userEditedFields: ["pattern"] });
+    expect(await row(item.id)).toMatchObject({ collection: "running", status: "tagged", userEditedFields: ["pattern"] });
+
+    expect((await updateItem(testDb.db, item.id, { collection: "clothing" })).collection).toBe("clothing");
+    expect(await row(item.id)).toMatchObject({ collection: "clothing", userEditedFields: ["pattern"] });
+  });
+
+  it.each([
+    ["an archived item", () => makeTaggedCoat({ status: "archived", archivedFrom: "confirmed" }), "archived"],
+    ["a pending item", () => makeItem(testDb.db), "pending_tagging"],
+  ] as const)("moves %s and keeps its status", async (_label, make, status) => {
+    const item = await make();
+
+    expect(await updateItem(testDb.db, item.id, { collection: "running" })).toMatchObject({
+      id: item.id,
+      collection: "running",
+      status,
+      userEditedFields: [],
+    });
+    expect(await row(item.id)).toMatchObject({ collection: "running", status, userEditedFields: [] });
+  });
+});
+
 describe("confirmItem", () => {
   it("confirms a tagged item", async () => {
     const item = await makeTaggedCoat();

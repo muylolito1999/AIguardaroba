@@ -25,9 +25,10 @@ const NO_ITEMS: readonly [] = []
  * /outfits/new: the builder, empty. After a save it starts empty again (Next
  * may keep this page and show it as it was) and the list opens, read fresh by
  * the navigation; the outfit change makes a kept list read too. The pickers
- * show each item's wear count and leave archived items out, so the page reads
- * its items again when shown after a wear, an Undo or an archive elsewhere in
- * the tab (D-107); the choices made so far stay.
+ * show each item's wear count and leave archived items and running gear out
+ * (D-249), so the page reads its items again when shown after a wear, an
+ * Undo, an archive or a move to running gear elsewhere in the tab (D-107);
+ * the choices made so far stay.
  */
 export function NewOutfit({ candidates, saveOutfit }: NewOutfitProps) {
   const router = useRouter()

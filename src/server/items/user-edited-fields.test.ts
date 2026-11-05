@@ -22,6 +22,7 @@ function itemRow(overrides: Partial<Item> = {}): Item {
     archivedFrom: null,
     location: "bologna",
     decision: "undecided",
+    collection: "clothing",
     name: COAT_TAGS.name,
     category: COAT_TAGS.category,
     subcategory: COAT_TAGS.subcategory,

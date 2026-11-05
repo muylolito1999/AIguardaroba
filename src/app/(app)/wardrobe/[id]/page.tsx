@@ -14,6 +14,7 @@ import {
   archiveItem,
   confirmItem,
   deleteItem,
+  setItemCollection,
   setItemDecision,
   setItemLocation,
   tagItemByHand,
@@ -57,6 +58,7 @@ async function ItemDetailContent({ params }: Pick<PageProps<"/wardrobe/[id]">, "
         tagItemByHand,
         setItemDecision,
         setItemLocation,
+        setItemCollection,
         archiveItem,
         unarchiveItem,
         deleteItem,
@@ -90,6 +92,13 @@ function ItemDetailSkeleton() {
         <Skeleton className="aspect-square w-full max-w-md rounded-lg md:max-w-none" />
         <div className="flex flex-col gap-4">
           <Skeleton className="h-6 w-40" />
+          {/* The running gear switch, then the two plan toggles. The switch's
+              row is its label and description: 44 px with one description
+              line, 21 px more per extra line. Measured in Geist at 14 px, the
+              description takes two lines on phones, one from sm, three to six
+              in the narrow md column (four on 810 and 820 px tablets), two at
+              lg and one from xl. */}
+          <Skeleton className="h-16 w-full sm:h-11 md:h-26 lg:h-16 xl:h-11" />
           <Skeleton className="h-11 w-full" />
           <Skeleton className="h-11 w-full" />
           <Skeleton className="h-6 w-24" />

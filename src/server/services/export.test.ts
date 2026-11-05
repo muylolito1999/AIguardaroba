@@ -92,7 +92,7 @@ async function storePhoto(item: Item, kind: "processed" | "original" | "nobg" | 
 async function seedEverything(db: Db) {
   await seedDatabase(db);
   const coat = await makeTaggedItem(db, { name: "Navy coat", notes: "=SUM(A1)", createdAt: createdAt(1) });
-  const scarf = await makeItem(db, { name: "Red scarf", createdAt: createdAt(2) });
+  const scarf = await makeItem(db, { name: "Red scarf", collection: "running", createdAt: createdAt(2) });
   await makeImage(db, coat.id, { kind: "processed" });
   await makeImage(db, coat.id, { kind: "thumb" });
   await makeImage(db, coat.id, { kind: "original", contentType: "image/jpeg" });
@@ -137,6 +137,9 @@ describe("JSON export", () => {
     expect(parsed.items.map((item) => item.id)).toEqual([coat.id, scarf.id]);
     const exportedCoat = parsed.items[0];
     expect(exportedCoat).toMatchObject({ name: "Navy coat", notes: "=SUM(A1)", warmthLevel: 4, colors: ["navy"] });
+    // The full row, the collection included (D-252).
+    expect(exportedCoat?.collection).toBe("clothing");
+    expect(parsed.items[1]?.collection).toBe("running");
     expect(exportedCoat?.createdAt).toBe(coat.createdAt.toISOString());
     expect(exportedCoat?.images).toEqual([
       expect.objectContaining({ kind: "original", contentType: "image/jpeg", width: 1024, height: 768, bytes: 120_000 }),
@@ -241,7 +244,7 @@ describe("JSON export", () => {
 describe("CSV export", () => {
   it("writes a BOM, the header and one CRLF row per item, archived ones included", async () => {
     const coat = await makeTaggedItem(testDb.db, { name: "Coat, navy", notes: "=1+1", createdAt: createdAt(1) });
-    const archived = await makeItem(testDb.db, { status: "archived", name: "Old hat", createdAt: createdAt(2) });
+    const archived = await makeItem(testDb.db, { status: "archived", name: "Old hat", collection: "running", createdAt: createdAt(2) });
     const processed = await storePhoto(coat, "processed", Buffer.from("p"));
     const original = await storePhoto(coat, "original", Buffer.from("o"), "image/jpeg");
     await storePhoto(coat, "thumb", Buffer.from("t"));
@@ -258,8 +261,10 @@ describe("CSV export", () => {
     expect(lines.slice(1, -1)).toHaveLength(2);
     expect(lines[1]).toContain(`${coat.id},"Coat, navy",outerwear`);
     expect(lines[1]).toContain(`,'=1+1,`);
-    expect(lines[1]?.endsWith(`,${processed.url},${original.url},`)).toBe(true);
+    // The photo URLs (no cut-out), then the collection, the last column (D-252).
+    expect(lines[1]?.endsWith(`,${processed.url},${original.url},,clothing`)).toBe(true);
     expect(lines[2]?.startsWith(`${archived.id},Old hat,,`)).toBe(true);
+    expect(lines[2]?.endsWith(",,,,running")).toBe(true);
   });
 
   it("has only the header when there are no items", async () => {

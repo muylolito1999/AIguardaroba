@@ -3,7 +3,7 @@
 import { useId, useMemo, useRef, useState, type FormEvent, type ReactNode } from "react"
 import { Loader2, Plus, Save, X } from "lucide-react"
 
-import { CATEGORY_LABELS } from "@/components/items/tag-options"
+import { CATEGORY_LABELS, COLLECTION_LABELS } from "@/components/items/tag-options"
 import { settle } from "@/components/relocate/actions"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -60,7 +60,7 @@ export type OutfitFormProps = {
   /** The starting values; read once, so a refresh of the page keeps the owner's edits. */
   initial: OutfitFormValues
   candidates: Readonly<Record<OutfitSlot, readonly SlotCandidateDto[]>>
-  /** The outfit's items as last read, archived ones included, for their names and photos. */
+  /** The outfit's items as last read, archived ones and running gear included, for their names, photos and badges. */
   current: readonly OutfitItemDto[]
   submitLabel: string
   onSubmit: (outfit: OutfitInputValues) => Promise<Result<OutfitDetailDto>>
@@ -375,8 +375,18 @@ function chooseLabel(slot: OutfitSlot, count: number): string {
   return count === 0 ? "Choose" : "Change"
 }
 
+/**
+ * The badge of an item in a collection outfits leave out ("Running gear"),
+ * shown beside "Archived" and like it: the check names the problem and the
+ * owner swaps the piece out (D-250). Clothing, or an item that is gone, has none.
+ */
+function leftOutCollectionLabel(item: ItemInfo): string | null {
+  if (item.collection === null || item.collection === "clothing") return null
+  return COLLECTION_LABELS[item.collection]
+}
+
 function unknownItem(itemId: string): ItemInfo {
-  return { id: itemId, name: "An item that no longer exists", category: null, status: null, thumbUrl: null }
+  return { id: itemId, name: "An item that no longer exists", category: null, status: null, collection: null, thumbUrl: null }
 }
 
 type SlotRowProps = {
@@ -435,27 +445,31 @@ function SlotRow({
       </div>
       {items.length > 0 ? (
         <ul className="flex flex-col gap-2" aria-label={`${SLOT_LABELS[slot]} chosen`}>
-          {items.map((item) => (
-            <li key={item.id} className="flex items-center gap-3">
-              <ItemThumb url={item.thumbUrl} alt="" className="size-12" />
-              <div className="flex min-w-0 flex-1 flex-col">
-                <span className="text-sm font-medium break-words">{item.name}</span>
-                <span className={cn("flex flex-wrap items-center gap-1.5 text-xs", smallText)}>
-                  {item.category !== null ? CATEGORY_LABELS[item.category] : "No category"}
-                  {item.status === "archived" ? <Badge variant="secondary">Archived</Badge> : null}
-                </span>
-              </div>
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon-touch"
-                onClick={() => onRemove(item.id)}
-                aria-label={`Remove ${item.name}`}
-              >
-                <X aria-hidden />
-              </Button>
-            </li>
-          ))}
+          {items.map((item) => {
+            const collectionLabel = leftOutCollectionLabel(item)
+            return (
+              <li key={item.id} className="flex items-center gap-3">
+                <ItemThumb url={item.thumbUrl} alt="" className="size-12" />
+                <div className="flex min-w-0 flex-1 flex-col">
+                  <span className="text-sm font-medium break-words">{item.name}</span>
+                  <span className={cn("flex flex-wrap items-center gap-1.5 text-xs", smallText)}>
+                    {item.category !== null ? CATEGORY_LABELS[item.category] : "No category"}
+                    {item.status === "archived" ? <Badge variant="secondary">Archived</Badge> : null}
+                    {collectionLabel !== null ? <Badge variant="secondary">{collectionLabel}</Badge> : null}
+                  </span>
+                </div>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon-touch"
+                  onClick={() => onRemove(item.id)}
+                  aria-label={`Remove ${item.name}`}
+                >
+                  <X aria-hidden />
+                </Button>
+              </li>
+            )
+          })}
         </ul>
       ) : null}
       {hasMessages ? (

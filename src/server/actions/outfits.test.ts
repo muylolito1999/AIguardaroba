@@ -45,7 +45,7 @@ afterAll(async () => {
   await testDb.close();
 });
 
-function item(key: OutfitTemplateKey): Promise<Item> {
+function item(key: OutfitTemplateKey, overrides: Partial<Item> = {}): Promise<Item> {
   const template = OUTFIT_TEMPLATES[key];
   return makeTaggedItem(testDb.db, {
     ...template,
@@ -53,6 +53,7 @@ function item(key: OutfitTemplateKey): Promise<Item> {
     materials: [...template.materials],
     seasons: [...template.seasons],
     status: "confirmed",
+    ...overrides,
   });
 }
 
@@ -100,6 +101,18 @@ describe("outfit actions", () => {
         details: { outfitIssues: expect.arrayContaining([expect.objectContaining({ code: "wrong_category" })]) },
       },
     });
+
+    // Running gear is refused with its own issue on its slot (D-250).
+    const [jeans, runningTights] = await Promise.all([item("jeans"), item("chinos", { collection: "running" })]);
+    expect(await outfitActions.saveOutfit({ outfit: outfit(sweater, runningTights) })).toMatchObject({
+      ok: false,
+      error: {
+        code: "VALIDATION",
+        message: "This item is running gear, which outfits leave out.",
+        details: { outfitIssues: [expect.objectContaining({ code: "not_clothing", slot: "bottom", itemId: runningTights.id })] },
+      },
+    });
+    expect(await outfitActions.saveOutfit({ outfit: outfit(sweater, jeans) })).toMatchObject({ ok: true });
   });
 
   it("validates strictly and checks the session first", async () => {

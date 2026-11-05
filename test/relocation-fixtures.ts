@@ -36,6 +36,7 @@ export function makeSnapshotItem(overrides: Partial<SnapshotItemInput> = {}): Sn
     condition: "good",
     status: "confirmed",
     location: "bologna",
+    collection: "clothing",
     aiConfidence: { category: 0.95, colors: 0.9, materials: 0.8, warmth_level: 0.8, condition: 0.75 },
     userEditedFields: [],
     ...overrides,

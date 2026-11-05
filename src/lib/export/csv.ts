@@ -104,6 +104,7 @@ export type ItemCsvSource = Pick<
   | "lastWornAt"
   | "createdAt"
   | "updatedAt"
+  | "collection"
 > & { imageUrls: Partial<Record<CsvImageKind, string>> };
 
 type ItemCsvColumn = { header: string; value: (item: ItemCsvSource) => CsvValue };
@@ -149,6 +150,8 @@ const ITEM_CSV_COLUMNS: readonly ItemCsvColumn[] = [
   { header: "processed_image_url", value: (item) => item.imageUrls.processed },
   { header: "original_image_url", value: (item) => item.imageUrls.original },
   { header: "nobg_image_url", value: (item) => item.imageUrls.nobg },
+  // "clothing" or "running" (D-252), added after the photo URLs per the rule above.
+  { header: "collection", value: (item) => item.collection },
 ];
 
 export const ITEM_CSV_HEADERS: readonly string[] = ITEM_CSV_COLUMNS.map((column) => column.header);

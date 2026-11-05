@@ -2,6 +2,132 @@
 
 Newest entry first. Each entry records the state at the end of a working session. Task tracking lives in Beads (`bd ready`, `bd show <id>`); the reasons behind choices are in [DECISIONS.md](DECISIONS.md).
 
+## 2026-11-05 — Running gear, a second item collection (wardrobe-f7b)
+
+### State
+
+- **Feature (owner request):** add running gear to the wardrobe but keep it apart from regular clothing, so it never feeds outfits or anything outfit-related. Built, reviewed and checked; **not committed, not migrated in production, not deployed.**
+- **Owner's decisions, asked before the build:**
+  - a Clothes | Running switch on `/wardrobe`;
+  - marking through an "Adding running gear" switch on `/add` and a "Running gear" switch on the item page;
+  - running gear is left out of the Stats breakdowns and the relocation analysis as well as outfits;
+  - the winter checklist keeps counting it;
+  - an item already in a saved outfit may be moved, and the outfit then flags it like an archived piece.
+- **Model:** `items.collection`, enum `item_collection` ('clothing', 'running'), not null, default 'clothing', indexed. Every exclusion tests for clothing, so a value added later is left out by default (D-248).
+- **Left out (D-249, D-250):**
+  - the outfit builder's slot pickers and saves (`not_clothing` issue in `validateOutfit`, "Running gear" badge);
+  - `/today` eligibility, and stored suggestions holding a moved item (not available, badge, Save and Wore disabled, CONFLICT text);
+  - outfit-level wears, including a `/today` card before Save via `asOutfit`;
+  - "What to buy next" unlock counts;
+  - the Stats breakdowns and the Items tile (own "Running gear" tile);
+  - the relocation snapshot, Apply AI decisions, and the result page's Apply count.
+- **Kept:** the winter checklist, "+1 worn today" and Undo, the shopping link picker, both exports (CSV column 36 `collection`), and the review queue.
+- **Browsing and marking (D-251, D-252):**
+  - `/wardrobe?collection=running`: the parameter comes first, the default is left out, and it is not counted as a filter. Every count is scoped to the view.
+  - The /add switch is stamped when a photo is queued. It resets on leave and on a back/forward-cache restore.
+  - The item page switch uses `setItemCollection`. "Back to wardrobe" and the redirect after a delete go to the item's own view.
+  - The demo seed marks 13 running-type items.
+- **How it was built:** in macro areas with parallel agents on disjoint files.
+  - A: foundation, then 3 propagation agents.
+  - B: 6 exclusion packages and C: 3 marking/browsing packages, run as one wave of 9, plus the demo seed.
+  - D: e2e, docs, then a headed visual check.
+  - After each area, a Fable review at xhigh effort; every finding was fixed or recorded (see Review).
+- **Docs:** DECISIONS D-248 to D-252, with the status lines of D-028, D-074, D-108, D-112, D-114, D-116, D-121, D-166, D-195, D-198, D-204, D-207, D-208 and D-212 updated. README: Features row 7 and the affected sections; CSV now 36 columns. `e2e/README.md` bullets.
+
+### Decisions
+
+D-248, D-249, D-250, D-251, D-252.
+
+### Review
+
+Five Fable xhigh reviews, read-only, each followed by fixes and the gate. None found a high or medium defect.
+- **Area A:**
+  - Fixed: a fallback message in `validateOutfit` for a collection the database knows before the code (with a test).
+  - Accepted: a rollback skew on the strict register body (D-252).
+- **Area B:**
+  - Fixed: Run's blocker and the server's `no_items` refusal now say "Only running gear is in the wardrobe…" when only running gear stands in the way.
+  - Fixed: the demo seed picks running items by subcategory (tees, hoodies, leggings, sneakers…), and every other demo field is unchanged (pinned by a hash).
+  - Noted in D-249: archived running gear counts as Archived on /stats but as running gear in the relocation sentence.
+- **Area C:**
+  - Fixed: the item page's fallback "Back to wardrobe" and the redirect after a delete go to the item's view.
+  - Fixed: the item page skeleton row height.
+  - Fixed: the Clothes empty state now reads "No clothes yet".
+  - Recorded: the rollback skew (D-252).
+  - Filed: the switch's focus and label (wardrobe-sak).
+- **Area D plus a whole-feature pass:**
+  - Recorded in D-250: the `asOutfit` rollback skew.
+  - Fixed: the README testing rows.
+  - Fixed: a relocate e2e assertion that could not fail. Its replacement exposed a real gap: the result page's Apply button still counted an item moved to running gear and then applied nothing. The item refs now carry `collection`, and the button counts clothing only.
+- **The Apply-count fix:**
+  - Fixed: the e2e restore now sits in `finally`.
+  - Recorded in D-249: the Packing tab and print checklist keep a run's suggestion for an item moved afterwards.
+  - Fixed: D-249's test list.
+
+### Checks run
+
+All times local (CET), 2026-11-05. Every gate, e2e and database command ran through scratchpad wrappers that take one build lock and move `.env.local` (production values) aside, restoring it in a trap; every aside folder was empty afterwards.
+
+- **Gates** (`pnpm typecheck && pnpm lint && pnpm test && pnpm build`), all four passed each time:
+  - after Area A: `pnpm test` 19:37:41 to 19:38:59 (164 files passed, 6 skipped; 2,591 tests passed, 8 skipped), `pnpm build` to 19:39:28;
+  - after its fix: 19:47:48 to 19:49:38 (164 files passed, 6 skipped; 2,592 tests passed, 8 skipped);
+  - after Areas B and C: 20:03:18 to 20:05:25 (166 files passed, 6 skipped; 2,689 tests passed, 8 skipped);
+  - after their review fixes: 20:18:17 to 20:20:13 (166 files passed, 6 skipped; 2,696 tests passed, 8 skipped);
+  - after the Apply-count fix: 20:45:06 to 20:47:00 (166 files passed, 6 skipped; 2,698 tests passed, 8 skipped).
+- **Drift check**, 20:22:21 to 20:22:23: `pnpm db:generate` printed "No schema changes, nothing to migrate".
+- **Local migration**, 20:23:19 to 20:23:22: `pnpm db:migrate` with the Docker URL set inline, on `wardrobe` and `wardrobe_e2e`. Both now record 5 migrations, and `items.collection` defaults to `'clothing'`.
+- **Headed e2e** (`playwright test`):
+  - Full suite 20:20:16 to 20:23:15: 85 passed, 1 skipped (the smoke spec, no Blob token).
+  - Full suite again on the final source, 20:47:06 to 20:50:05: 85 passed, 1 skipped.
+  - Relocate and stats specs after the last test-only edit, 20:50:57 to 20:51:39: 10 passed.
+  - Earlier runs of the new spec failed twice on the spec's own locators (fixed). A mutation run at 20:37:05 failed as intended.
+- **Opt-in Postgres tests**, 20:50:15 to 20:50:20: `TEST_DATABASE_URL=…/wardrobe_e2e`, the six `.pg.test.ts` files. 6 files, 8 tests passed.
+- **Visible-browser check**, 20:30:36 to 20:33:10. The Chrome extension was not connected, so this used headed Playwright Chromium against `next start -p 3100`. The environment matched the e2e server's (blank app variables, Docker `wardrobe`) and the demo seed was loaded.
+  - The screen matched the database for:
+    - the switch and views (287 clothes, 13 running, chips, search, Reset);
+    - the item page switch and badge;
+    - the /add switch at 390 px;
+    - a review card badge;
+    - the slot pickers, which offer none of the running items;
+    - an outfit holding a moved item, where Save and the wear were refused and no `wear_logs` row was written;
+    - "+1 worn today" and Undo;
+    - the Stats tiles (Running gear 13) and the six-tile grid;
+    - the relocation estimate ("13 running gear items are left out");
+    - `/today` loading.
+  - Pages were checked at 1440 and 390 px, light and dark. There were no console errors.
+  - Afterwards: demo rows removed, the database back to 0 items, ports free.
+- **Final gate** on the final tree, these docs included except this bullet: 20:52:50 to 20:54:45. `pnpm typecheck` to 20:52:57, `pnpm lint` to 20:53:10, `pnpm test` to 20:54:31 (166 files passed, 6 skipped; 2,698 tests passed, 8 skipped), `pnpm build` to 20:54:45. All four passed; `.env.local` restored.
+
+### Migration and deploy state
+
+- **New migration** `drizzle/20261105182528_item-collection`: CREATE TYPE, ADD COLUMN with a constant default (metadata-only), CREATE INDEX. It only adds.
+  - Applied to Docker `wardrobe` and `wardrobe_e2e`.
+  - **Not applied to production.**
+- **Order matters:** the new code selects `items.collection` everywhere, so production must be migrated **before** the push that ships it (old code ignores the column).
+- Nothing committed or pushed.
+
+### Live checks pending
+
+wardrobe-8n6:
+- marking real gear on the phone (both switches);
+- the Clothes / Running views;
+- an outfit and `/today` afterwards;
+- the relocation estimate's wording.
+
+### Owner steps (in this order)
+
+1. Review the change and ask for the commit. Per AGENTS.md, the commit carries no attribution trailers.
+2. `pnpm db:migrate:prod`, with your approval, before the push.
+3. Push to `main` (the Git integration deploys, D-240), then the live checks in wardrobe-8n6.
+
+### Next steps
+
+1. Close wardrobe-f7b and wardrobe-f7b.13 at the commit.
+2. wardrobe-8n6: production migration, deploy and live checks.
+3. Small follow-ups from the reviews and the browser check:
+   - wardrobe-mfl: the faint badge on an outfit slot's error background in light mode;
+   - wardrobe-sak: the switch's focus and label;
+   - wardrobe-ov8: re-read a `/today` card after a refused wear.
+
 ## 2026-11-05 — Security audit (skill run-1) and fixes for its leads
 
 ### State

@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { act, cleanup, fireEvent, render, screen } from "@testing-library/react"
+import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react"
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi, type MockInstance } from "vitest"
 
 import { DEFAULT_ITEM_FILTERS, type ItemFilters } from "@/lib/items/filters"
@@ -216,6 +216,30 @@ describe("WardrobeToolbar controls", () => {
     expect(shoes().getAttribute("aria-pressed")).toBe("true")
     expect(scarf().getAttribute("aria-pressed")).toBe("true")
     expect(screen.getByRole("button", { name: /^All/ }).getAttribute("aria-pressed")).toBe("false")
+  })
+
+  it("switches to the Running view keeping the search, filters, chips and sort, and back (D-251)", () => {
+    renderControls({ q: "coat", category: ["shoes"], waterproof: true, sort: "wear_desc" })
+    const group = screen.getByRole("group", { name: "Show" })
+    fireEvent.click(within(group).getByRole("button", { name: "Running" }))
+    expect(lastHref()).toBe("/wardrobe?collection=running&q=coat&category=shoes&waterproof=true&sort=wear_desc")
+    expect(within(group).getByRole("button", { name: "Running" }).getAttribute("aria-pressed")).toBe("true")
+    expect(screen.getByRole("searchbox", { name: "Search your wardrobe" })).toHaveProperty("value", "coat")
+    expect(screen.getByRole("button", { name: /^Shoes/ }).getAttribute("aria-pressed")).toBe("true")
+    expect(screen.getByRole("button", { name: "Filters, 1 active" })).toBeTruthy()
+
+    fireEvent.click(within(group).getByRole("button", { name: "Clothes" }))
+    expect(lastHref()).toBe("/wardrobe?q=coat&category=shoes&waterproof=true&sort=wear_desc")
+    expect(router.replace).toHaveBeenCalledTimes(2)
+  })
+
+  it("keeps a search typed just before switching the view", () => {
+    const input = renderControls()
+    type(input, "tights")
+    fireEvent.click(screen.getByRole("button", { name: "Running" }))
+    expect(lastHref()).toBe("/wardrobe?collection=running")
+    wait(SEARCH_DEBOUNCE_MS)
+    expect(lastHref()).toBe("/wardrobe?collection=running&q=tights")
   })
 
   it("shows how many panel filters are active on the Filters button", () => {

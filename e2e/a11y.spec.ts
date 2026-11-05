@@ -31,7 +31,8 @@ import { NEEDS_NO_API_KEY, SHELL_TAGGING } from "./live-env"
 
 // An axe scan (WCAG 2.0 and 2.1, levels A and AA) of every page built so far,
 // against the production build: /login and /offline signed out, every
-// signed-in page, an item page's not-found state, and /wardrobe at 390 px. A
+// signed-in page (the wardrobe's Running view too), an item page's not-found
+// state, and /wardrobe at 390 px. A
 // serious or critical violation fails the test; the full results are attached
 // to the report either way. A few items are inserted straight into
 // wardrobe_e2e so the wardrobe, detail, stats, export and review pages show
@@ -281,6 +282,15 @@ test("every signed-in page has no serious or critical violations", async ({ page
 
   const pages: ReadonlyArray<{ label: string; path: string; ready: (page: Page) => Locator }> = [
     { label: "wardrobe", path: "/wardrobe", ready: (p) => p.getByRole("list", { name: "Items" }) },
+    // The Running view (D-251): no running gear is seeded, so its empty state.
+    {
+      label: "wardrobe-running",
+      path: "/wardrobe?collection=running",
+      ready: (p) =>
+        p
+          .getByRole("heading", { level: 2, name: "No running gear yet" })
+          .or(p.getByRole("list", { name: "Items" })),
+    },
     { label: "item-detail", path: `/wardrobe/${coatId}`, ready: (p) => p.getByRole("form", { name: `Tags for ${COAT}` }) },
     { label: "stats", path: "/stats", ready: (p) => p.getByRole("region", { name: "Overview" }) },
     { label: "settings", path: "/settings", ready: (p) => p.getByRole("link", { name: "Export your data" }) },

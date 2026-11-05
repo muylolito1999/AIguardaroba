@@ -25,7 +25,8 @@ import { BarTable, type BarRow } from "./bar-table"
 import { WinterChecklist } from "./winter-checklist"
 
 // Server-rendered view of the wardrobe stats. Every number is printed as
-// text; the bars only repeat it visually.
+// text; the bars only repeat it visually. The breakdowns count clothes only;
+// running gear has its own tile, and the winter checklist counts it too (D-249).
 
 function itemsPhrase(count: number): string {
   return `${formatCount(count)} ${count === 1 ? "item" : "items"}`
@@ -39,8 +40,9 @@ export function categoryRows(byCategory: WardrobeStatsDto["byCategory"]): BarRow
 }
 
 function Tile({ term, value }: { term: string; value: number }) {
+  // justify-between keeps the numbers in a row level when a term wraps.
   return (
-    <div className="flex flex-col gap-0.5 rounded-xl bg-card p-4 text-card-foreground ring-1 ring-foreground/10">
+    <div className="flex flex-col justify-between gap-0.5 rounded-xl bg-card p-4 text-card-foreground ring-1 ring-foreground/10">
       <dt className="text-sm text-muted-foreground">{term}</dt>
       {/* Proportional figures: a standalone number, not a column. */}
       <dd className="text-2xl font-semibold">{formatCount(value)}</dd>
@@ -54,15 +56,18 @@ function Overview({ totals }: { totals: WardrobeStatsDto["totals"] }) {
       <h2 id="stats-overview-title" className="font-heading text-base font-semibold">
         Overview
       </h2>
-      <dl className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
+      {/* Six tiles: two or three to a row, all six once there is room. */}
+      <dl className="grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-6">
         <Tile term="Items" value={totals.all} />
         <Tile term="Confirmed" value={totals.confirmed} />
         <Tile term="Tagged, not confirmed" value={totals.tagged} />
         <Tile term="Waiting for tags" value={totals.pending} />
         <Tile term="Archived" value={totals.archived} />
+        <Tile term="Running gear" value={totals.running} />
       </dl>
       <p className="text-sm text-muted-foreground">
-        Items is every item except archived ones; archived items are not counted anywhere else on this page.
+        Items counts your clothes except archived ones. Archived items and running gear are counted only in their
+        own tiles; the winter checklist also counts running gear.
       </p>
       {totals.pending > 0 ? (
         <div className="flex flex-wrap items-center gap-x-4 gap-y-2 rounded-xl bg-muted/50 p-4">
@@ -85,7 +90,7 @@ function NothingTagged() {
       <h2 id="stats-tags-title" className="font-heading text-base font-semibold">
         Categories, warmth and weather
       </h2>
-      <p className="text-sm text-muted-foreground">These appear once at least one item is tagged.</p>
+      <p className="text-sm text-muted-foreground">These appear once at least one piece of clothing is tagged.</p>
     </section>
   )
 }
@@ -115,11 +120,13 @@ function NoItems({ archived }: { archived: number }) {
 
 export function StatsView({ stats }: { stats: WardrobeStatsDto }) {
   const { totals } = stats
-  if (totals.all === 0) return <NoItems archived={totals.archived} />
+  // Running gear alone still shows the page: its tile and the winter
+  // checklist, which counts it (D-249).
+  if (totals.all === 0 && totals.running === 0) return <NoItems archived={totals.archived} />
 
   const taggedTotal = totals.tagged + totals.confirmed
-  const taggedBase = `Tagged and confirmed items (${formatCount(taggedTotal)}).`
-  const allBase = `Every item except archived ones, untagged included (${formatCount(totals.all)}).`
+  const taggedBase = `Tagged and confirmed clothes (${formatCount(taggedTotal)}).`
+  const allBase = `All clothes except archived ones, untagged included (${formatCount(totals.all)}).`
 
   return (
     <div className="flex min-w-0 flex-col gap-10">

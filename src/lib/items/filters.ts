@@ -11,10 +11,16 @@
 // alternatives (category=shoes&category=scarf matches either), and fields
 // combine with AND. warmthMin and warmthMax are inclusive bounds on
 // warmth_level, so setting either one leaves out items without a warmth.
+//
+// collection is a view rather than a filter (D-251): the Clothes | Running
+// switch picks one collection, every query of the page is scoped to it, and
+// the default (clothing) stays out of the URL like the default sort. It is
+// not counted as an active filter, so each view has its own empty states.
 
 import {
   FORMALITIES,
   ITEM_CATEGORIES,
+  ITEM_COLLECTIONS,
   ITEM_CONDITIONS,
   ITEM_DECISIONS,
   ITEM_LOCATIONS,
@@ -22,6 +28,7 @@ import {
   SEASONS,
   type Formality,
   type ItemCategory,
+  type ItemCollection,
   type ItemCondition,
   type ItemDecision,
   type ItemLocation,
@@ -33,6 +40,9 @@ import { TAG_LIMITS, WARMTH_LEVELS, type WarmthLevel } from "@/lib/items/contrac
 export const ITEM_SORTS = ["created_desc", "created_asc", "warmth_desc", "warmth_asc", "wear_desc"] as const;
 export type ItemSort = (typeof ITEM_SORTS)[number];
 export const DEFAULT_SORT: ItemSort = "created_desc";
+
+/** The view /wardrobe opens on: running gear has its own view (D-251). */
+export const DEFAULT_COLLECTION: ItemCollection = "clothing";
 
 /** Archived items stay hidden unless the URL asks for them. */
 export const DEFAULT_STATUSES = ["pending_tagging", "tagged", "confirmed"] as const satisfies readonly ItemStatus[];
@@ -47,6 +57,8 @@ export const ITEM_FILTER_LIMITS = {
 } as const;
 
 export type ItemFilters = {
+  /** The view: one collection, never several (D-251). Not a narrowing filter. */
+  collection: ItemCollection;
   /** Trimmed search text; '' means no search. */
   q: string;
   category: ItemCategory[];
@@ -68,6 +80,8 @@ export type ItemFilters = {
 
 /** URL parameter names, in the order serializeItemFilters writes them. */
 export const ITEM_FILTER_PARAMS = [
+  // First, so a URL reads /wardrobe?collection=running&q=... (D-251).
+  "collection",
   "q",
   "category",
   "season",
@@ -86,6 +100,7 @@ export const ITEM_FILTER_PARAMS = [
 export type ItemFilterParam = (typeof ITEM_FILTER_PARAMS)[number];
 
 export const DEFAULT_ITEM_FILTERS: Readonly<ItemFilters> = Object.freeze({
+  collection: DEFAULT_COLLECTION,
   q: "",
   category: [],
   season: [],
@@ -112,6 +127,10 @@ function valuesOf(input: ItemFiltersInput, key: string): string[] {
   const value = (input as Record<string, string | string[] | undefined>)[key];
   if (value === undefined) return [];
   return typeof value === "string" ? [value] : value;
+}
+
+function isOneOf<const T extends string>(allowed: readonly T[], value: string): value is T {
+  return (allowed as readonly string[]).includes(value);
 }
 
 /** The valid values present, deduplicated, in the enum's order. */
@@ -184,8 +203,13 @@ export function parseItemFilters(input: ItemFiltersInput): ItemFilters {
 
   const status = pickEnum(ITEM_STATUSES, valuesOf(input, "status"));
   const sort = valuesOf(input, "sort")[0];
+  // One view only: of repeated values the first valid one wins.
+  const collection = valuesOf(input, "collection").find((value): value is ItemCollection =>
+    isOneOf(ITEM_COLLECTIONS, value),
+  );
 
   return {
+    collection: collection ?? DEFAULT_COLLECTION,
     q: normalizeSearchText(valuesOf(input, "q")[0] ?? ""),
     category: pickEnum(ITEM_CATEGORIES, valuesOf(input, "category")),
     season: pickEnum(SEASONS, valuesOf(input, "season")),
@@ -240,6 +264,9 @@ export function serializeItemFilters(filters: ItemFilters): URLSearchParams {
     for (const value of values) params.append(key, value);
   };
 
+  if (filters.collection !== DEFAULT_COLLECTION && isOneOf(ITEM_COLLECTIONS, filters.collection)) {
+    params.append("collection", filters.collection);
+  }
   const q = normalizeSearchText(filters.q);
   if (q !== "") params.append("q", q);
   appendAll("category", pickEnum(ITEM_CATEGORIES, filters.category));
@@ -278,6 +305,7 @@ export function itemFiltersKey(filters: ItemFilters): string {
 /**
  * Filters set in the Filters panel, counted once per field (the warmth range
  * counts once). q and category are left out: they have their own controls.
+ * collection is a view, not a filter, and is never counted (D-251).
  */
 export function activeFilterCount(filters: ItemFilters): number {
   const active = [
@@ -295,7 +323,10 @@ export function activeFilterCount(filters: ItemFilters): number {
   return active.filter(Boolean).length;
 }
 
-/** True when anything narrows the list beyond the defaults; the sort order does not count. */
+/**
+ * True when anything narrows the list beyond the defaults. Neither the sort
+ * order nor the collection counts: the collection picks the view (D-251).
+ */
 export function hasActiveFilters(filters: ItemFilters): boolean {
   return normalizeSearchText(filters.q) !== "" || filters.category.length > 0 || activeFilterCount(filters) > 0;
 }

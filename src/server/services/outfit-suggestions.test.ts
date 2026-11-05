@@ -42,6 +42,7 @@ import {
   makeOutfitItem,
   makeOutfitSuggestionResult,
   makeOutfitWardrobe,
+  makeRunningItem,
   OUTFIT_TEMPLATES,
   type OutfitFixtureItem,
   type OutfitTemplateKey,
@@ -119,6 +120,7 @@ async function insertItems(fixtures: readonly OutfitFixtureItem[]): Promise<Item
         imageHash: (randomUUID() + randomUUID()).replaceAll("-", "").slice(0, 64),
         status: item.status,
         location: item.location,
+        collection: item.collection,
         decision: item.decision,
         name: item.name,
         category: item.category,
@@ -221,6 +223,15 @@ function instructionOf(fake: FakeAnthropic, call = 0): string {
 
 async function suggestionRows() {
   return testDb.db.select().from(analyses).where(eq(analyses.kind, "outfit_suggestion"));
+}
+
+/** An item only outfit `index` of a stored result uses, so changing it touches that outfit alone. */
+function itemOnlyIn(result: OutfitSuggestionResult, index: number): string {
+  const sets = result.outfits.map((outfit) => outfit.items.map((entry) => entry.itemId));
+  const others = new Set(sets.filter((_, other) => other !== index).flat());
+  const id = sets[index]?.find((itemId) => !others.has(itemId));
+  if (id === undefined) throw new Error(`outfit ${index} has no item of its own`);
+  return id;
 }
 
 async function callRows() {
@@ -326,6 +337,30 @@ describe("suggestOutfits", () => {
     expect(request?.model).toBe("claude-sonnet-5-5");
     expect(request?.output_config?.effort).toBe("low");
     expect(request?.max_tokens).toBe(8000);
+  });
+
+  it("leaves running gear out of the prompt and its counts, however eligible it is otherwise (D-249)", async () => {
+    await insertWardrobe();
+    const { sneakers, chinos } = OUTFIT_TEMPLATES;
+    const running = [
+      makeRunningItem(),
+      makeRunningItem({ ...sneakers, name: "Neon trail running shoes", seasons: [...sneakers.seasons], colors: ["neon yellow"], materials: ["mesh"] }),
+      makeRunningItem({ ...chinos, name: "Black running tights", status: "tagged", location: "unknown", seasons: [...chinos.seasons], colors: ["black"], materials: ["elastane"] }),
+    ];
+    await insertItems(running);
+    const fake = createFakeAnthropic([fakeMessage({ json: await validReply(), model: "claude-sonnet-5-5" })]);
+
+    const quote = await quoteOutfitSuggestion(testDb.db, today());
+    const suggestion = await suggestOutfits(testDb.db, deps(fake));
+
+    expect(quote).toMatchObject({ itemCount: 17, droppedCount: 0, canSuggest: true });
+    expect(suggestion.itemCount).toBe(17);
+    const text = instructionOf(fake);
+    expect(text).toContain('<items count="17">');
+    for (const item of running) expect(text).not.toContain(item.name);
+    const used = new Set(suggestion.outfits.flatMap((outfit) => outfit.items.map((item) => item.itemId)));
+    for (const item of running) expect(used.has(item.id)).toBe(false);
+    expect(suggestion.outfits.every((outfit) => outfit.available)).toBe(true);
   });
 
   it("stores the result with the model, effort, prompt version, estimate and the cost of the call", async () => {
@@ -660,15 +695,8 @@ describe("getTodaySuggestion", () => {
     await insertItems(Object.values(wardrobe));
     const { result } = await storeSuggestion(Object.values(wardrobe));
     const sets = result.outfits.map((outfit) => outfit.items.map((entry) => entry.itemId));
-    /** An item only outfit `index` uses, so changing it touches that outfit alone. */
-    const onlyIn = (index: number): string => {
-      const others = new Set(sets.filter((_, other) => other !== index).flat());
-      const id = sets[index]?.find((itemId) => !others.has(itemId));
-      if (id === undefined) throw new Error(`outfit ${index} has no item of its own`);
-      return id;
-    };
-    const archived = onlyIn(1);
-    const deleted = onlyIn(2);
+    const archived = itemOnlyIn(result, 1);
+    const deleted = itemOnlyIn(result, 2);
     await testDb.db.update(items).set({ status: "archived" }).where(eq(items.id, archived));
     await testDb.db.delete(items).where(eq(items.id, deleted));
     await testDb.db
@@ -689,6 +717,26 @@ describe("getTodaySuggestion", () => {
       name: "No longer in your wardrobe",
     });
     expect(suggestion?.outfits.map((outfit) => outfit.wornToday)).toEqual([true, false, false]);
+  });
+
+  it("marks an outfit whose item moved to running gear since unavailable, and says where the item went (D-250)", async () => {
+    const wardrobe = makeOutfitWardrobe();
+    await insertItems(Object.values(wardrobe));
+    const { result } = await storeSuggestion(Object.values(wardrobe));
+    const moved = itemOnlyIn(result, 1);
+    await testDb.db.update(items).set({ collection: "running" }).where(eq(items.id, moved));
+
+    const suggestion = await getTodaySuggestion(testDb.db, { now: NOW });
+
+    expect(suggestion?.outfits.map((outfit) => outfit.available)).toEqual([true, false, true]);
+    expect(suggestion?.outfits[1]?.items.find((item) => item.itemId === moved)).toMatchObject({
+      exists: true,
+      status: "confirmed",
+      collection: "running",
+    });
+    const others = suggestion?.outfits.flatMap((outfit) => outfit.items).filter((item) => item.itemId !== moved) ?? [];
+    expect(others.length).toBeGreaterThan(0);
+    expect(others.every((item) => item.collection === "clothing")).toBe(true);
   });
 });
 
@@ -868,6 +916,28 @@ describe("saveSuggestedOutfit", () => {
       code: "CONFLICT",
     });
     expect(await testDb.db.select({ id: outfits.id }).from(outfits)).toHaveLength(0);
+  });
+
+  it("refuses with CONFLICT when an item moved to running gear since, and saves nothing (D-250)", async () => {
+    const wardrobe = makeOutfitWardrobe();
+    await insertItems(Object.values(wardrobe));
+    const { id, result } = await storeSuggestion(Object.values(wardrobe));
+    const moved = itemOnlyIn(result, 1);
+    await testDb.db.update(items).set({ collection: "running" }).where(eq(items.id, moved));
+
+    await expect(saveSuggestedOutfit(testDb.db, { analysisId: id, index: 1 })).rejects.toMatchObject({
+      code: "CONFLICT",
+      message:
+        "An item of this outfit was deleted, archived or moved to running gear since it was suggested, so it cannot be saved. Suggest outfits again.",
+      details: { outfitIssues: [expect.objectContaining({ code: "not_clothing", itemId: moved })] },
+    });
+    expect(await testDb.db.select({ id: outfits.id }).from(outfits)).toHaveLength(0);
+    expect((await getTodaySuggestion(testDb.db, { now: NOW }))?.outfits[1]?.savedOutfitId).toBeNull();
+
+    // The outfits without it still save.
+    await expect(saveSuggestedOutfit(testDb.db, { analysisId: id, index: 0 })).resolves.toMatchObject({
+      alreadySaved: false,
+    });
   });
 
   it("answers NOT_FOUND for an unknown suggestion, another kind, an unfinished one or an index out of range", async () => {

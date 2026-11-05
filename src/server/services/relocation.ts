@@ -271,7 +271,7 @@ function sharedContextOf(input: {
 
 async function planRun(db: Db, params: RelocationParams): Promise<RunPlan> {
   const { model, effort } = analysisSettings();
-  // Every item, archived ones included, so the form can say how many were left out.
+  // Every item, archived ones and running gear included, so the form can say how many were left out (D-249).
   const [[profile], rows] = await Promise.all([
     db.select().from(climateProfiles).where(eq(climateProfiles.id, params.climateProfileId)),
     db
@@ -294,6 +294,7 @@ async function planRun(db: Db, params: RelocationParams): Promise<RunPlan> {
         condition: items.condition,
         status: items.status,
         location: items.location,
+        collection: items.collection,
         aiConfidence: items.aiConfidence,
         userEditedFields: items.userEditedFields,
       })
@@ -464,11 +465,16 @@ export async function startRelocation(
     );
   }
   if (plan.snapshot.lines.length === 0) {
+    const { pending, archived, unconfirmed, running } = plan.snapshot.excluded;
+    // Only running gear stood in the way: confirming or including tagged items cannot help (D-249).
+    const onlyRunningGear = running > 0 && pending + archived + unconfirmed === 0;
     throw new AppError(
       "VALIDATION",
-      params.includeOnlyConfirmed
-        ? "There are no confirmed items to analyse. Confirm some tagged items first, or include unconfirmed ones."
-        : "There are no tagged items to analyse. Add and tag some items first.",
+      onlyRunningGear
+        ? "Only running gear is in the wardrobe, which the analysis leaves out. Add or confirm some clothes first."
+        : params.includeOnlyConfirmed
+          ? "There are no confirmed items to analyse. Confirm some tagged items first, or include unconfirmed ones."
+          : "There are no tagged items to analyse. Add and tag some items first.",
       { reason: "no_items", excluded: plan.snapshot.excluded },
     );
   }
@@ -1433,6 +1439,7 @@ export async function loadRelocationView(db: Db, analysisId: string): Promise<Re
             decision: items.decision,
             status: items.status,
             location: items.location,
+            collection: items.collection,
             thumbUrl: itemImages.blobUrl,
             thumbWidth: itemImages.width,
             thumbHeight: itemImages.height,
@@ -1458,6 +1465,7 @@ export async function loadRelocationView(db: Db, analysisId: string): Promise<Re
       currentDecision: "undecided",
       status: null,
       location: null,
+      collection: null,
       exists: false,
     };
   }
@@ -1473,6 +1481,7 @@ export async function loadRelocationView(db: Db, analysisId: string): Promise<Re
       currentDecision: item.decision,
       status: item.status,
       location: item.location,
+      collection: item.collection,
       exists: true,
     };
   }
@@ -1561,9 +1570,25 @@ export async function listRelocationAnalyses(db: Db): Promise<RelocationListItem
 }
 
 /**
+ * The rows "Apply AI decisions" may write among `ids`: undecided (D-028), not
+ * archived, and still clothing, so an item moved to running gear after the
+ * run keeps no decision from it (D-249). The lock and every update use this
+ * one predicate, so they never lock a row out of order (D-166).
+ */
+function applicableItems(ids: string[]) {
+  return and(
+    inArray(items.id, ids),
+    eq(items.decision, "undecided"),
+    ne(items.status, "archived"),
+    eq(items.collection, "clothing"),
+  );
+}
+
+/**
  * "Apply AI decisions to undecided items": writes each item's AI decision to
- * items.decision, only where the owner has not decided (undecided) and the
- * item is not archived (D-028). Returns the ids it changed.
+ * items.decision, only where the owner has not decided (undecided), the item
+ * is not archived (D-028) and it is still clothing (D-249). Returns the ids it
+ * changed.
  */
 export async function applyAiDecisionsToUndecided(
   db: Db,
@@ -1581,13 +1606,13 @@ export async function applyAiDecisionsToUndecided(
   const changed = await db.transaction(async (tx) => {
     // A fixed lock order, so two applies of different runs cannot deadlock:
     // each update below would otherwise lock its rows in its own order (D-166).
-    // Same predicate as the updates, so they never lock a row out of order.
+    // The same applicableItems predicate as the updates, so they never lock a row out of order.
     const candidates = result.items.map((item) => item.item_id);
     if (candidates.length > 0) {
       await tx
         .select({ id: items.id })
         .from(items)
-        .where(and(inArray(items.id, candidates), eq(items.decision, "undecided"), ne(items.status, "archived")))
+        .where(applicableItems(candidates))
         .orderBy(asc(items.id))
         .for("no key update");
     }
@@ -1596,7 +1621,7 @@ export async function applyAiDecisionsToUndecided(
       const rows = await tx
         .update(items)
         .set({ decision })
-        .where(and(inArray(items.id, itemIds), eq(items.decision, "undecided"), ne(items.status, "archived")))
+        .where(applicableItems(itemIds))
         .returning({ id: items.id });
       ids.push(...rows.map((row) => row.id));
     }

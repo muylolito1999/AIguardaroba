@@ -1,0 +1,121 @@
+{
+  "type": "diff",
+  "version": "9",
+  "dialect": "postgres",
+  "id": "ede1eab7-f5be-4ca2-b4d8-76d21bceac08",
+  "prevIds": [
+    "35aa39e4-3311-4ade-9a33-b9846ab656bf"
+  ],
+  "footprints": [
+    {
+      "statementType": "create_enum",
+      "statementTarget": [
+        "enum",
+        "public",
+        "item_collection"
+      ],
+      "writes": [
+        "s|enum|public.item_collection",
+        "n|enum|public.item_collection",
+        "e|enum|public.item_collection",
+        "n|type|public.item_collection"
+      ],
+      "reads": [
+        "n|sch|public"
+      ]
+    },
+    {
+      "statementType": "add_column",
+      "statementTarget": [
+        "column",
+        "public",
+        "items",
+        "collection"
+      ],
+      "writes": [
+        "s|col|public.items.collection",
+        "n|col|public.items.collection",
+        "e|col|public.items.collection"
+      ],
+      "reads": [
+        "n|tbl|public.items",
+        "n|sch|public",
+        "n|enum|public.item_collection"
+      ]
+    },
+    {
+      "statementType": "create_index",
+      "statementTarget": [
+        "index",
+        "public",
+        "items",
+        "items_collection_idx"
+      ],
+      "writes": [
+        "s|idx|public.items_collection_idx",
+        "n|idx|public.items_collection_idx",
+        "e|idx|public.items_collection_idx",
+        "n|rel|public.items_collection_idx"
+      ],
+      "reads": [
+        "n|tbl|public.items",
+        "n|sch|public",
+        "n|col|public.items.collection"
+      ]
+    }
+  ],
+  "deltas": [
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "name": "item_collection",
+        "values": [
+          "clothing",
+          "running"
+        ],
+        "entityType": "enums"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "items",
+        "name": "collection",
+        "type": "item_collection",
+        "typeSchema": "public",
+        "notNull": true,
+        "dimensions": 0,
+        "default": "'clothing'",
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "items",
+        "name": "items_collection_idx",
+        "nameExplicit": true,
+        "columns": [
+          {
+            "value": "collection",
+            "isExpression": false,
+            "asc": true,
+            "nullsFirst": false,
+            "opclass": null
+          }
+        ],
+        "isUnique": false,
+        "where": null,
+        "with": "",
+        "method": "btree",
+        "concurrently": false,
+        "entityType": "indexes"
+      }
+    }
+  ]
+}

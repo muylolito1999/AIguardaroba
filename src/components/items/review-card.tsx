@@ -1,7 +1,7 @@
 "use client"
 
 import { useEffect, useRef, useState, type Ref } from "react"
-import { CircleAlert, Clock, Layers, Loader2, PencilLine, Sparkles } from "lucide-react"
+import { CircleAlert, Clock, Footprints, Layers, Loader2, PencilLine, Sparkles } from "lucide-react"
 
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import {
@@ -23,6 +23,7 @@ import { ItemPhoto } from "./item-photo"
 import { ItemTagForm } from "./item-tag-form"
 import { RemoveBackgroundButton } from "./remove-background-button"
 import type { ConfirmItemAction, TagItemByHandAction, UpdateItemTagsAction } from "./review-actions"
+import { COLLECTION_LABELS } from "./tag-options"
 import { cardPhoto, hasTags, itemTitle, lowConfidenceFields, type HintField } from "./tag-form-model"
 import { requestTagging } from "./tag-request"
 
@@ -164,6 +165,13 @@ export function ReviewCard({
             </h2>
             <div className="flex flex-wrap gap-2">
               {!tagged ? <Badge variant="secondary">Waiting for tags</Badge> : null}
+              {/* Marked on /add (D-252); clothing, the default, shows none. */}
+              {item.collection !== "clothing" ? (
+                <Badge variant="outline">
+                  <Footprints aria-hidden />
+                  {COLLECTION_LABELS[item.collection]}
+                </Badge>
+              ) : null}
               {item.multipleItemsDetected ? (
                 <Badge variant="outline">
                   <Layers aria-hidden />

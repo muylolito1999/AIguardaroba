@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   activeFilterCount,
+  DEFAULT_COLLECTION,
   DEFAULT_ITEM_FILTERS,
   DEFAULT_SORT,
   DEFAULT_STATUSES,
@@ -17,6 +18,7 @@ import {
 } from "./filters";
 
 const FULL: ItemFilters = {
+  collection: "running",
   q: "wool coat 100%",
   category: ["outerwear", "shoes", "scarf"],
   season: ["winter", "autumn"],
@@ -47,7 +49,7 @@ describe("parseItemFilters and serializeItemFilters", () => {
     expect([...new Set(params.keys())]).toEqual(ITEM_FILTER_PARAMS);
     expect(params.getAll("category")).toEqual(["outerwear", "shoes", "scarf"]);
     expect(params.toString()).toBe(
-      "q=wool+coat+100%25&category=outerwear&category=shoes&category=scarf&season=winter&season=autumn" +
+      "collection=running&q=wool+coat+100%25&category=outerwear&category=shoes&category=scarf&season=winter&season=autumn" +
         "&warmthMin=3&warmthMax=5&waterproof=true&windproof=false&color=black&color=dark+green&color=navy" +
         "&formality=casual&formality=smart_casual&condition=good&condition=worn&location=bologna" +
         "&location=in_transit&decision=bring&decision=undecided&status=tagged&status=confirmed" +
@@ -60,6 +62,7 @@ describe("parseItemFilters and serializeItemFilters", () => {
     expect(parsed).toEqual(DEFAULT_ITEM_FILTERS);
     expect(parsed.status).toEqual(DEFAULT_STATUSES);
     expect(parsed.sort).toBe(DEFAULT_SORT);
+    expect(parsed.collection).toBe(DEFAULT_COLLECTION);
     expect(serializeItemFilters(parsed).toString()).toBe("");
     expect(itemFiltersKey(DEFAULT_ITEM_FILTERS)).toBe("");
     expect(parseItemFilters({})).toEqual(DEFAULT_ITEM_FILTERS);
@@ -101,7 +104,8 @@ describe("parseItemFilters and serializeItemFilters", () => {
     const parsed = parseItemFilters(
       new URLSearchParams(
         "category=hat&category=shoes&season=monsoon&warmthMin=7&warmthMax=0&waterproof=yes&windproof=1" +
-          "&formality=black_tie&condition=broken&location=paris&decision=maybe&status=deleted&sort=random",
+          "&formality=black_tie&condition=broken&location=paris&decision=maybe&status=deleted&sort=random" +
+          "&collection=cycling",
       ),
     );
     expect(parsed).toEqual(withFilters({ category: ["shoes"] }));
@@ -195,6 +199,69 @@ describe("parseItemFilters and serializeItemFilters", () => {
     // Serialising filters built by hand drops it too.
     expect(serializeItemFilters(withFilters({ q: "co\u0000at", color: ["na\u0000vy"] })).toString()).toBe(
       "q=coat&color=navy",
+    );
+  });
+});
+
+describe("collection (the Clothes | Running view, D-251)", () => {
+  it("opens on clothing when the URL names no view or an unknown one", () => {
+    expect(DEFAULT_COLLECTION).toBe("clothing");
+    expect(DEFAULT_ITEM_FILTERS.collection).toBe("clothing");
+    expect(parseItemFilters({}).collection).toBe("clothing");
+    for (const value of ["cycling", "Running", "RUNNING", " running", "running ", ""]) {
+      expect(parseItemFilters({ collection: value }).collection, value).toBe("clothing");
+    }
+    expect(parseItemFilters({ collection: "running" }).collection).toBe("running");
+    expect(parseItemFilters(new URLSearchParams("collection=clothing")).collection).toBe("clothing");
+  });
+
+  it("keeps one view: the first valid value of a repeated key", () => {
+    expect(parseItemFilters(new URLSearchParams("collection=running&collection=clothing")).collection).toBe(
+      "running",
+    );
+    expect(parseItemFilters(new URLSearchParams("collection=clothing&collection=running")).collection).toBe(
+      "clothing",
+    );
+    expect(parseItemFilters({ collection: ["cycling", "running"] }).collection).toBe("running");
+  });
+
+  it("leaves the default view out of the URL and writes the other one first", () => {
+    expect(serializeItemFilters(withFilters({ collection: "clothing" })).has("collection")).toBe(false);
+    expect(serializeItemFilters(withFilters({ collection: "running" })).toString()).toBe("collection=running");
+    const running = withFilters({ collection: "running", q: "tights", season: ["winter"], sort: "wear_desc" });
+    const params = serializeItemFilters(running);
+    expect(params.toString()).toBe("collection=running&q=tights&season=winter&sort=wear_desc");
+    expect(ITEM_FILTER_PARAMS[0]).toBe("collection");
+    expect(parseItemFilters(params)).toEqual(running);
+    // A hand-built value outside the enum is dropped like any other invalid value.
+    const bogus = { ...withFilters({ q: "tights" }), collection: "cycling" } as unknown as ItemFilters;
+    expect(serializeItemFilters(bogus).toString()).toBe("q=tights");
+  });
+
+  it("round-trips each view with the other filters", () => {
+    for (const collection of ["clothing", "running"] as const) {
+      const value = withFilters({ collection, category: ["shoes"], status: ["archived"] });
+      const once = serializeItemFilters(value).toString();
+      expect(parseItemFilters(new URLSearchParams(once))).toEqual(value);
+      expect(serializeItemFilters(parseItemFilters(new URLSearchParams(once))).toString()).toBe(once);
+    }
+  });
+
+  it("is a view, not a filter: never counted as active", () => {
+    const running = withFilters({ collection: "running" });
+    expect(activeFilterCount(running)).toBe(0);
+    expect(hasActiveFilters(running)).toBe(false);
+    expect(activeFilterCount(withFilters({ collection: "running", waterproof: true }))).toBe(1);
+    expect(hasActiveFilters(withFilters({ collection: "running", q: "tights" }))).toBe(true);
+  });
+
+  it("gives each view its own key", () => {
+    const clothes = itemFiltersKey(DEFAULT_ITEM_FILTERS);
+    const running = itemFiltersKey(withFilters({ collection: "running" }));
+    expect(clothes).toBe("");
+    expect(running).toBe("collection=running");
+    expect(itemFiltersKey(withFilters({ collection: "running", q: "tights" }))).not.toBe(
+      itemFiltersKey(withFilters({ q: "tights" })),
     );
   });
 });

@@ -59,6 +59,8 @@ function byName<T extends { name: string; id: string }>(a: T, b: T): number {
 /**
  * The DTOs of these outfit rows, in the rows' order: their items (in
  * SLOT_ORDER, with thumbs and wear counts) and how often each outfit was worn.
+ * Every item is listed, archived ones and ones moved to running gear included,
+ * each with its status and collection, so the outfit can flag them (D-250).
  * Two queries whatever the number of outfits.
  */
 async function toDtos(db: Db | Tx, rows: readonly Outfit[]): Promise<OutfitDetailDto[]> {
@@ -74,6 +76,7 @@ async function toDtos(db: Db | Tx, rows: readonly Outfit[]): Promise<OutfitDetai
         subcategory: items.subcategory,
         category: items.category,
         status: items.status,
+        collection: items.collection,
         wearCount: items.wearCount,
         thumbUrl: itemImages.blobUrl,
       })
@@ -105,6 +108,7 @@ async function toDtos(db: Db | Tx, rows: readonly Outfit[]): Promise<OutfitDetai
       category: row.category,
       thumbUrl: row.thumbUrl,
       status: row.status,
+      collection: row.collection,
       wearCount: row.wearCount,
       // outfit_items cascades when an item is deleted, so a listed item exists.
       exists: true,
@@ -235,7 +239,16 @@ async function candidateRows(db: Db, slots: readonly OutfitSlot[], query: string
     .select(CANDIDATE_COLUMNS)
     .from(items)
     .leftJoin(itemImages, thumbJoin())
-    .where(and(ne(items.status, "archived"), inArray(items.category, categories), matches))
+    // Clothing only, in the positive form (D-248, D-249): running gear and any
+    // later collection never reach a slot picker.
+    .where(
+      and(
+        ne(items.status, "archived"),
+        eq(items.collection, "clothing"),
+        inArray(items.category, categories),
+        matches,
+      ),
+    )
     .orderBy(asc(items.name), asc(items.id))
     .limit(SLOT_CANDIDATES_MAX * slots.length);
   return rows
@@ -244,9 +257,9 @@ async function candidateRows(db: Db, slots: readonly OutfitSlot[], query: string
 }
 
 /**
- * The items a slot can take (its categories, not archived), by name, each
- * with its thumb, wear count and last wear. `query` narrows them by name,
- * type, brand or colour.
+ * The items a slot can take (its categories, not archived, clothing only:
+ * D-249), by name, each with its thumb, wear count and last wear. `query`
+ * narrows them by name, type, brand or colour.
  */
 export async function listSlotCandidates(db: Db, slot: OutfitSlot, query = ""): Promise<SlotCandidateDto[]> {
   await requireSession();
@@ -273,11 +286,12 @@ export async function listCandidatesBySlot(db: Db): Promise<Record<OutfitSlot, S
 
 /**
  * The outfit's items as validateOutfit sees them, read under FOR SHARE so
- * none can be archived or deleted before the outfit is written.
+ * none can be archived, deleted or moved to running gear before the outfit is
+ * written.
  */
 async function lockCheckItems(tx: Tx, itemIds: readonly string[]): Promise<Map<string, OutfitCheckItem>> {
   const rows = await tx
-    .select({ id: items.id, category: items.category, status: items.status })
+    .select({ id: items.id, category: items.category, status: items.status, collection: items.collection })
     .from(items)
     .where(inArray(items.id, [...new Set(itemIds)]))
     .orderBy(asc(items.id))
@@ -293,10 +307,13 @@ export type SaveOutfitFields = {
 /**
  * Writes the outfit and its items in one transaction: a new outfit without
  * `id`, otherwise that outfit's fields and its whole item list, replaced.
- * The slot rules run on the items as they are now; a failure is VALIDATION
- * with `details.outfitIssues` (validateOutfit's issues, for the builder to
- * show next to each slot). `fields` sets the source and Claude's reason of a
- * new outfit (an AI suggestion saved from /today); an edit keeps both.
+ * The slot rules run on the items as they are now, so an item deleted,
+ * archived or moved to running gear since the builder read it is refused
+ * (unknown_item, archived_item, not_clothing: D-250), and so is an edit that
+ * keeps such an item until it is swapped out. A failure is VALIDATION with
+ * `details.outfitIssues` (validateOutfit's issues, for the builder to show
+ * next to each slot). `fields` sets the source and Claude's reason of a new
+ * outfit (an AI suggestion saved from /today); an edit keeps both.
  */
 export async function saveOutfit(
   db: Db,

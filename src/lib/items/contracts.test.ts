@@ -71,6 +71,7 @@ const CARD: ItemCardDto = {
   purchaseDate: null,
   location: "bologna",
   decision: "undecided",
+  collection: "clothing",
   aiConfidence: { category: 0.9 },
   multipleItemsDetected: false,
   userEditedFields: [],
@@ -116,6 +117,7 @@ describe("ItemPatchSchema", () => {
         purchase_date: "2025-10-01",
         location: "hamburg",
         decision: "bring",
+        collection: "running",
         seasons: ["winter", "autumn"],
       }).colors,
     ).toEqual(["navy", "white"]);
@@ -143,6 +145,8 @@ describe("ItemPatchSchema", () => {
     ["impossible date", { purchase_date: "2025-02-30" }],
     ["unknown location", { location: "berlin" }],
     ["unknown decision", { decision: "keep" }],
+    ["unknown collection", { collection: "cycling" }],
+    ["null collection", { collection: null }],
     ["long notes", { notes: "x".repeat(2001) }],
     ["long brand", { brand: "x".repeat(61) }],
     ["short hex", { colors: ["white"], color_hex: ["#fff"] }],
@@ -161,6 +165,13 @@ describe("ItemPatchSchema", () => {
       colors: ["navy"],
       color_hex: ["#1f2a44"],
     });
+  });
+
+  it("accepts a collection, which is not a tag field", () => {
+    expect(ItemPatchSchema.parse({ collection: "running" })).toEqual({ collection: "running" });
+    expect(ItemPatchSchema.parse({ collection: "clothing" })).toEqual({ collection: "clothing" });
+    expect(EDITABLE_TAG_FIELDS).not.toContain("collection");
+    expect(TAG_FIELD_TO_COLUMN).not.toHaveProperty("collection");
   });
 
   it("keeps the unrefined fields schema usable for pick", () => {
@@ -222,6 +233,7 @@ describe("column maps", () => {
           purchase_price: 10,
           purchase_date: null,
           decision: "donate",
+          collection: "running",
         }),
       ),
     ).toEqual({
@@ -235,6 +247,7 @@ describe("column maps", () => {
       purchasePrice: 10,
       purchaseDate: null,
       decision: "donate",
+      collection: "running",
     });
   });
 
@@ -266,6 +279,7 @@ describe("column maps", () => {
       purchase_date: "2025-01-02",
       location: "hamburg",
       decision: "bring",
+      collection: "running",
     });
     expect(Object.keys(patchToItemColumns(full)).sort()).toEqual(Object.values(ITEM_PATCH_FIELD_TO_COLUMN).sort());
   });
@@ -334,6 +348,21 @@ describe("route bodies", () => {
     expect(RegisterBodySchema.safeParse({ ...body, extra: 1 }).success).toBe(false);
   });
 
+  it("registers clothing when the body has no collection, as an older tab sends", () => {
+    const body = {
+      itemId: ITEM_ID,
+      url: `https://store.public.blob.vercel-storage.com/items/${ITEM_ID}/original-Ab12.jpg`,
+      pathname: `items/${ITEM_ID}/original-Ab12.jpg`,
+      sourceHash: HASH,
+      originalFilename: "IMG_0001.HEIC",
+    };
+    expect(RegisterBodySchema.parse(body)).toEqual({ ...body, collection: "clothing" });
+    expect(RegisterBodySchema.parse({ ...body, collection: "running" }).collection).toBe("running");
+    expect(RegisterBodySchema.safeParse({ ...body, collection: "cycling" }).success).toBe(false);
+    expect(RegisterBodySchema.safeParse({ ...body, collection: null }).success).toBe(false);
+    expect(RegisterBodySchema.safeParse({ ...body, collection: "running", extra: 1 }).success).toBe(false);
+  });
+
   it("defaults force to false on tag", () => {
     expect(TagBodySchema.parse({})).toEqual({ force: false });
     expect(TagBodySchema.parse({ force: true })).toEqual({ force: true });
@@ -356,6 +385,15 @@ describe("route bodies", () => {
 describe("response schemas", () => {
   it("round-trips an item card", () => {
     expect(ItemCardDtoSchema.parse(JSON.parse(JSON.stringify(CARD)))).toEqual(CARD);
+    const running: ItemCardDto = { ...CARD, collection: "running" };
+    expect(ItemCardDtoSchema.parse(JSON.parse(JSON.stringify(running)))).toEqual(running);
+  });
+
+  it("reads a card without a collection, from an older server, as clothing", () => {
+    const older = Object.fromEntries(Object.entries(CARD).filter(([key]) => key !== "collection"));
+    expect(older).not.toHaveProperty("collection");
+    expect(ItemCardDtoSchema.parse(older)).toEqual({ ...CARD, collection: "clothing" });
+    expect(ItemCardDtoSchema.safeParse({ ...CARD, collection: "cycling" }).success).toBe(false);
   });
 
   it("parses Result envelopes", () => {

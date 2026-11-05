@@ -195,9 +195,12 @@ async function relocationGaps(db: Db, analysisId: string): Promise<{ gaps: Reloc
 }
 
 /**
- * The wardrobe the counts use: tagged or confirmed items with a category,
- * not to be donated or sold, and not left behind unless already in Hamburg
- * or on the way there.
+ * The wardrobe the counts use: tagged or confirmed clothing items with a
+ * category, not to be donated or sold, and not left behind unless already in
+ * Hamburg or on the way there. Running gear never completes an outfit, so it
+ * neither adds to "outfits now" nor makes a purchase unlock more (D-249).
+ * Moving an item between collections can change the counts, and advice
+ * stored before the move then reads as stale.
  */
 async function wardrobeForCounts(db: Db): Promise<ComboItem[]> {
   const rows = await db
@@ -214,6 +217,7 @@ async function wardrobeForCounts(db: Db): Promise<ComboItem[]> {
     .where(
       and(
         inArray(items.status, ["tagged", "confirmed"]),
+        eq(items.collection, "clothing"),
         isNotNull(items.category),
         notInArray(items.decision, ["donate", "sell"]),
       ),

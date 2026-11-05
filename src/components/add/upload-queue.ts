@@ -3,6 +3,7 @@
 // the transitions can be tested without React; the async pipeline that drives
 // it lives in use-add-flow.ts.
 
+import type { ItemCollection } from "@/lib/db/enums"
 import type { ItemCardDto } from "@/lib/items/contracts"
 import type { AppErrorPayload } from "@/lib/result"
 
@@ -31,6 +32,11 @@ export type QueueEntry = {
   /** Local id, independent of the item id the server will store. */
   key: string
   fileName: string
+  /**
+   * Stamped when the photo was queued, from the "Adding running gear" switch,
+   * and sent with its register (D-252). Turning the switch later leaves it alone.
+   */
+  collection: ItemCollection
   upload: UploadStage
   /** Object URL of the prepared JPEG, then the server thumbnail once registered. */
   previewUrl: string | null
@@ -42,10 +48,12 @@ export type AddFlowState = {
   entries: QueueEntry[]
   /** Set by a BUDGET_EXCEEDED answer; no new tagging calls start while it is set. */
   budgetBlock: AppErrorPayload | null
+  /** The "Adding running gear" switch: what photos queued from now on are stamped with (D-252). */
+  collection: ItemCollection
 }
 
 export type AddFlowAction =
-  | { type: "add"; entries: Array<{ key: string; fileName: string }> }
+  | { type: "add"; entries: Array<{ key: string; fileName: string; collection: ItemCollection }> }
   | { type: "upload"; key: string; stage: UploadStage }
   | { type: "preview"; key: string; url: string | null }
   | { type: "registered"; key: string; item: ItemCardDto }
@@ -55,10 +63,16 @@ export type AddFlowAction =
   | { type: "budgetBlocked"; error: AppErrorPayload }
   /** A fresh server read of the budget found room again. */
   | { type: "budgetLifted" }
-  /** The page was left (or hidden): the queue starts empty on return; the budget block stays. */
+  /** The switch changed; entries already queued keep their own stamp. */
+  | { type: "setCollection"; collection: ItemCollection }
+  /**
+   * The page was left (or hidden): the queue starts empty on return and the
+   * switch is off again, so a later visit never marks clothes as running gear
+   * unasked (D-252); the budget block stays.
+   */
   | { type: "reset" }
 
-export const INITIAL_ADD_FLOW_STATE: AddFlowState = { entries: [], budgetBlock: null }
+export const INITIAL_ADD_FLOW_STATE: AddFlowState = { entries: [], budgetBlock: null, collection: "clothing" }
 
 function updateEntry(state: AddFlowState, key: string, update: (entry: QueueEntry) => QueueEntry): AddFlowState {
   let changed = false
@@ -79,9 +93,10 @@ export function addFlowReducer(state: AddFlowState, action: AddFlowAction): AddF
         entries: [
           ...state.entries,
           ...action.entries.map(
-            ({ key, fileName }): QueueEntry => ({
+            ({ key, fileName, collection }): QueueEntry => ({
               key,
               fileName,
+              collection,
               upload: { kind: "waiting" },
               previewUrl: null,
               item: null,
@@ -129,6 +144,7 @@ export function addFlowReducer(state: AddFlowState, action: AddFlowAction): AddF
       return { ...state, entries: state.entries.filter((entry) => entry.key !== action.key) }
     case "budgetBlocked":
       return {
+        ...state,
         budgetBlock: action.error,
         // Calls that had not started yet go back to idle, so the counts stay honest.
         entries: state.entries.map((entry) =>
@@ -137,8 +153,10 @@ export function addFlowReducer(state: AddFlowState, action: AddFlowAction): AddF
       }
     case "budgetLifted":
       return state.budgetBlock === null ? state : { ...state, budgetBlock: null }
+    case "setCollection":
+      return state.collection === action.collection ? state : { ...state, collection: action.collection }
     case "reset":
-      return { ...state, entries: [] }
+      return { ...state, entries: [], collection: "clothing" }
   }
 }
 

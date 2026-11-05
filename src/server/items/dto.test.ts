@@ -79,6 +79,7 @@ describe("toItemCardDto", () => {
       purchaseDate: "2025-10-01",
       location: "bologna",
       decision: "undecided",
+      collection: "clothing",
       aiConfidence: { category: 0.9, brand: 0.2 },
       multipleItemsDetected: true,
       userEditedFields: ["name"],
@@ -99,6 +100,7 @@ describe("toItemCardDto", () => {
     expect(card).toMatchObject({
       id: item.id,
       status: "pending_tagging",
+      collection: "clothing",
       name: null,
       category: null,
       colors: [],
@@ -113,6 +115,11 @@ describe("toItemCardDto", () => {
       taggingError: "Claude is busy. Try again.",
       images: { thumb: null, processed: null, nobg: null },
     });
+  });
+
+  it("carries the item's collection", async () => {
+    const item = await makeItem(testDb.db, { collection: "running" });
+    expect(toItemCardDto(item, []).collection).toBe("running");
   });
 
   it("reads multipleItemsDetected only from a true flag in ai_raw", async () => {

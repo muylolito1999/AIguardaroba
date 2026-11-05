@@ -155,7 +155,7 @@ const DecisionCard = memo(function DecisionCard({ entry, item, decision, setItem
 
 type ApplyAiDecisionsProps = {
   analysisId: string
-  /** Items the owner left undecided that can still change, with the AI's decision for each. */
+  /** Clothing the owner left undecided that can still change, with the AI's decision for each (D-249). */
   undecided: RelocationItemResult[]
   applyAiDecisionsToUndecided: RelocationResultActions["applyAiDecisionsToUndecided"]
   onApplied: (applied: { itemId: string; decision: ItemDecision }[]) => void
@@ -304,8 +304,14 @@ export function ItemsTab({ view, decisionOf, onDecisionSaved, refresh, actions }
       view.result.items.filter((entry) => decisionColumn(entry.decision) === name).sort(sort),
     ])
   ) as Record<DecisionColumn, RelocationItemResult[]>
+  // The same rows the server writes: still clothing, so an item moved to
+  // running gear since the run is not counted (D-249). Its card can still be
+  // set by hand.
   const undecided = view.result.items.filter(
-    (entry) => isChangeable(view.items[entry.item_id]) && decisionOf(entry.item_id) === "undecided"
+    (entry) =>
+      isChangeable(view.items[entry.item_id]) &&
+      view.items[entry.item_id]?.collection === "clothing" &&
+      decisionOf(entry.item_id) === "undecided"
   )
 
   return (

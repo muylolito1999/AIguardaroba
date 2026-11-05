@@ -46,6 +46,7 @@ const ITEM: ItemCsvSource = {
   lastWornAt: new Date("2026-10-30T08:00:00.000Z"),
   createdAt: new Date("2026-11-01T10:00:00.000Z"),
   updatedAt: new Date("2026-11-02T11:30:00.000Z"),
+  collection: "clothing",
   imageUrls: {
     processed: "https://store.public.blob.vercel-storage.com/items/x/processed.webp",
     original: "https://store.public.blob.vercel-storage.com/items/x/original.jpg",
@@ -199,8 +200,19 @@ describe("item rows", () => {
       "processed_image_url",
       "original_image_url",
       "nobg_image_url",
+      // Added with running gear (D-252): new columns go at the end.
+      "collection",
     ]);
+    expect(ITEM_CSV_HEADERS).toHaveLength(36);
     expect(itemCsvHeaderRow()).toBe(`${ITEM_CSV_HEADERS.join(",")}${CSV_EOL}`);
+  });
+
+  it("writes the item's collection in the last column (D-252)", () => {
+    const fields = (item: ItemCsvSource) => parseRecord(itemCsvRow(item).slice(0, -CSV_EOL.length));
+    const running = fields({ ...ITEM, name: "Trail shoes", category: "shoes", collection: "running" });
+    expect(running).toHaveLength(ITEM_CSV_HEADERS.length);
+    expect(running.at(-1)).toBe("running");
+    expect(fields(ITEM).at(-1)).toBe("clothing");
   });
 
   it("writes one item under the headers, with lists, booleans, nulls and photo URLs", () => {
@@ -230,6 +242,7 @@ describe("item rows", () => {
       processed_image_url: ITEM.imageUrls.processed,
       original_image_url: ITEM.imageUrls.original,
       nobg_image_url: "",
+      collection: "clothing",
     });
   });
 

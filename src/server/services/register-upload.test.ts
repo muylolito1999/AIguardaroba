@@ -5,7 +5,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vites
 
 import { appSettings, blobCleanup, itemImages, items } from "@/lib/db/schema";
 import type { BlobStorage } from "@/lib/images/blob";
-import { originalUploadPathname, type RegisterBody } from "@/lib/items/contracts";
+import { originalUploadPathname, RegisterBodySchema, type RegisterBody } from "@/lib/items/contracts";
 import { AppError } from "@/lib/result";
 
 import { makeTestDb, type TestDb } from "../../../test/db";
@@ -64,7 +64,14 @@ function upload(body: Buffer = photo, itemId: string = randomUUID()): { itemId: 
 }
 
 function registerBody(itemId: string, blob: FakeBlob, sourceHash = sha256(`${itemId}-source`)): RegisterBody {
-  return { itemId, url: blob.url, pathname: blob.pathname, sourceHash, originalFilename: "IMG_0001.HEIC" };
+  return {
+    itemId,
+    url: blob.url,
+    pathname: blob.pathname,
+    sourceHash,
+    originalFilename: "IMG_0001.HEIC",
+    collection: "clothing",
+  };
 }
 
 async function itemRows() {
@@ -362,6 +369,56 @@ describe("registerUpload", () => {
     });
     expect(fake.calls).toHaveLength(callsBefore);
     expect(fake.fetched).toEqual([]);
+  });
+});
+
+describe("registerUpload and the collection stamped on /add (D-252)", () => {
+  it("writes the body's collection, so running gear is stored as running", async () => {
+    const { itemId, blob } = upload();
+
+    const result = await registerUpload(deps(), { ...registerBody(itemId, blob), collection: "running" });
+
+    expect((await itemRows()).map((row) => [row.id, row.collection])).toEqual([[itemId, "running"]]);
+    expect(result).toMatchObject({ duplicate: false, item: { id: itemId, collection: "running" } });
+  });
+
+  it("stores clothing for a body sent without the field, as a tab older than it sends", async () => {
+    const { itemId, blob } = upload();
+    const body = registerBody(itemId, blob);
+    const oldTab = {
+      itemId,
+      url: body.url,
+      pathname: body.pathname,
+      sourceHash: body.sourceHash,
+      originalFilename: body.originalFilename,
+    };
+
+    const result = await registerUpload(deps(), RegisterBodySchema.parse(oldTab));
+
+    expect((await itemRows()).map((row) => row.collection)).toEqual(["clothing"]);
+    expect(result).toMatchObject({ duplicate: false, item: { collection: "clothing" } });
+  });
+
+  it("returns a registered item unchanged on a retry, whatever collection the retry says", async () => {
+    const { itemId, blob } = upload();
+    const input: RegisterBody = { ...registerBody(itemId, blob), collection: "running" };
+    await registerUpload(deps(), input);
+
+    const retried = await registerUpload(deps(), { ...input, collection: "clothing" });
+
+    expect(retried).toMatchObject({ duplicate: false, item: { id: itemId, collection: "running" } });
+    expect((await itemRows()).map((row) => row.collection)).toEqual(["running"]);
+  });
+
+  it("leaves a duplicate's existing item in its own collection", async () => {
+    const sourceHash = sha256("a coat already in the wardrobe");
+    const existing = await makeItem(testDb.db, { sourceHash });
+    const { itemId, blob } = upload(otherPhoto);
+
+    const result = await registerUpload(deps(), { ...registerBody(itemId, blob, sourceHash), collection: "running" });
+
+    expect(result).toEqual({ duplicate: true, existingItemId: existing.id });
+    expect((await itemRows()).map((row) => [row.id, row.collection])).toEqual([[existing.id, "clothing"]]);
   });
 });
 

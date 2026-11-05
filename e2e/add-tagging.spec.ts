@@ -11,7 +11,9 @@ import { makeJpegFixture, type PhotoFixture } from "./fixtures/images"
 // reach "Ready". Here the browser's requests are answered instead: the
 // client-token route, the Blob store's PUT, register and tag. Everything else
 // (the page, the session, the hash check, the budget read) is the real
-// production build. Screenshots go to each test's output folder.
+// production build. Register bodies are recorded, so the collection each photo
+// was stamped with ("Adding running gear", D-252) can be checked. Screenshots
+// go to each test's output folder.
 
 const PHONE = { width: 390, height: 844 }
 const DESKTOP = { width: 1280, height: 800 }
@@ -62,7 +64,12 @@ async function json(route: Route, status: number, body: unknown): Promise<void> 
   })
 }
 
+/** What the page sent to /api/items/register, as far as these tests read it. */
+type RegisterCall = { originalFilename: unknown; collection: unknown }
+
 type Fakes = {
+  /** Every register body the page sent, in order. */
+  readonly registered: readonly RegisterCall[]
   /** Replaces how tag calls are answered from now on. */
   answerTags(answer: TagAnswer): void
   /** Holds every register call until release() is called. */
@@ -74,6 +81,7 @@ async function fakeStorageAndClaude(page: Page, baseURL: string): Promise<Fakes>
   const thumb = { url: new URL("/icons/icon-192.png", baseURL).toString(), width: 192, height: 192 }
   let answerTag: TagAnswer = tagged
   let registerGate: Promise<void> | null = null
+  const registered: RegisterCall[] = []
 
   await page.route("**/api/blob/upload", (route) =>
     json(route, 200, { type: "blob.generate-client-token", clientToken: "vercel_blob_client_fakestore_e30" }),
@@ -103,8 +111,13 @@ async function fakeStorageAndClaude(page: Page, baseURL: string): Promise<Fakes>
   })
   await page.route("**/api/items/register", async (route) => {
     if (registerGate !== null) await registerGate
-    const { itemId } = route.request().postDataJSON() as { itemId: string }
-    const item: ItemCardDto = cardFor(itemId, { images: { thumb, processed: thumb, nobg: null } })
+    const body = route.request().postDataJSON() as { itemId: string; originalFilename?: unknown; collection?: unknown }
+    registered.push({ originalFilename: body.originalFilename, collection: body.collection })
+    // Answered as the server would store it: the collection the body names.
+    const item: ItemCardDto = cardFor(body.itemId, {
+      images: { thumb, processed: thumb, nobg: null },
+      collection: body.collection === "running" ? "running" : "clothing",
+    })
     await json(route, 200, { ok: true, data: { duplicate: false, item } })
   })
   await page.route("**/api/items/*/tag", async (route) => {
@@ -114,6 +127,7 @@ async function fakeStorageAndClaude(page: Page, baseURL: string): Promise<Fakes>
   })
 
   return {
+    registered,
     answerTags(answer) {
       answerTag = answer
     },
@@ -321,6 +335,44 @@ test.describe("the add page's tagging controls, with storage and Claude faked in
     // Nothing is running any more, so the link simply navigates.
     await tagBar(page).getByRole("link", { name: "Review 2 items" }).click()
     await expect(page).toHaveURL((url) => url.pathname === "/add/review")
+  })
+
+  test("the Adding running gear switch stamps each photo as it is queued, and register sends that collection", async ({
+    page,
+  }, testInfo) => {
+    const [first, second, third] = await photos(3, "e2e-tag-collection")
+    if (first === undefined || second === undefined || third === undefined) throw new Error("fixtures missing")
+    const toggle = page.getByRole("switch", { name: "Adding running gear" })
+    const rows = page.getByRole("main").getByRole("listitem")
+    await expect(toggle).toHaveAttribute("aria-checked", "false")
+
+    // Off: clothing.
+    await choose(page, [first])
+    await expect(queueStatus(page)).toHaveText("1 of 1 photo uploaded.")
+
+    // On: running gear, with the badge on its row.
+    await toggle.click()
+    await expect(toggle).toHaveAttribute("aria-checked", "true")
+    await choose(page, [second])
+    await expect(queueStatus(page)).toHaveText("2 of 2 photos uploaded.")
+    await expect(rows.filter({ hasText: second.name }).getByText("Running gear", { exact: true })).toBeVisible()
+
+    // Off again: the next photo is clothing, and the running one keeps its stamp.
+    await toggle.click()
+    await expect(toggle).toHaveAttribute("aria-checked", "false")
+    await choose(page, [third])
+    await expect(queueStatus(page)).toHaveText("3 of 3 photos uploaded.")
+    await expect(rows.getByText("Running gear", { exact: true })).toHaveCount(1)
+    await expect(rows.filter({ hasText: second.name }).getByText("Running gear", { exact: true })).toBeVisible()
+    for (const fixture of [first, third]) {
+      await expect(rows.filter({ hasText: fixture.name }).getByText("Running gear", { exact: true })).toHaveCount(0)
+    }
+    await page.setViewportSize(PHONE)
+    await shoot(page, testInfo, "running-gear-stamp-phone")
+
+    const sent = Object.fromEntries(fakes.registered.map((call) => [String(call.originalFilename), call.collection]))
+    expect(fakes.registered).toHaveLength(3)
+    expect(sent).toEqual({ [first.name]: "clothing", [second.name]: "running", [third.name]: "clothing" })
   })
 
   test("coming back after leaving starts with an empty list, and leaving again does not ask", async ({

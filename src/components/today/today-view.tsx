@@ -241,11 +241,12 @@ export function TodayView({ data, actions, suggest = postSuggestOutfits }: Today
     if (wearingNow.current !== null) return
     wearingNow.current = key
     setWearing(key)
-    // A saved outfit is logged as that outfit, so its "Worn N times" counts it.
+    // A saved outfit is logged as that outfit, so its "Worn N times" counts it. One not saved yet is
+    // still an outfit: asOutfit makes the server refuse running gear as it does for a saved one (D-250).
     const input: LogWearInput =
       savedOutfitId !== null
         ? { kind: "outfit", outfitId: savedOutfitId, weather: data.weather }
-        : { kind: "items", itemIds: outfit.items.map((item) => item.itemId), weather: data.weather }
+        : { kind: "items", itemIds: outfit.items.map((item) => item.itemId), weather: data.weather, asOutfit: true }
     const result = await log(input, { label: outfit.title })
     wearingNow.current = null
     setWearing(null)

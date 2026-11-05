@@ -55,8 +55,8 @@ function StatsSkeleton() {
   return (
     <div className="flex flex-col gap-10" aria-busy="true">
       <p className="sr-only">Loading stats…</p>
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
-        {[0, 1, 2, 3, 4].map((index) => (
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-6">
+        {[0, 1, 2, 3, 4, 5].map((index) => (
           <Skeleton key={index} className="h-20 rounded-xl" />
         ))}
       </div>

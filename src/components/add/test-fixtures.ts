@@ -36,6 +36,7 @@ export function cardFor(id: string, overrides: Partial<ItemCardDto> = {}): ItemC
     purchaseDate: null,
     location: "bologna",
     decision: "undecided",
+    collection: "clothing",
     aiConfidence: null,
     multipleItemsDetected: false,
     userEditedFields: [],

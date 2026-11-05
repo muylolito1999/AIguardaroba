@@ -19,7 +19,7 @@ import type { Db } from "@/lib/db/client";
 import { analyses, appSettings, itemImages, items, outfits, wearLogs, type Analysis, type Item } from "@/lib/db/schema";
 import { isUuid } from "@/lib/items/contracts";
 import { itemDisplayName } from "@/lib/items/wardrobe";
-import { sortBySlot, type OutfitItemDto } from "@/lib/outfits/contracts";
+import { outfitItemProblem, sortBySlot, type OutfitItemDto } from "@/lib/outfits/contracts";
 import {
   buildSuggestionInstruction,
   buildSuggestionSnapshot,
@@ -134,6 +134,7 @@ type ItemNow = {
   subcategory: string | null;
   category: Item["category"];
   status: Item["status"];
+  collection: Item["collection"];
   wearCount: number;
   thumbUrl: string | null;
 };
@@ -157,6 +158,7 @@ async function toTodaySuggestion(db: Db, row: Analysis, today: string): Promise<
             subcategory: items.subcategory,
             category: items.category,
             status: items.status,
+            collection: items.collection,
             wearCount: items.wearCount,
             thumbUrl: itemImages.blobUrl,
           })
@@ -182,7 +184,17 @@ async function toTodaySuggestion(db: Db, row: Analysis, today: string): Promise<
     const entries: OutfitItemDto[] = sortBySlot(outfit.items).map(({ slot, itemId }) => {
       const item = byId.get(itemId);
       if (item === undefined) {
-        return { itemId, slot, name: GONE_NAME, category: null, thumbUrl: null, status: null, wearCount: 0, exists: false };
+        return {
+          itemId,
+          slot,
+          name: GONE_NAME,
+          category: null,
+          thumbUrl: null,
+          status: null,
+          collection: null,
+          wearCount: 0,
+          exists: false,
+        };
       }
       return {
         itemId,
@@ -191,6 +203,7 @@ async function toTodaySuggestion(db: Db, row: Analysis, today: string): Promise<
         category: item.category,
         thumbUrl: item.thumbUrl,
         status: item.status,
+        collection: item.collection,
         wearCount: item.wearCount,
         exists: true,
       };
@@ -202,7 +215,8 @@ async function toTodaySuggestion(db: Db, row: Analysis, today: string): Promise<
       why: outfit.why,
       rainOk: outfit.rain_ok,
       items: entries,
-      available: entries.every((entry) => entry.exists && entry.status !== "archived"),
+      // The rule the cards show: deleted, archived or moved out of clothing (D-250).
+      available: entries.every((entry) => outfitItemProblem(entry) === null),
       savedOutfitId: savedOutfitId !== null && saved.has(savedOutfitId) ? savedOutfitId : null,
       wornToday: entries.length > 0 && entries.every((entry) => worn.has(entry.itemId)),
     };
@@ -276,13 +290,18 @@ type Prepared = {
   cacheKey: string;
 };
 
-/** The items Claude may use today: tagged or confirmed, at home or of unknown location, not on their way out. */
+/**
+ * The items Claude may use today: clothing (D-249), tagged or confirmed, at
+ * home or of unknown location, not on their way out. They feed both the item
+ * lines and the strict check, so running gear is left out here, not later.
+ */
 async function eligibleItems(db: Db, home: HomeLocation): Promise<Item[]> {
   const rows = await db
     .select()
     .from(items)
     .where(
       and(
+        eq(items.collection, "clothing"),
         inArray(items.status, ["tagged", "confirmed"]),
         inArray(items.location, [home, "unknown"]),
         notInArray(items.decision, ["donate", "sell"]),
@@ -568,8 +587,8 @@ function rangeValue(value: number): number | null {
  * let both read the same logs, and the second took them from the first.
  * Taken before saveOutfit, whose share locks this transaction then already
  * holds: two Saves that each held a share lock and then asked for the update
- * lock would wait for each other. A missing or archived item is left to
- * saveOutfit's check, which answers CONFLICT.
+ * lock would wait for each other. A missing or archived item, or one moved to
+ * running gear, is left to saveOutfit's check, which answers CONFLICT.
  */
 async function lockOutfitItems(tx: Db, itemIds: readonly string[]): Promise<void> {
   await tx
@@ -635,7 +654,8 @@ async function attachCardWear(
  * chosen for. A wear the card logged that day moves to the new outfit (see
  * attachCardWear). Saving the same one again answers the outfit it made,
  * while that outfit exists, instead of a copy. CONFLICT when an item was
- * deleted or archived since; NOT_FOUND for an unknown suggestion or index.
+ * deleted, archived or moved to running gear since (D-250); NOT_FOUND for an
+ * unknown suggestion or index.
  */
 export async function saveSuggestedOutfit(
   db: Db,
@@ -692,7 +712,7 @@ export async function saveSuggestedOutfit(
       if (error instanceof AppError && error.code === "VALIDATION" && error.details?.outfitIssues !== undefined) {
         throw new AppError(
           "CONFLICT",
-          "An item of this outfit was deleted or archived since it was suggested, so it cannot be saved. Suggest outfits again.",
+          "An item of this outfit was deleted, archived or moved to running gear since it was suggested, so it cannot be saved. Suggest outfits again.",
           { outfitIssues: error.details.outfitIssues },
         );
       }

@@ -6,6 +6,7 @@
 import type {
   Formality,
   ItemCategory,
+  ItemCollection,
   ItemCondition,
   ItemDecision,
   ItemLocation,
@@ -64,6 +65,12 @@ export const DECISION_LABELS: Record<ItemDecision, string> = {
   donate: "Donate",
   sell: "Sell",
   undecided: "Undecided",
+}
+
+/** The wardrobe's views and the item badges (D-248). */
+export const COLLECTION_LABELS: Record<ItemCollection, string> = {
+  clothing: "Clothes",
+  running: "Running gear",
 }
 
 export const STATUS_LABELS: Record<ItemStatus, string> = {

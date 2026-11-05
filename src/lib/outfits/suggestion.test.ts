@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest";
 
 import { estimateTextTokens } from "@/lib/ai/cost";
 import { countSchemaComplexity, FORBIDDEN_KEY, SCHEMA_LIMITS, toJsonSchema, toJsonSchemaFormat, type JsonSchema } from "@/lib/ai/json-schema";
-import { AI_PURPOSES, ITEM_DECISIONS, ITEM_LOCATIONS, ITEM_STATUSES, OUTFIT_SLOTS } from "@/lib/db/enums";
+import { AI_PURPOSES, ITEM_COLLECTIONS, ITEM_DECISIONS, ITEM_LOCATIONS, ITEM_STATUSES, OUTFIT_SLOTS } from "@/lib/db/enums";
 import { MAX_ACCESSORIES } from "@/lib/outfits/contracts";
 import {
   buildSuggestionInstruction,
@@ -41,6 +41,7 @@ import {
   makeOutfitItem,
   makeOutfitSuggestionResult,
   makeOutfitWardrobe,
+  makeRunningItem,
   makeWeatherSnapshot,
   OUTFIT_TEMPLATES,
   type OutfitFixtureItem,
@@ -82,7 +83,7 @@ describe("homeLocationOf", () => {
 });
 
 describe("isEligibleForToday", () => {
-  const base = { status: "confirmed", location: "hamburg", decision: "bring", category: "top" } as const;
+  const base = { status: "confirmed", location: "hamburg", decision: "bring", category: "top", collection: "clothing" } as const;
 
   it("takes tagged and confirmed items only", () => {
     const eligible = ITEM_STATUSES.filter((status) => isEligibleForToday({ ...base, status }, "hamburg"));
@@ -112,6 +113,15 @@ describe("isEligibleForToday", () => {
     expect(isEligibleForToday({ ...base, category: null }, "hamburg")).toBe(false);
     expect(isEligibleForToday({ ...base, category: "other" }, "hamburg")).toBe(false);
     expect(isEligibleForToday({ ...base, category: "bag" }, "hamburg")).toBe(true);
+  });
+
+  it("takes clothing only: running gear that is otherwise eligible is left out (D-249)", () => {
+    expect(isEligibleForToday(base, "hamburg")).toBe(true);
+    expect(isEligibleForToday({ ...base, collection: "running" }, "hamburg")).toBe(false);
+    expect(isEligibleForToday(makeRunningItem(), "hamburg")).toBe(false);
+    expect(ITEM_COLLECTIONS.filter((collection) => isEligibleForToday({ ...base, collection }, "hamburg"))).toEqual([
+      "clothing",
+    ]);
   });
 });
 
@@ -165,6 +175,26 @@ describe("buildSuggestionSnapshot", () => {
     const snapshot = buildSuggestionSnapshot([other, untagged, top], weather);
     expect(snapshot.lines.map((line) => line.itemId)).toEqual([top.id]);
     expect(snapshot.droppedCount).toBe(0);
+  });
+
+  it("never lists running gear, and leaves the clothing's lines and hash as they were (D-249)", () => {
+    const wardrobe = Object.values(makeOutfitWardrobe());
+    const runningTop = makeRunningItem();
+    const runningShoes = makeRunningItem({ ...OUTFIT_TEMPLATES.sneakers, name: "Neon trail running shoes", collection: "running" });
+    const clothingOnly = buildSuggestionSnapshot(wardrobe, weather);
+
+    const snapshot = buildSuggestionSnapshot([runningTop, ...wardrobe, runningShoes], weather);
+
+    const listed = snapshot.lines.map((line) => line.itemId);
+    expect(listed).not.toContain(runningTop.id);
+    expect(listed).not.toContain(runningShoes.id);
+    expect(snapshot.aliasOfId.has(runningTop.id) || snapshot.aliasOfId.has(runningShoes.id)).toBe(false);
+    expect(snapshot.lines).toEqual(clothingOnly.lines);
+    expect(snapshot.snapshotHash).toBe(clothingOnly.snapshotHash);
+    expect(snapshot).toMatchObject({ itemCount: wardrobe.length, droppedCount: 0 });
+    const prompt = buildSuggestionInstruction({ weather, place: "Hamburg, Germany", lines: snapshot.lines });
+    expect(prompt).not.toContain("Neon running shirt");
+    expect(prompt).not.toContain("Neon trail running shoes");
   });
 
   it("maps aliases and item ids both ways", () => {
@@ -394,9 +424,39 @@ describe("makeOutfitSuggestionStrictSchema", () => {
     const first = valid.outfits[0]?.items[0];
     const itemId = first === undefined ? undefined : snapshot.byAlias.get(first.item);
     if (itemId === undefined) throw new Error("no item");
-    archived.set(itemId, { id: itemId, category: archived.get(itemId)?.category ?? null, status: "archived" });
+    archived.set(itemId, {
+      id: itemId,
+      category: archived.get(itemId)?.category ?? null,
+      status: "archived",
+      collection: "clothing",
+    });
     const result = makeOutfitSuggestionStrictSchema(snapshot, archived).safeParse(valid);
     expect(result.success ? "" : result.error.issues.map((issue) => issue.message).join("\n")).toContain("archived_item");
+  });
+
+  it("rejects an item moved to running gear since the snapshot (not_clothing, D-250)", () => {
+    const moved = new Map(toCheckItems(items));
+    const first = valid.outfits[0]?.items[0];
+    const itemId = first === undefined ? undefined : snapshot.byAlias.get(first.item);
+    const check = itemId === undefined ? undefined : moved.get(itemId);
+    if (itemId === undefined || check === undefined) throw new Error("no item");
+    moved.set(itemId, { ...check, collection: "running" });
+    const result = makeOutfitSuggestionStrictSchema(snapshot, moved).safeParse(valid);
+    expect(result.success).toBe(false);
+    expect(result.success ? "" : result.error.issues.map((issue) => issue.message).join("\n")).toContain(
+      `not_clothing (${first?.item ?? "?"}): This item is running gear, which outfits leave out.`,
+    );
+  });
+
+  it("checks each item with its collection", () => {
+    const running = makeRunningItem();
+    expect(toCheckItems([running, wardrobe.tee]).get(running.id)).toEqual({
+      id: running.id,
+      category: "top",
+      status: "confirmed",
+      collection: "running",
+    });
+    expect(toCheckItems([wardrobe.tee]).get(wardrobe.tee.id)?.collection).toBe("clothing");
   });
 
   it("accepts a dress without a bottom", () => {

@@ -9,6 +9,7 @@ import { z } from "zod";
 import {
   OUTFIT_SLOTS,
   type ItemCategory,
+  type ItemCollection,
   type ItemLocation,
   type ItemStatus,
   type OutfitSlot,
@@ -84,7 +85,13 @@ export function sortBySlot<T extends { slot: OutfitSlot }>(entries: readonly T[]
 export type OutfitEntry = { slot: OutfitSlot; itemId: string };
 
 /** What the check needs to know about an item. */
-export type OutfitCheckItem = { id: string; category: ItemCategory | null; status: ItemStatus };
+export type OutfitCheckItem = {
+  id: string;
+  category: ItemCategory | null;
+  status: ItemStatus;
+  /** Required, so every caller of the check says which collection the item is in (D-250). */
+  collection: ItemCollection;
+};
 
 export const OUTFIT_ISSUE_CODES = [
   "missing_top",
@@ -93,6 +100,7 @@ export const OUTFIT_ISSUE_CODES = [
   "too_many_accessories",
   "wrong_category",
   "archived_item",
+  "not_clothing",
   "unknown_item",
   "duplicate_item",
   "too_many_items",
@@ -103,6 +111,11 @@ export type OutfitIssue = { code: OutfitIssueCode; slot?: OutfitSlot; itemId?: s
 
 export type OutfitCheck = { ok: true } | { ok: false; issues: OutfitIssue[] };
 
+/** Why an item of each collection other than clothing cannot be in an outfit (D-250). */
+export const NOT_CLOTHING_MESSAGE: Readonly<Record<Exclude<ItemCollection, "clothing">, string>> = {
+  running: "This item is running gear, which outfits leave out.",
+};
+
 function slotName(slot: OutfitSlot): string {
   return SLOT_LABELS[slot].toLowerCase();
 }
@@ -111,9 +124,11 @@ function slotName(slot: OutfitSlot): string {
  * The outfit rules (D-038): exactly one item in the top slot; a bottom unless
  * that item is a dress (a dress may still take a bottom); at most one item per
  * slot except accessories (up to MAX_ACCESSORIES); each item's category is one
- * its slot takes; archived and missing items fail; an item appears once; at
- * most MAX_OUTFIT_ITEMS items. Every problem is reported, not only the first,
- * so the builder can mark each slot and the AI check can name them all.
+ * its slot takes; archived and missing items fail, and so does an item that
+ * is not clothing (not_clothing, D-250), which an item may carry together with
+ * archived_item; an item appears once; at most MAX_OUTFIT_ITEMS items. Every
+ * problem is reported, not only the first, so the builder can mark each slot
+ * and the AI check can name them all.
  */
 export function validateOutfit(
   entries: readonly OutfitEntry[],
@@ -152,6 +167,12 @@ export function validateOutfit(
     }
     if (item.status === "archived") {
       issues.push({ code: "archived_item", slot, itemId, message: "This item is archived." });
+    }
+    // The positive form (D-248): any collection other than clothing is left out.
+    // The fallback covers an enum value the database knows before this code does.
+    if (item.collection !== "clothing") {
+      const message = NOT_CLOTHING_MESSAGE[item.collection] ?? "This item is not clothing, which outfits leave out.";
+      issues.push({ code: "not_clothing", slot, itemId, message });
     }
     if (item.category === null || !SLOT_CATEGORIES[slot].includes(item.category)) {
       issues.push({ code: "wrong_category", slot, itemId, message: `This item does not belong in the ${slotName(slot)} slot.` });
@@ -256,10 +277,30 @@ export type OutfitItemDto = {
   thumbUrl: string | null;
   /** null when the item no longer exists. */
   status: ItemStatus | null;
+  /** null when the item no longer exists. */
+  collection: ItemCollection | null;
   wearCount: number;
   /** false when the item was deleted since (only AI suggestions can name one). */
   exists: boolean;
 };
+
+/** Why an outfit item cannot be worn or saved now. */
+export type OutfitItemProblem = "deleted" | "archived" | "not_clothing";
+
+/**
+ * Why an outfit item cannot be used now, or null: deleted, then archived, then
+ * not clothing (D-250). A null collection counts as clothing: the item is gone
+ * (exists covers that) or the data predates the field. Client-safe, so the
+ * /today cards and the server agree on which items block an outfit.
+ */
+export function outfitItemProblem(
+  item: Pick<OutfitItemDto, "exists" | "status" | "collection">,
+): OutfitItemProblem | null {
+  if (!item.exists) return "deleted";
+  if (item.status === "archived") return "archived";
+  if (item.collection !== null && item.collection !== "clothing") return "not_clothing";
+  return null;
+}
 
 export type OutfitListItemDto = {
   id: string;

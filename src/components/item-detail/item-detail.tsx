@@ -1,12 +1,12 @@
 "use client"
 
 import { useCallback, useId, useLayoutEffect, useRef, useState } from "react"
-import { Archive, Clock, Layers } from "lucide-react"
+import { Archive, Clock, Footprints, Layers } from "lucide-react"
 
 import { ItemTagForm } from "@/components/items/item-tag-form"
 import { RefreshAfterItemChanges } from "@/components/items/refresh-after-item-changes"
 import { hasTags } from "@/components/items/tag-form-model"
-import { CATEGORY_LABELS, STATUS_LABELS } from "@/components/items/tag-options"
+import { CATEGORY_LABELS, COLLECTION_LABELS, STATUS_LABELS } from "@/components/items/tag-options"
 import { requestTagging } from "@/components/items/tag-request"
 import { PageHeader } from "@/components/layout/page-header"
 import { Badge } from "@/components/ui/badge"
@@ -23,6 +23,7 @@ import { ItemGallery } from "./item-gallery"
 import { ItemMeta } from "./item-meta"
 import { PendingTags } from "./pending-tags"
 import { PlanToggles } from "./plan-toggles"
+import { RunningGearToggle } from "./running-gear-toggle"
 import { WornToday } from "./worn-today"
 
 const STATUS_BADGE: Record<ItemStatus, "default" | "secondary" | "outline"> = {
@@ -113,7 +114,8 @@ export function ItemDetail({ item: serverItem, actions, tagRequest = requestTagg
   return (
     <div className="flex flex-col">
       <RefreshAfterItemChanges snapshot={serverItem} refreshWhileShown={false} />
-      <BackToWardrobe className="mb-2" />
+      {/* The current collection, so a move made here also moves the link's view (D-251). */}
+      <BackToWardrobe collection={item.collection} className="mb-2" />
       <PageHeader
         title={name}
         description={
@@ -122,6 +124,13 @@ export function ItemDetail({ item: serverItem, actions, tagRequest = requestTagg
               {item.status === "archived" ? <Archive aria-hidden /> : null}
               {STATUS_LABELS[item.status]}
             </Badge>
+            {/* Anything but clothing is named, so a collection added later shows too (D-248). */}
+            {item.collection !== "clothing" ? (
+              <Badge variant="outline">
+                <Footprints aria-hidden />
+                {COLLECTION_LABELS[item.collection]}
+              </Badge>
+            ) : null}
             {item.category !== null ? (
               <span>
                 {CATEGORY_LABELS[item.category]}
@@ -157,6 +166,12 @@ export function ItemDetail({ item: serverItem, actions, tagRequest = requestTagg
               </h2>
               <p className="text-sm text-muted-foreground">Each choice is saved as soon as you make it.</p>
             </div>
+            <RunningGearToggle
+              itemId={item.id}
+              collection={item.collection}
+              setItemCollection={actions.setItemCollection}
+              onSaved={(saved) => patchItem({ collection: saved.collection })}
+            />
             <PlanToggles
               itemId={item.id}
               decision={item.decision}

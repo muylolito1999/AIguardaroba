@@ -33,6 +33,8 @@ import { OPEN_METEO_STUB_URL } from "./open-meteo-stub"
 // - a complete suggestion for today, inserted as if Claude had answered,
 //   shows three cards; Save makes an outfit and "Wore this today" logs the
 //   items, with Undo, and the Undo toast leaves the last card's Save free;
+// - a card whose item was moved to running gear since badges it and offers
+//   neither Save nor "Wore this today" (D-250); the item is moved back after;
 // - Settings, Home city moves /today to Hamburg (and back).
 // A wardrobe of 17 items (the shared outfit fixtures, located in Bologna) is
 // inserted straight into wardrobe_e2e; it and everything made from it are
@@ -363,6 +365,57 @@ test("the Undo toast of a wear never covers the last card's Save at desktop or p
   }
   const lastIds = last.items.map((entry) => entry.itemId)
   await expect.poll(async () => (await db.select().from(wearLogs).where(inArray(wearLogs.itemId, lastIds))).length).toBe(0)
+})
+
+test("a stored suggestion whose item moved to running gear badges it and offers neither Save nor Wore this today", async ({
+  page,
+}) => {
+  const { result } = await insertTodaySuggestion()
+  // An item only one card uses, so the other cards stay available (D-250).
+  const uses = new Map<string, number>()
+  for (const outfit of result.outfits) {
+    for (const entry of outfit.items) uses.set(entry.itemId, (uses.get(entry.itemId) ?? 0) + 1)
+  }
+  const target = result.outfits.find((outfit) => outfit.items.some((entry) => uses.get(entry.itemId) === 1))
+  const movedId = target?.items.find((entry) => uses.get(entry.itemId) === 1)?.itemId
+  const movedName = wardrobe.find((item) => item.id === movedId)?.name
+  if (target === undefined || movedId === undefined || movedName === undefined || movedName === null) {
+    throw new Error("No item of the suggestion belongs to one card only")
+  }
+  const others = result.outfits.filter((outfit) => outfit !== target)
+
+  await signIn(page)
+  const card = page.getByRole("article", { name: target.title })
+  const save = card.getByRole("button", { name: `Save ${target.title}` })
+  const wore = card.getByRole("button", { name: `Wore this today (${target.title})` })
+  // Still clothing: the card can be saved and logged.
+  await expect(save).toBeEnabled()
+  await expect(wore).toBeEnabled()
+  await expect(card.getByText("Running gear", { exact: true })).toHaveCount(0)
+
+  await db.update(items).set({ collection: "running" }).where(eq(items.id, movedId))
+  try {
+    await page.reload()
+    const row = card
+      .getByRole("list", { name: `Items in ${target.title}` })
+      .getByRole("listitem")
+      .filter({ hasText: movedName })
+    await expect(row.getByText("Running gear", { exact: true })).toBeVisible()
+    await expect(card).toContainText(
+      "An item of this outfit was deleted, archived or moved to running gear, so it can no longer be saved or logged."
+    )
+    await expect(save).toBeDisabled()
+    await expect(wore).toBeDisabled()
+    // The other cards keep their items and both buttons.
+    for (const other of others) {
+      const otherCard = page.getByRole("article", { name: other.title })
+      await expect(otherCard.getByText("Running gear", { exact: true })).toHaveCount(0)
+      await expect(otherCard.getByRole("button", { name: `Save ${other.title}` })).toBeEnabled()
+      await expect(otherCard.getByRole("button", { name: `Wore this today (${other.title})` })).toBeEnabled()
+    }
+  } finally {
+    await db.update(items).set({ collection: "clothing" }).where(eq(items.id, movedId))
+  }
 })
 
 test("Settings, Home city moves today's weather to Hamburg and back", async ({ page }) => {

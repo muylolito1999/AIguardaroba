@@ -49,9 +49,18 @@ import { cn } from "@/lib/utils"
 import type { ColorOption } from "./color-options"
 import type { FiltersChange } from "./use-wardrobe-filters"
 
-/** The filters the panel owns; search, category and sort have their own controls and survive a reset. */
+/**
+ * The filters the panel owns; search, category and sort have their own
+ * controls and survive a reset, and so does the view (D-251).
+ */
 export function resetPanelFilters(current: ItemFilters): ItemFilters {
-  return { ...DEFAULT_ITEM_FILTERS, q: current.q, category: current.category, sort: current.sort }
+  return {
+    ...DEFAULT_ITEM_FILTERS,
+    collection: current.collection,
+    q: current.q,
+    category: current.category,
+    sort: current.sort,
+  }
 }
 
 function plural(count: number, one: string, many: string): string {

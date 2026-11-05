@@ -406,6 +406,21 @@ describe("listWardrobeItems", () => {
         expect(await mismatches(filters({ q: "boots" }))).toEqual([]);
         expect(await mismatches(filters({ waterproof: true, status: ["pending_tagging"] }))).toEqual([]);
       });
+
+      it("in the Running view, where the chips keep the view", async () => {
+        await tagged({ name: "Trail shoes", category: "shoes", collection: "running", waterproof: true });
+        await tagged({ name: "Race top", category: "top", collection: "running" });
+        await makeItem(testDb.db, { name: "Waiting run", collection: "running", createdAt: at() });
+        await tagged({ name: "Old vest", status: "archived", collection: "running" });
+        const running = filters({ collection: "running" });
+        expect(await mismatches(running)).toEqual([]);
+        expect(await mismatches(canon(applyChip(running, "untagged")))).toEqual([]);
+        expect(await mismatches(filters({ collection: "running", category: ["shoes"] }))).toEqual([]);
+        expect(await mismatches(filters({ collection: "running", status: ["archived"] }))).toEqual([]);
+        // Pressing a chip keeps the view.
+        expect(applyChip(running, "shoes").collection).toBe("running");
+        expect(applyChip(running, "untagged").collection).toBe("running");
+      });
     });
   });
 
@@ -463,6 +478,92 @@ describe("listWardrobeItems", () => {
       // The one colour on two items comes first; the rest are equally common.
       expect(names.slice(0, 3)).toEqual(["colour 27", "colour 00", "colour 01"]);
       expect(names.at(-1)).toBe("colour 22");
+    });
+  });
+
+  describe("collection (the Clothes | Running view, D-251)", () => {
+    beforeEach(async () => {
+      await tagged({ name: "Wool coat" });
+      await tagged({ name: "Leather boots", category: "shoes", colors: ["brown"], colorHex: ["#6b4423"] });
+      await makeItem(testDb.db, { name: "Waiting shirt", createdAt: at() });
+      await tagged({ name: "Archived scarf", category: "scarf", status: "archived" });
+      await tagged({
+        name: "Trail shoes",
+        category: "shoes",
+        collection: "running",
+        colors: ["neon yellow"],
+        colorHex: ["#e5ff00"],
+      });
+      await tagged({ name: "Running tights", category: "bottom", collection: "running", colors: ["black"] });
+      await makeItem(testDb.db, { name: "Waiting vest", collection: "running", createdAt: at() });
+      await tagged({ name: "Archived race top", category: "top", status: "archived", collection: "running" });
+      await tagged({ name: "Archived cap", category: "hat_beanie", status: "archived", collection: "running" });
+    });
+
+    it("lists only the view's items, the clothes by default", async () => {
+      await expectNames({}, ["Wool coat", "Leather boots", "Waiting shirt"]);
+      await expectNames({ collection: "clothing" }, ["Wool coat", "Leather boots", "Waiting shirt"]);
+      await expectNames({ collection: "running" }, ["Trail shoes", "Running tights", "Waiting vest"]);
+      // Search, filters and sort apply within the view.
+      await expectNames({ collection: "running", q: "shoes" }, ["Trail shoes"]);
+      await expectNames({ q: "shoes" }, []);
+      await expectNames({ collection: "running", category: ["shoes"] }, ["Trail shoes"]);
+      await expectNames({ category: ["shoes"] }, ["Leather boots"]);
+      const ordered = await listWardrobeItems(testDb.db, filters({ collection: "running", sort: "created_asc" }));
+      expect(ordered.items.map((item) => item.name)).toEqual(["Trail shoes", "Running tights", "Waiting vest"]);
+    });
+
+    it("keeps archived running gear hidden unless archived items are asked for", async () => {
+      await expectNames({ collection: "running", status: ["archived"] }, ["Archived race top", "Archived cap"]);
+      await expectNames({ status: ["archived"] }, ["Archived scarf"]);
+      const running = await listWardrobeItems(testDb.db, filters({ collection: "running" }));
+      expect(running.items.map((item) => item.name)).not.toContain("Archived race top");
+    });
+
+    it("counts the chips within the view", async () => {
+      const clothes = await listWardrobeItems(testDb.db, filters());
+      expect(clothes.counts).toMatchObject({ total: 3, untagged: 1, archived: 1, uncategorized: 1 });
+      expect(clothes.counts.byCategory).toMatchObject({
+        outerwear: 1,
+        shoes: 1,
+        bottom: 0,
+        top: 0,
+        hat_beanie: 0,
+        scarf: 0,
+      });
+      expect(clothes.total).toBe(3);
+
+      const running = await listWardrobeItems(testDb.db, filters({ collection: "running" }));
+      expect(running.counts).toMatchObject({ total: 3, untagged: 1, archived: 2, uncategorized: 1 });
+      expect(running.counts.byCategory).toMatchObject({
+        outerwear: 0,
+        shoes: 1,
+        bottom: 1,
+        top: 0,
+        hat_beanie: 0,
+        scarf: 0,
+      });
+      expect(running.total).toBe(3);
+
+      const runningArchived = await listWardrobeItems(
+        testDb.db,
+        filters({ collection: "running", status: ["archived"] }),
+      );
+      expect(runningArchived.counts.byCategory).toMatchObject({ top: 1, hat_beanie: 1, scarf: 0 });
+      expect(runningArchived.counts.total).toBe(2);
+    });
+
+    it("offers the view's colours only", async () => {
+      const clothes = await listWardrobeItems(testDb.db, filters());
+      expect(clothes.colors.map((option) => option.name).sort()).toEqual(["brown", "navy"]);
+      const running = await listWardrobeItems(testDb.db, filters({ collection: "running" }));
+      expect(running.colors.map((option) => option.name).sort()).toEqual(["black", "neon yellow"]);
+    });
+
+    it("counts a capped list's matches within the view", async () => {
+      const list = await listWardrobeItems(testDb.db, filters({ collection: "running" }), { limit: 1 });
+      expect(list).toMatchObject({ total: 3, capped: true });
+      expect(list.items.map((item) => item.name)).toEqual(["Waiting vest"]);
     });
   });
 

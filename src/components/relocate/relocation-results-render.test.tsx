@@ -61,6 +61,7 @@ function makeView(): RelocationViewDto {
         currentDecision: "undecided",
         status: "confirmed",
         location: "bologna",
+        collection: "clothing",
         exists: true,
       } satisfies RelocationItemRefDto,
     ])

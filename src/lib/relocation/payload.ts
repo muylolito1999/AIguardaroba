@@ -11,6 +11,7 @@ import {
   SEASONS,
   type Formality,
   type ItemCategory,
+  type ItemCollection,
   type ItemCondition,
   type ItemLocation,
   type ItemStatus,
@@ -45,6 +46,8 @@ export type SnapshotItemInput = {
   condition: ItemCondition | null;
   status: ItemStatus;
   location: ItemLocation;
+  /** Not part of the item line, so stored snapshot hashes stay valid (D-248). */
+  collection: ItemCollection;
   aiConfidence: Readonly<Record<string, number>> | null;
   userEditedFields: readonly string[];
 };
@@ -74,7 +77,13 @@ export type WardrobeSummary = {
   alreadyMoved: number;
 };
 
-export type SnapshotExclusions = { pending: number; archived: number; unconfirmed: number };
+export type SnapshotExclusions = {
+  pending: number;
+  archived: number;
+  unconfirmed: number;
+  /** Items outside the clothing collection (running gear), whatever their status (D-249). */
+  running: number;
+};
 
 export type RelocationSnapshot = {
   lines: SnapshotLine[];
@@ -325,15 +334,23 @@ function compareItems(a: SnapshotItemInput, b: SnapshotItemInput): number {
  * Builds the run's snapshot. Confirmed items are always included and tagged
  * ones only when includeOnlyConfirmed is false (their line says "tagged");
  * pending_tagging and archived items are always left out and counted (D-028).
+ * Only clothing is analysed: running gear is left out and counted first, so
+ * an archived or untagged running item counts once, as running (D-249). The
+ * collection is not part of a line, so clothing hashes are unchanged.
  * `destination` is the item location of the run's climate profile (D-170).
  */
 export function buildSnapshot(
   items: readonly SnapshotItemInput[],
   options: { includeOnlyConfirmed: boolean; destination: DestinationLocation | null },
 ): RelocationSnapshot {
-  const excluded: SnapshotExclusions = { pending: 0, archived: 0, unconfirmed: 0 };
+  const excluded: SnapshotExclusions = { pending: 0, archived: 0, unconfirmed: 0, running: 0 };
   const included: SnapshotItemInput[] = [];
   for (const item of items) {
+    // Positive form (D-248): anything that is not clothing stays out.
+    if (item.collection !== "clothing") {
+      excluded.running += 1;
+      continue;
+    }
     if (item.status === "pending_tagging") excluded.pending += 1;
     else if (item.status === "archived") excluded.archived += 1;
     else if (item.status === "tagged" && options.includeOnlyConfirmed) excluded.unconfirmed += 1;

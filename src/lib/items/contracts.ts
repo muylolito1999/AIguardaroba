@@ -9,6 +9,7 @@ import { z } from "zod";
 import {
   FORMALITIES,
   ITEM_CATEGORIES,
+  ITEM_COLLECTIONS,
   ITEM_CONDITIONS,
   ITEM_DECISIONS,
   ITEM_LOCATIONS,
@@ -16,6 +17,7 @@ import {
   SEASONS,
   type Formality,
   type ItemCategory,
+  type ItemCollection,
   type ItemCondition,
   type ItemDecision,
   type ItemLocation,
@@ -201,6 +203,8 @@ export const ItemPatchFieldsSchema = z.strictObject({
   purchase_date: z.iso.date().nullable().optional(),
   location: z.enum(ITEM_LOCATIONS).optional(),
   decision: z.enum(ITEM_DECISIONS).optional(),
+  /** Not a tag field, so user_edited_fields never tracks it (D-248). */
+  collection: z.enum(ITEM_COLLECTIONS).optional(),
 });
 
 /** A partial edit of an item. colors and color_hex must be sent together and match in length. */
@@ -243,6 +247,7 @@ export const ITEM_PATCH_FIELD_TO_COLUMN = {
   purchase_date: "purchaseDate",
   location: "location",
   decision: "decision",
+  collection: "collection",
 } as const satisfies Record<ItemPatchField, keyof NewItem>;
 
 export type ItemPatchColumns = Partial<
@@ -278,6 +283,7 @@ export function patchToItemColumns(patch: ItemPatch): ItemPatchColumns {
   if (patch.purchase_date !== undefined) columns.purchaseDate = patch.purchase_date;
   if (patch.location !== undefined) columns.location = patch.location;
   if (patch.decision !== undefined) columns.decision = patch.decision;
+  if (patch.collection !== undefined) columns.collection = patch.collection;
   return columns;
 }
 
@@ -360,6 +366,8 @@ export type ItemCardDto = {
   purchaseDate: string | null;
   location: ItemLocation;
   decision: ItemDecision;
+  /** Only "clothing" feeds outfits, the stats breakdowns and relocation (D-248). */
+  collection: ItemCollection;
   /** Per-field confidence from 0 to 1, keyed by the tagging confidence keys. */
   aiConfidence: Record<string, number> | null;
   multipleItemsDetected: boolean;
@@ -412,6 +420,8 @@ export const ItemCardDtoSchema: z.ZodType<ItemCardDto> = z.object({
   purchaseDate: z.string().nullable(),
   location: z.enum(ITEM_LOCATIONS),
   decision: z.enum(ITEM_DECISIONS),
+  // The default tolerates an older server, without the field, during a deploy.
+  collection: z.enum(ITEM_COLLECTIONS).default("clothing"),
   aiConfidence: z.record(z.string(), z.number()).nullable(),
   multipleItemsDetected: z.boolean(),
   userEditedFields: z.array(z.string()),
@@ -517,6 +527,9 @@ export const RegisterBodySchema = z.strictObject({
   pathname: blobPathname,
   sourceHash: SourceHashSchema,
   originalFilename: z.string().max(255),
+  // Stamped when the photo was queued on /add. A tab loaded before the field
+  // existed sends no key and registers clothing; an unknown value is rejected.
+  collection: z.enum(ITEM_COLLECTIONS).default("clothing"),
 });
 export type RegisterBody = z.infer<typeof RegisterBodySchema>;
 export type RegisterData = { duplicate: false; item: ItemCardDto } | { duplicate: true; existingItemId: string };

@@ -23,7 +23,9 @@ import {
 // status and category, the two fields the chips set, and are grouped by both,
 // so each badge can count what pressing its chip would list in any view. The
 // colour facet leaves out only the colour condition, so choosing a colour
-// never hides the other colours.
+// never hides the other colours. The collection (the Clothes | Running view,
+// D-251) is in every one of them, so each number on the page counts the
+// current view only.
 
 export type ListWardrobeOptions = {
   /** Most items returned; defaults to WARDROBE_LIST_LIMIT. Tests pass a small one to reach the cap. */
@@ -68,12 +70,15 @@ type FilterConditions = {
   category: SQL | null;
   /** Null when no colour is chosen. */
   color: SQL | null;
-  /** The conditions of every other field that is set. */
+  /** The view's collection, then the conditions of every other field that is set. */
   rest: SQL[];
 };
 
 function filterConditions(filters: ItemFilters): FilterConditions {
-  const rest: SQL[] = [];
+  // Always present: the list, the chip counts and the colour facet all keep to
+  // the current view (D-251). The status condition still applies on top, so
+  // archived running gear stays hidden by default too.
+  const rest: SQL[] = [eq(items.collection, filters.collection)];
   if (filters.q !== "") rest.push(searchCondition(filters.q));
   if (filters.season.length > 0) rest.push(arrayOverlaps(items.seasons, filters.season));
   // Inclusive bounds; a null warmth fails both comparisons, so untagged items drop out.

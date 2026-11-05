@@ -7,7 +7,7 @@
 
 import { z } from "zod"
 
-import { ITEM_CATEGORIES, ITEM_STATUSES, OUTFIT_SLOTS } from "@/lib/db/enums"
+import { ITEM_CATEGORIES, ITEM_COLLECTIONS, ITEM_STATUSES, OUTFIT_SLOTS } from "@/lib/db/enums"
 import type { OutfitItemDto } from "@/lib/outfits/contracts"
 import { OUTFIT_SUGGESTION_COUNT } from "@/lib/outfits/suggestion-result"
 import { WeatherSnapshotSchema, type WeatherSnapshot } from "@/lib/weather/open-meteo"
@@ -21,7 +21,11 @@ export type SuggestedOutfitDto = {
   rainOk: boolean
   /** In SLOT_ORDER. An item deleted since has exists false. */
   items: OutfitItemDto[]
-  /** Every item still exists and is not archived, so Save and "Wore this today" can work. */
+  /**
+   * No item has an outfitItemProblem (deleted, archived or moved to running
+   * gear, D-250), so Save and "Wore this today" can work. The cards badge
+   * items with the same helper, so a badge and this flag always agree.
+   */
   available: boolean
   /** The outfit Save created from this one, while it exists. */
   savedOutfitId: string | null
@@ -109,6 +113,8 @@ const OutfitItemSchema: z.ZodType<OutfitItemDto> = z.object({
   category: z.enum(ITEM_CATEGORIES).nullable(),
   thumbUrl: z.string().nullable(),
   status: z.enum(ITEM_STATUSES).nullable(),
+  // An older server omits it during a deploy; null reads as clothing.
+  collection: z.enum(ITEM_COLLECTIONS).nullable().default(null),
   wearCount: z.number().int(),
   exists: z.boolean(),
 })

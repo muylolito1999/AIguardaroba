@@ -44,6 +44,7 @@ function makeView(overrides: Partial<RelocationViewDto> = {}): RelocationViewDto
         currentDecision: id === FIFTH ? "sell" : "undecided",
         status: "confirmed",
         location: "bologna",
+        collection: "clothing",
         exists: true,
       } satisfies RelocationItemRefDto,
     ])
@@ -250,6 +251,31 @@ describe("RelocationResults", () => {
     expect(screen.queryByRole("link", { name: "Old raincoat" })).toBeNull()
     // Four undecided items left that can change: 3, 4 and 6 (5 is the owner's Sell).
     expect(screen.getByRole("button", { name: "Apply AI decisions to 3 undecided items" })).toBeTruthy()
+  })
+
+  it("counts only clothing for Apply AI decisions, as the server applies them (D-249)", async () => {
+    // The second item was moved to running gear before the page was read.
+    const view = makeView()
+    view.items[SECOND] = { ...view.items[SECOND]!, collection: "running" }
+    const applyAiDecisionsToUndecided = vi.fn<ApplyAiDecisionsAction>(async () =>
+      ok({ updated: 4, itemIds: ITEM_IDS.filter((id) => id !== SECOND && id !== FIFTH) })
+    )
+    render(<RelocationResults view={view} actions={actions({ applyAiDecisionsToUndecided })} />)
+
+    // 1, 3, 4 and 6: not the running item, not the owner's Sell.
+    fireEvent.click(screen.getByRole("button", { name: "Apply AI decisions to 4 undecided items" }))
+    const dialog = await screen.findByRole("alertdialog")
+    fireEvent.click(within(dialog).getByRole("button", { name: "Apply" }))
+    await flush()
+    await waitFor(() => expect(screen.queryByRole("alertdialog")).toBeNull())
+    expect(toastAdd).toHaveBeenCalledWith(expect.objectContaining({ title: "Applied 4 AI decisions", type: "success" }))
+
+    // Only the running item is undecided now, and Apply would write nothing to it.
+    const done = screen.getByRole("button", { name: "No undecided items left" })
+    expect(done.getAttribute("aria-disabled")).toBe("true")
+    expect(pressed(decisionGroup("Item 2"), "Undecided")).toBe("true")
+    // The owner can still decide it by hand.
+    expect(within(decisionGroup("Item 2")).getByRole("button", { name: "Leave" })).toBeTruthy()
   })
 
   it("applies AI decisions to undecided items after a confirmation, leaving the owner's own alone", async () => {

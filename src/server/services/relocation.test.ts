@@ -296,6 +296,27 @@ describe("estimateRelocation", () => {
     expect(withTagged).toMatchObject({ itemCount: 4, excluded: { pending: 1, archived: 1, unconfirmed: 0 } });
   });
 
+  it("leaves running gear out of the estimate and the run, counted once as running (D-249)", async () => {
+    const clothing = await insertItems(2);
+    await insertItems(4, (index) => ({
+      collection: "running",
+      status: (["confirmed", "tagged", "pending_tagging", "archived"] as const)[index] ?? "confirmed",
+    }));
+
+    for (const includeOnlyConfirmed of [true, false]) {
+      const estimate = await service.estimateRelocation(testDb.db, params({ includeOnlyConfirmed }));
+      expect(estimate).toMatchObject({
+        itemCount: 2,
+        excluded: { pending: 0, archived: 0, unconfirmed: 0, running: 4 },
+      });
+    }
+
+    const snapshot = await snapshotOf(await start({ includeOnlyConfirmed: false }));
+    const clothingIds = clothing.map((item) => item.id).sort();
+    expect(snapshot.lines.map((line) => line.itemId).sort()).toEqual(clothingIds);
+    expect(Object.keys(snapshot.names).sort()).toEqual(clothingIds);
+  });
+
   it("flags a placeholder profile and a spent budget", async () => {
     await insertItems(2);
     await spendWholeBudget();
@@ -418,6 +439,40 @@ describe("startRelocation", () => {
       params({ climateProfileId: bologna.id, acceptPlaceholder: true }),
     );
     expect(accepted.kind).toBe("started");
+  });
+
+  it("says when only running gear stands in the way, keeping no_items and the other messages (D-249)", async () => {
+    const onlyRunning =
+      "Only running gear is in the wardrobe, which the analysis leaves out. Add or confirm some clothes first.";
+    await insertItems(3, (index) => ({
+      collection: "running",
+      status: (["confirmed", "tagged", "archived"] as const)[index] ?? "confirmed",
+    }));
+    for (const includeOnlyConfirmed of [true, false]) {
+      await expect(service.startRelocation(testDb.db, params({ includeOnlyConfirmed }))).rejects.toMatchObject({
+        code: "VALIDATION",
+        message: onlyRunning,
+        details: { reason: "no_items", excluded: { pending: 0, archived: 0, unconfirmed: 0, running: 3 } },
+      });
+    }
+
+    // A tagged clothing item: confirming it or including tagged items would help.
+    const [clothing] = await insertItems(1, () => ({ status: "tagged" }));
+    if (clothing === undefined) throw new Error("no item");
+    await expect(service.startRelocation(testDb.db, params({ includeOnlyConfirmed: true }))).rejects.toMatchObject({
+      code: "VALIDATION",
+      message: "There are no confirmed items to analyse. Confirm some tagged items first, or include unconfirmed ones.",
+      details: { reason: "no_items", excluded: { pending: 0, archived: 0, unconfirmed: 1, running: 3 } },
+    });
+
+    // A clothing item waiting for tags, with tagged items included.
+    await testDb.db.update(items).set({ status: "pending_tagging" }).where(eq(items.id, clothing.id));
+    await expect(service.startRelocation(testDb.db, params({ includeOnlyConfirmed: false }))).rejects.toMatchObject({
+      code: "VALIDATION",
+      message: "There are no tagged items to analyse. Add and tag some items first.",
+      details: { reason: "no_items", excluded: { pending: 1, archived: 0, unconfirmed: 0, running: 3 } },
+    });
+    expect(await tableCount(analyses)).toBe(0);
   });
 
   it("is blocked by the budget without a call or a write", async () => {
@@ -1027,6 +1082,7 @@ describe("runRelocationPart: synthesis", () => {
       exists: false,
       status: null,
       location: null,
+      collection: null,
       name: gone.name,
       thumb: null,
       currentDecision: "undecided",
@@ -1129,6 +1185,23 @@ describe("loadRelocationView", () => {
     const after = await service.loadRelocationView(testDb.db, analysisId);
     expect(after.addedGapKeys).toEqual([view.result.gaps[0]?.gap_key]);
   });
+
+  it("carries each item's collection now: running for one moved since the run, null for a deleted one (D-249)", async () => {
+    const rows = await insertItems(4);
+    const analysisId = await start();
+    await runAll(analysisId);
+    const [moved, gone, ...kept] = rows;
+    if (moved === undefined || gone === undefined) throw new Error("no items");
+    await testDb.db.update(items).set({ collection: "running" }).where(eq(items.id, moved.id));
+    await testDb.db.delete(items).where(eq(items.id, gone.id));
+
+    const view = await service.loadRelocationView(testDb.db, analysisId);
+
+    expect(view.items[moved.id]).toMatchObject({ exists: true, collection: "running" });
+    expect(view.items[gone.id]).toMatchObject({ exists: false, collection: null });
+    expect(kept).toHaveLength(2);
+    for (const item of kept) expect(view.items[item.id]).toMatchObject({ exists: true, collection: "clothing" });
+  });
 });
 
 describe("listRelocationAnalyses", () => {
@@ -1191,6 +1264,56 @@ describe("applyAiDecisionsToUndecided", () => {
     }
 
     expect(await service.applyAiDecisionsToUndecided(testDb.db, analysisId)).toEqual({ updated: 0, itemIds: [] });
+  });
+
+  it("leaves an item moved to running gear after the run undecided (D-249)", async () => {
+    const rows = await insertItems(4);
+    const analysisId = await start();
+    await runAll(analysisId);
+    const [moved] = rows;
+    if (moved === undefined) throw new Error("no items");
+    await testDb.db.update(items).set({ collection: "running" }).where(eq(items.id, moved.id));
+
+    const applied = await service.applyAiDecisionsToUndecided(testDb.db, analysisId);
+
+    expect(applied.updated).toBe(3);
+    expect(new Set(applied.itemIds)).toEqual(new Set(rows.slice(1).map((item) => item.id)));
+    const view = await service.loadRelocationView(testDb.db, analysisId);
+    expect(view.result.items.find((entry) => entry.item_id === moved.id)?.decision).toEqual(expect.any(String));
+    expect(view.items[moved.id]?.currentDecision).toBe("undecided");
+    for (const item of rows.slice(1)) {
+      const decided = view.result.items.find((entry) => entry.item_id === item.id)?.decision;
+      expect(view.items[item.id]?.currentDecision).toBe(decided);
+    }
+  });
+
+  it("locks with exactly the predicate it updates with, running gear left out of both (D-166, D-249)", async () => {
+    await insertItems(5);
+    const analysisId = await start();
+    await runAll(analysisId);
+    const queries: string[] = [];
+    const logged = drizzle({
+      client: testDb.client,
+      relations,
+      logger: { logQuery: (query) => void queries.push(query) },
+    });
+
+    await service.applyAiDecisionsToUndecided(logged, analysisId);
+
+    // Placeholders are numbered per query and the id lists differ in length; the rest must match.
+    const normalise = (where: string) => where.replace(/\$\d+/g, "$").replace(/in \(\$(?:, \$)*\)/g, "in ($…)");
+    const lockWheres = queries.flatMap((query) => {
+      const match = /^select .* from "items" where (.*) order by "items"\."id" asc for no key update$/.exec(query);
+      return match?.[1] === undefined ? [] : [normalise(match[1])];
+    });
+    const updateWheres = queries.flatMap((query) => {
+      const match = /^update "items" set .*? where (.*) returning "id"$/.exec(query);
+      return match?.[1] === undefined ? [] : [normalise(match[1])];
+    });
+    expect(lockWheres).toHaveLength(1);
+    expect(updateWheres.length).toBeGreaterThan(0);
+    for (const where of updateWheres) expect(where).toBe(lockWheres[0]);
+    expect(lockWheres[0]).toContain('"items"."collection" = $');
   });
 
   it("refuses an unfinished run", async () => {

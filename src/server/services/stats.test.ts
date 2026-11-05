@@ -39,7 +39,7 @@ describe("getWardrobeStats", () => {
     const stats = await getWardrobeStats(testDb.db);
 
     expect(requireSession).toHaveBeenCalledTimes(1);
-    expect(stats.totals).toEqual({ all: 0, confirmed: 0, tagged: 0, pending: 0, archived: 0 });
+    expect(stats.totals).toEqual({ all: 0, confirmed: 0, tagged: 0, pending: 0, archived: 0, running: 0 });
     expect(Object.keys(stats.byCategory)).toEqual([...ITEM_CATEGORIES]);
     expect(Object.values(stats.byCategory).every((count) => count === 0)).toBe(true);
     expect(stats.warmth).toEqual({ 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 });
@@ -100,13 +100,89 @@ describe("getWardrobeStats", () => {
 
     const stats = await getWardrobeStats(db);
 
-    expect(stats.totals).toEqual({ all: 5, confirmed: 2, tagged: 1, pending: 2, archived: 1 });
+    expect(stats.totals).toEqual({ all: 5, confirmed: 2, tagged: 1, pending: 2, archived: 1, running: 0 });
     expect(stats.byCategory).toMatchObject({ outerwear: 2, scarf: 1, shoes: 0, top: 0 });
     expect(Object.values(stats.byCategory).reduce((sum, count) => sum + count, 0)).toBe(3);
     expect(stats.warmth).toEqual({ 1: 0, 2: 0, 3: 1, 4: 1, 5: 1 });
     expect(stats.flags).toEqual({ waterproof: 1, windproof: 2, insulated: 2 });
     expect(stats.byDecision).toEqual({ bring: 2, leave: 0, donate: 1, sell: 1, undecided: 1 });
     expect(stats.byLocation).toEqual({ bologna: 3, hamburg: 1, in_transit: 1, unknown: 0 });
+  });
+
+  it("counts running gear in its own tile only, and archived running gear as archived (D-249)", async () => {
+    const { db } = testDb;
+    // One piece of clothing, so the breakdowns have something to compare against.
+    await makeTaggedItem(db, {
+      status: "confirmed",
+      category: "top",
+      warmthLevel: 2,
+      waterproof: false,
+      windproof: false,
+      insulated: false,
+      decision: "bring",
+      location: "bologna",
+    });
+    // Running gear in every status, with tags and choices the clothing does not have.
+    await makeTaggedItem(db, {
+      collection: "running",
+      status: "confirmed",
+      category: "shoes",
+      warmthLevel: 1,
+      waterproof: true,
+      windproof: true,
+      insulated: true,
+      decision: "sell",
+      location: "hamburg",
+    });
+    await makeTaggedItem(db, {
+      collection: "running",
+      status: "tagged",
+      category: "gloves",
+      warmthLevel: 3,
+      waterproof: true,
+      windproof: true,
+      insulated: true,
+      decision: "leave",
+      location: "unknown",
+    });
+    await makeItem(db, { collection: "running", decision: "donate", location: "in_transit" });
+    // Archived running gear counts as archived, not as running gear.
+    await makeTaggedItem(db, { collection: "running", status: "archived", category: "top", decision: "undecided" });
+
+    const stats = await getWardrobeStats(db);
+
+    expect(stats.totals).toEqual({ all: 1, confirmed: 1, tagged: 0, pending: 0, archived: 1, running: 3 });
+    expect(stats.byCategory).toMatchObject({ top: 1, shoes: 0, gloves: 0 });
+    expect(Object.values(stats.byCategory).reduce((sum, count) => sum + count, 0)).toBe(1);
+    expect(stats.warmth).toEqual({ 1: 0, 2: 1, 3: 0, 4: 0, 5: 0 });
+    expect(stats.flags).toEqual({ waterproof: 0, windproof: 0, insulated: 0 });
+    expect(stats.byDecision).toEqual({ bring: 1, leave: 0, donate: 0, sell: 0, undecided: 0 });
+    expect(stats.byLocation).toEqual({ bologna: 1, hamburg: 0, in_transit: 0, unknown: 0 });
+  });
+
+  it("keeps running gear in the winter checklist (D-249)", async () => {
+    const { db } = testDb;
+    const gloves = await makeTaggedItem(db, {
+      collection: "running",
+      name: "Running gloves",
+      category: "gloves",
+      windproof: true,
+      decision: "bring",
+    });
+    const beanie = await makeTaggedItem(db, {
+      collection: "running",
+      name: "Running beanie",
+      status: "confirmed",
+      category: "hat_beanie",
+      warmthLevel: 3,
+    });
+
+    const stats = await getWardrobeStats(db);
+    const byKey = Object.fromEntries(stats.winterReadiness.map((row) => [row.key, row]));
+
+    expect(stats.totals).toMatchObject({ all: 0, running: 2 });
+    expect(byKey.windproof_gloves).toMatchObject({ satisfied: true, evidenceIds: [gloves.id] });
+    expect(byKey.warm_beanie).toMatchObject({ satisfied: true, evidenceIds: [beanie.id] });
   });
 
   it("adds up items that share every grouped column", async () => {

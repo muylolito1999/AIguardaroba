@@ -8,9 +8,27 @@
 // at the first page load. TypeScript's DOM types do not include
 // window.navigation yet, so a structural type stands in. Where the API is
 // missing, nothing is returned and the caller keeps its plain link.
+//
+// The plain link, and the page shown after a delete, open the view of the
+// item's own collection (D-251): a running gear item is not listed in the
+// Clothes view.
+
+import type { Route } from "next"
+
+import { wardrobeHref } from "@/components/wardrobe/use-wardrobe-filters"
+import type { ItemCollection } from "@/lib/db/enums"
+import { DEFAULT_ITEM_FILTERS } from "@/lib/items/filters"
 
 /** The pathname of the wardrobe list. */
 export const WARDROBE_LIST_PATH = "/wardrobe"
+
+/**
+ * The unfiltered wardrobe list in the view of this collection (D-251): plain
+ * /wardrobe for clothing, /wardrobe?collection=running for running gear.
+ */
+export function wardrobeListHref(collection: ItemCollection): Route {
+  return wardrobeHref({ ...DEFAULT_ITEM_FILTERS, collection })
+}
 
 /** The part of the Navigation API used here. */
 export type NavigationLike = {

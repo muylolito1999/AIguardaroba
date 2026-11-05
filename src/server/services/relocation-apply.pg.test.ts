@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 
-import { and, count, eq, inArray } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
@@ -26,7 +26,8 @@ import { applyAiDecisionsToUndecided } from "./relocation";
 //     pnpm exec vitest run src/server/services/relocation-apply.pg.test.ts
 //
 // It only touches its own rows (300 items named after a random prefix and two
-// analyses) and deletes them afterwards.
+// analyses) and deletes them afterwards. The last item has moved to running
+// gear since the runs, so both applies must leave it undecided (D-249).
 
 const requireSession = vi.hoisted(() => vi.fn());
 vi.mock("@/lib/auth/dal", () => ({ requireSession }));
@@ -50,6 +51,7 @@ describe.skipIf(!url)("applyAiDecisionsToUndecided on real Postgres", () => {
   let db: Db;
   const prefix = `pg-apply-${randomUUID()}`;
   let itemIds: string[] = [];
+  let runningId = "";
   const analysisIds: string[] = [];
 
   beforeAll(async () => {
@@ -62,12 +64,14 @@ describe.skipIf(!url)("applyAiDecisionsToUndecided on real Postgres", () => {
         Array.from({ length: ITEMS }, (_, index) => ({
           ...TAGGED_ITEM_FIELDS,
           status: "confirmed" as const,
+          collection: index === ITEMS - 1 ? ("running" as const) : ("clothing" as const),
           name: `${prefix} ${index}`,
           imageHash: `${randomUUID()}${randomUUID()}`.replaceAll("-", "").slice(0, 64),
         })),
       )
       .returning({ id: items.id });
     itemIds = inserted.map((row) => row.id);
+    runningId = itemIds[ITEMS - 1] ?? "";
 
     const half = ITEMS / 2;
     const decided = (ids: readonly string[], first: RelocationDecision, second: RelocationDecision) =>
@@ -116,11 +120,15 @@ describe.skipIf(!url)("applyAiDecisionsToUndecided on real Postgres", () => {
 
       const failures = outcomes.flatMap((outcome) => (outcome.status === "rejected" ? [driverError(outcome.reason)] : []));
       expect(failures.join("; "), `round ${round}`).toBe("");
-      const [left] = await db
-        .select({ n: count() })
+      // Every clothing item got a decision; the running one kept none (D-249).
+      const left = await db
+        .select({ id: items.id })
         .from(items)
         .where(and(inArray(items.id, itemIds), eq(items.decision, "undecided")));
-      expect(left?.n, `round ${round}`).toBe(0);
+      expect(
+        left.map((row) => row.id),
+        `round ${round}`,
+      ).toEqual([runningId]);
     }
   }, 120_000);
 });

@@ -110,6 +110,20 @@ describe("DangerZone", () => {
     expect(toastAdd).toHaveBeenCalledWith(expect.objectContaining({ title: "Item deleted", type: "success" }))
   })
 
+  // D-251: the Clothes view does not list running gear.
+  it("replaces the page with the Running gear view after deleting running gear", async () => {
+    const deleteItem = vi.fn<DeleteItemAction>().mockResolvedValue(ok({ deleted: true }))
+    const item: ItemDetailDto = { ...detail("confirmed"), collection: "running" }
+    render(<Harness initial={item} actions={{ archiveItem: vi.fn(), unarchiveItem: vi.fn(), deleteItem }} />)
+
+    const dialog = await openDeleteDialog()
+    fireEvent.click(within(dialog).getByRole("button", { name: "Delete" }))
+
+    await waitFor(() => expect(router.replace).toHaveBeenCalledTimes(1))
+    expect(router.replace).toHaveBeenCalledWith("/wardrobe?collection=running")
+    expect(deleteItem).toHaveBeenCalledWith({ id: item.id })
+  })
+
   it("keeps the dialog open with the reason when the delete fails, and stays on the page", async () => {
     const { deleteItem } = setup()
     let settle: (result: Result<{ deleted: true }>) => void = () => undefined

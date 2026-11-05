@@ -3,7 +3,7 @@
 import Link from "next/link"
 import { Check, CloudRain, FolderOpen, Loader2, Save, Shirt } from "lucide-react"
 
-import { formatTimesWorn } from "@/components/outfits/format"
+import { formatTimesWorn, itemProblemLabel } from "@/components/outfits/format"
 import { ItemThumb } from "@/components/outfits/outfit-thumbs"
 import { Badge } from "@/components/ui/badge"
 import { Button, buttonVariants } from "@/components/ui/button"
@@ -24,17 +24,11 @@ export type SuggestionCardProps = {
   onWore: () => void
 }
 
-/** Why an item cannot be used now, or null. */
-function itemProblem(item: SuggestedOutfitDto["items"][number]): string | null {
-  if (!item.exists) return "Deleted"
-  if (item.status === "archived") return "Archived"
-  return null
-}
-
 /**
  * One suggested outfit: its items with their slots, Claude's reason, whether
  * it keeps the owner dry, and Save and "Wore this today". An outfit whose
- * item was deleted or archived since offers neither.
+ * item was deleted, archived or moved to running gear since offers neither
+ * (D-250); that item carries a badge saying which.
  */
 export function SuggestionCard({
   outfit,
@@ -68,7 +62,7 @@ export function SuggestionCard({
 
       <ul aria-label={`Items in ${outfit.title}`} className="flex flex-col gap-2">
         {outfit.items.map((item) => {
-          const problem = itemProblem(item)
+          const problem = itemProblemLabel(item)
           return (
             <li key={item.itemId} className="flex min-w-0 items-center gap-3">
               <ItemThumb url={item.thumbUrl} alt="" className="size-12" />
@@ -91,7 +85,7 @@ export function SuggestionCard({
 
       {outfit.available ? null : (
         <p className="text-sm text-destructive-strong">
-          An item of this outfit was deleted or archived, so it can no longer be saved or logged.
+          An item of this outfit was deleted, archived or moved to running gear, so it can no longer be saved or logged.
         </p>
       )}
 

@@ -23,37 +23,45 @@ import {
 } from "@/lib/items/winter-readiness";
 
 // The numbers behind /stats (spec section 3, Phase 4). Archived items are left
-// out of everything except their own count. Numbers read from tags (category,
+// out of everything except their own count. Running gear, and any collection
+// other than clothing, is counted in its own tile only (D-249); the
+// winter-readiness checklist still counts it, since running gloves or a beanie
+// keep the owner warm in Hamburg too. Numbers read from tags (category,
 // warmth, weather flags, winter readiness) use tagged and confirmed items
 // only, since a pending item has no tags yet; decision and location are the
 // owner's own choices, set from the start, so those breakdowns include
 // pending items too.
 
 export type StatsTotals = {
-  /** Every item that is not archived: confirmed + tagged + pending. */
+  /** Every clothing item that is not archived: confirmed + tagged + pending. */
   all: number;
   confirmed: number;
   /** Tagged by Claude or by hand, not yet confirmed. */
   tagged: number;
   /** Waiting for tags; counted in `all` but in no tag-based number. */
   pending: number;
-  /** Counted here only. */
+  /** Counted here only, whatever the collection. */
   archived: number;
+  /** Non-archived items outside the clothing collection (D-249); counted here only. */
+  running: number;
 };
 
 export type WardrobeStatsDto = {
   totals: StatsTotals;
-  /** Tagged and confirmed items per category; every category is present, zeros included. */
+  /** Tagged and confirmed clothing items per category; every category is present, zeros included. */
   byCategory: Record<ItemCategory, number>;
-  /** Tagged and confirmed items per warmth level 1 to 5. */
+  /** Tagged and confirmed clothing items per warmth level 1 to 5. */
   warmth: Record<WarmthLevel, number>;
-  /** Tagged and confirmed items with each weather flag set to true. */
+  /** Tagged and confirmed clothing items with each weather flag set to true. */
   flags: { waterproof: number; windproof: number; insulated: number };
-  /** Every non-archived item, pending included, per decision. */
+  /** Every non-archived clothing item, pending included, per decision. */
   byDecision: Record<ItemDecision, number>;
-  /** Every non-archived item, pending included, per location. */
+  /** Every non-archived clothing item, pending included, per location. */
   byLocation: Record<ItemLocation, number>;
-  /** The winter-ready checklist, from tagged and confirmed items not marked leave, donate or sell. */
+  /**
+   * The winter-ready checklist, from tagged and confirmed items not marked
+   * leave, donate or sell, running gear included (D-249).
+   */
   winterReadiness: WinterReadinessRow[];
 };
 
@@ -78,6 +86,7 @@ export async function getWardrobeStats(db: Db): Promise<WardrobeStatsDto> {
     db
       .select({
         status: items.status,
+        collection: items.collection,
         category: items.category,
         warmthLevel: items.warmthLevel,
         waterproof: items.waterproof,
@@ -90,6 +99,7 @@ export async function getWardrobeStats(db: Db): Promise<WardrobeStatsDto> {
       .from(items)
       .groupBy(
         items.status,
+        items.collection,
         items.category,
         items.warmthLevel,
         items.waterproof,
@@ -100,7 +110,8 @@ export async function getWardrobeStats(db: Db): Promise<WardrobeStatsDto> {
       ),
     // The rules need per-item fields (materials, names), so the candidates are
     // read row by row; the filters mirror computeWinterReadiness, which checks
-    // status and decision again itself.
+    // status and decision again itself. No collection filter: the checklist
+    // counts running gear too (D-249).
     db
       .select({
         id: items.id,
@@ -127,7 +138,7 @@ export async function getWardrobeStats(db: Db): Promise<WardrobeStatsDto> {
       .orderBy(desc(items.createdAt), desc(items.id)),
   ]);
 
-  const totals: StatsTotals = { all: 0, confirmed: 0, tagged: 0, pending: 0, archived: 0 };
+  const totals: StatsTotals = { all: 0, confirmed: 0, tagged: 0, pending: 0, archived: 0, running: 0 };
   const byCategory = zeroCounts(ITEM_CATEGORIES);
   const warmth = zeroCounts(WARMTH_LEVELS);
   const flags = { waterproof: 0, windproof: 0, insulated: 0 };
@@ -138,6 +149,12 @@ export async function getWardrobeStats(db: Db): Promise<WardrobeStatsDto> {
     const { count } = group;
     if (group.status === "archived") {
       totals.archived += count;
+      continue;
+    }
+    // Positive form (D-248): only clothing feeds the breakdowns below, so a
+    // collection added later lands in its own tile instead of the clothes'.
+    if (group.collection !== "clothing") {
+      totals.running += count;
       continue;
     }
     totals.all += count;

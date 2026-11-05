@@ -3,6 +3,8 @@
 import { CircleAlert, CircleCheck, CopyCheck, ImageIcon, LoaderCircle, RotateCcw, X } from "lucide-react"
 import Image from "next/image"
 
+import { COLLECTION_LABELS } from "@/components/items/tag-options"
+import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Progress } from "@/components/ui/progress"
 import { cn } from "@/lib/utils"
@@ -94,9 +96,15 @@ function QueueRow({ entry, taggingBlocked, onRetryUpload, onRetryTag, onRemove }
       </div>
 
       <div className="col-start-2 row-start-1 flex min-w-0 flex-col gap-1">
-        <p className="truncate text-sm font-medium" title={entry.fileName}>
-          {title}
-        </p>
+        <div className="flex min-w-0 items-center gap-2">
+          <p className="min-w-0 truncate text-sm font-medium" title={entry.fileName}>
+            {title}
+          </p>
+          {/* The stamp this photo was queued with (D-252); clothing, the default, shows none. */}
+          {entry.collection !== "clothing" ? (
+            <Badge variant="outline">{COLLECTION_LABELS[entry.collection]}</Badge>
+          ) : null}
+        </div>
         <p
           className={cn(
             "flex items-start gap-1.5 text-sm",

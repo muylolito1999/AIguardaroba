@@ -220,14 +220,34 @@ describe("buildSnapshot", () => {
     ];
     const confirmedOnly = buildSnapshot(items, CONFIRMED);
     expect(confirmedOnly.lines).toHaveLength(1);
-    expect(confirmedOnly.excluded).toEqual({ pending: 1, archived: 2, unconfirmed: 2 });
+    expect(confirmedOnly.excluded).toEqual({ pending: 1, archived: 2, unconfirmed: 2, running: 0 });
 
     const withTagged = buildSnapshot(items, ALL);
     expect(withTagged.lines).toHaveLength(3);
-    expect(withTagged.excluded).toEqual({ pending: 1, archived: 2, unconfirmed: 0 });
+    expect(withTagged.excluded).toEqual({ pending: 1, archived: 2, unconfirmed: 0, running: 0 });
     expect(withTagged.lines.filter((line) => line.text.includes("|tagged|"))).toHaveLength(2);
     expect(withTagged.summary.unconfirmed).toBe(2);
     expect(withTagged.summaryText).toContain("Not yet confirmed by the owner: 2.");
+  });
+
+  it("leaves running gear out and counts it once, as running, whatever its status (D-249)", () => {
+    const coat = parka({ name: "Wool coat" });
+    const items = [
+      coat,
+      parka({ collection: "running", name: "Trail shoes" }),
+      parka({ collection: "running", status: "tagged" }),
+      parka({ collection: "running", status: "pending_tagging" }),
+      parka({ collection: "running", status: "archived" }),
+    ];
+    for (const options of [CONFIRMED, ALL]) {
+      const snapshot = buildSnapshot(items, options);
+      expect(snapshot.lines.map((line) => line.itemId)).toEqual([coat.id]);
+      expect(Object.values(snapshot.aliasMap)).toEqual([coat.id]);
+      expect(snapshot.excluded).toEqual({ pending: 0, archived: 0, unconfirmed: 0, running: 4 });
+      expect(snapshot.summary.itemCount).toBe(1);
+      expect(snapshot.summaryText).toContain("Items in this analysis: 1.");
+      expect(snapshot.lines.some((line) => line.text.includes("Trail shoes"))).toBe(false);
+    }
   });
 
   it("summarises the included items, zero categories included", () => {
@@ -336,6 +356,18 @@ describe("snapshotHash", () => {
   it("changes when an item is added or excluded", () => {
     expect(hashOf([...items, parka()])).not.toBe(reference);
     expect(hashOf(items.slice(1))).not.toBe(reference);
+    // Moving an item to running gear drops it, as if it were gone (D-249).
+    const moved = items.map((item, index) => (index === 0 ? { ...item, collection: "running" as const } : item));
+    expect(hashOf(moved)).toBe(hashOf(items.slice(1)));
+  });
+
+  it("keeps the hash a clothing-only wardrobe had before running gear existed (D-249)", () => {
+    // Pinned from the code before the collection column: stored runs and cache keys stay valid.
+    expect(reference).toBe("d2e35ce2416f28d465e798b4ffcdf0a971573d8117a1966cdde74217b566dae8");
+    // Running gear never reaches a line, so adding some changes nothing.
+    const running = [parka({ collection: "running" }), parka({ collection: "running", status: "archived" })];
+    expect(hashOf([...items, ...running])).toBe(reference);
+    expect(hashOf([...items, ...running], ALL)).toBe(hashOf(items, ALL));
   });
 });
 

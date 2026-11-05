@@ -22,13 +22,18 @@ export function GridSkeletonTiles({ count = 12 }: { count?: number }) {
   )
 }
 
-/** The /wardrobe Suspense fallback: toolbar, chip row and tiles, the same heights as the real ones. */
+/**
+ * The /wardrobe Suspense fallback: the Clothes | Running switch, toolbar, chip
+ * row and tiles, the same heights as the real ones.
+ */
 export function WardrobeSkeleton() {
   return (
     <div className="flex flex-col gap-4" aria-busy="true">
       <p className="sr-only" role="status">
         Loading your wardrobe…
       </p>
+      {/* The switch: two min-w-32 halves from sm up, the full width on a phone. */}
+      <Skeleton className="h-11 w-full sm:w-64" />
       <div className="flex flex-col gap-2 md:flex-row">
         <Skeleton className="h-11 w-full md:flex-1" />
         <div className="flex gap-2">

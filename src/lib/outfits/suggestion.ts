@@ -17,6 +17,7 @@ import type { PricedModelId } from "@/lib/ai/models";
 import {
   OUTFIT_SLOTS,
   type ItemCategory,
+  type ItemCollection,
   type ItemDecision,
   type ItemLocation,
   type ItemStatus,
@@ -74,16 +75,20 @@ export type EligibilityFields = {
   location: ItemLocation;
   decision: ItemDecision;
   category: ItemCategory | null;
+  collection: ItemCollection;
 };
 
 /**
- * Whether Claude may put an item in today's outfits: tagged or confirmed
- * (never pending or archived), at home or of unknown location, not on its way
- * out (donate or sell), and of a category some slot takes (not null, not
- * "other", which no outfit can hold).
+ * Whether Claude may put an item in today's outfits: clothing (running gear
+ * and any later collection are left out, D-249), tagged or confirmed (never
+ * pending or archived), at home or of unknown location, not on its way out
+ * (donate or sell), and of a category some slot takes (not null, not "other",
+ * which no outfit can hold).
  */
 export function isEligibleForToday(item: EligibilityFields, homeLocation: HomeLocation): boolean {
   return (
+    // The positive form (D-248): a collection added later is left out by default.
+    item.collection === "clothing" &&
     (item.status === "tagged" || item.status === "confirmed") &&
     (item.location === homeLocation || item.location === "unknown") &&
     item.decision !== "donate" &&
@@ -229,17 +234,22 @@ function keepBestSuited<T extends SuggestionItemInput>(items: readonly T[], weat
 
 type SlottedItem = SuggestionItemInput & { category: ItemCategory };
 
-/** An item some slot can hold (category not null and not "other"). */
-function hasSlot(item: SuggestionItemInput): item is SlottedItem {
-  return item.category !== null && slotForCategory(item.category) !== null;
+/**
+ * An item an outfit can hold: clothing (D-249), of a category some slot takes
+ * (not null and not "other").
+ */
+function isOutfitPiece(item: SuggestionItemInput): item is SlottedItem {
+  return item.collection === "clothing" && item.category !== null && slotForCategory(item.category) !== null;
 }
 
 /**
  * The request's item lines. Pass the items isEligibleForToday accepts; an
- * item no slot can hold is skipped. Each line is the relocation line (with no
- * destination marker, D-170) plus worn:N and last:YYYY-MM-DD (the calendar day
- * in the forecast's time zone) or last:never, so Claude can prefer rested
- * items. Aliases i1..iN follow the category order of the slots, and within a
+ * item no slot can hold, or one that is not clothing (D-249), is skipped all
+ * the same. Each line is the relocation line (with no destination marker,
+ * D-170) plus worn:N and last:YYYY-MM-DD (the calendar day in the forecast's
+ * time zone) or last:never, so Claude can prefer rested items. The collection
+ * is not part of a line, so the lines and hashes of clothing are unchanged
+ * (D-248). Aliases i1..iN follow the category order of the slots, and within a
  * category the most recently worn come last. Over MAX_SUGGESTION_ITEMS, the
  * items least suited to the weather are left out (weatherFitScore) and counted.
  */
@@ -247,7 +257,7 @@ export function buildSuggestionSnapshot(
   items: readonly SuggestionItemInput[],
   weather: WeatherSnapshot,
 ): SuggestionSnapshot {
-  const usable = items.filter(hasSlot);
+  const usable = items.filter(isOutfitPiece);
   const kept = keepBestSuited(usable, weather).sort(compareLineOrder);
 
   const lines: SuggestionLine[] = [];
@@ -275,7 +285,12 @@ export function buildSuggestionSnapshot(
 
 /** The check items validateOutfit needs, keyed by id. */
 export function toCheckItems(items: readonly OutfitCheckItem[]): ReadonlyMap<string, OutfitCheckItem> {
-  return new Map(items.map((item) => [item.id, { id: item.id, category: item.category, status: item.status }]));
+  return new Map(
+    items.map((item) => [
+      item.id,
+      { id: item.id, category: item.category, status: item.status, collection: item.collection },
+    ]),
+  );
 }
 
 function choose(n: number, k: number): number {

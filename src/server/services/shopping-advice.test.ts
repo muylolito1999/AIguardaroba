@@ -11,6 +11,7 @@ import {
   aiCalls,
   analyses,
   climateProfiles,
+  items,
   shoppingListItems,
   type Item,
   type NewItem,
@@ -381,6 +382,39 @@ describe("getShoppingAdviceState", () => {
     expect(state.candidates[0]?.unlocks.oct).toBeGreaterThan(0);
     expect(state.candidates[0]?.counted).toBe(true);
     expect(state.candidates[2]).toMatchObject({ counted: false, unlocks: { jan: 0, apr: 0, jul: 0, oct: 0 } });
+  });
+
+  it("leaves running gear out of the outfit and unlock counts (D-249)", async () => {
+    await testDb.db.insert(climateProfiles).values(HAMBURG);
+    await insertWardrobeItem({ name: "Wool jumper", category: "top", warmthLevel: 3, formality: "casual" });
+    await insertWardrobeItem({ name: "Jeans", category: "bottom", warmthLevel: 2, formality: "casual" });
+    await insertWardrobeItem({ name: "Rain shell", category: "outerwear", warmthLevel: 2, formality: "casual", waterproof: true });
+    // The only shoes, and they are running gear.
+    const runningShoes = await insertWardrobeItem({
+      name: "Trail shoes",
+      category: "shoes",
+      warmthLevel: 2,
+      formality: "casual",
+      collection: "running",
+    });
+    // A second pair of jeans would make outfits with the jumper, the shell and any shoes.
+    await insertRow({ itemType: "Jeans", category: "bottom", priority: 1 });
+
+    const withoutShoes = await readyState();
+    expect(withoutShoes.blocker).toBeNull();
+    expect(withoutShoes.scenarios.map((scenario) => [scenario.key, scenario.outfitsNow])).toEqual(
+      HAMBURG_SCENARIOS.map((scenario) => [scenario.key, 0]),
+    );
+    expect(withoutShoes.candidates[0]?.unlocks).toEqual({ jan: 0, apr: 0, jul: 0, oct: 0 });
+
+    // The same shoes as clothing complete an outfit in every month, so the
+    // counts above are 0 because of the collection alone.
+    await testDb.db.update(items).set({ collection: "clothing" }).where(eq(items.id, runningShoes.id));
+    const withShoes = await readyState();
+    for (const scenario of withShoes.scenarios) expect(scenario.outfitsNow, scenario.key).toBeGreaterThan(0);
+    for (const scenario of HAMBURG_SCENARIOS) {
+      expect(withShoes.candidates[0]?.unlocks[scenario.key], scenario.key).toBeGreaterThan(0);
+    }
   });
 
   it("computes the remaining budget from the run's budget minus the lowest estimates of bought rows", async () => {

@@ -109,6 +109,7 @@ function registerBody() {
     pathname: `items/${ITEM_ID}/original-x1y2z3.jpg`,
     sourceHash: SOURCE_HASH,
     originalFilename: "IMG_0001.HEIC",
+    collection: "clothing" as const,
   }
 }
 

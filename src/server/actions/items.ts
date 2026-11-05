@@ -4,7 +4,7 @@ import { z } from "zod";
 
 import { getAnthropic } from "@/lib/ai/client";
 import { getDb } from "@/lib/db";
-import { ITEM_DECISIONS, ITEM_LOCATIONS } from "@/lib/db/enums";
+import { ITEM_COLLECTIONS, ITEM_DECISIONS, ITEM_LOCATIONS } from "@/lib/db/enums";
 import { getBlobStorage } from "@/lib/images/blob";
 import { ItemPatchSchema, UncheckedDefaultsSchema } from "@/lib/items/contracts";
 import { ok } from "@/lib/result";
@@ -111,6 +111,17 @@ export const setItemLocation = authedAction(
   z.strictObject({ id: z.uuid(), location: z.enum(ITEM_LOCATIONS) }),
   async ({ id, location }) => ok(await updateItem(getDb(), id, { location })),
   { name: "setItemLocation" },
+);
+
+/**
+ * The running gear switch: moves an item into or out of running gear, from
+ * any status (D-252). A one-field patch like setItemDecision; collection is
+ * not a tag field, so user_edited_fields is untouched (D-248).
+ */
+export const setItemCollection = authedAction(
+  z.strictObject({ id: z.uuid(), collection: z.enum(ITEM_COLLECTIONS) }),
+  async ({ id, collection }) => ok(await updateItem(getDb(), id, { collection })),
+  { name: "setItemCollection" },
 );
 
 export const archiveItem = authedAction(

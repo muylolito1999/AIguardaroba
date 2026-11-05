@@ -9,7 +9,13 @@ import { err, ok, type Result } from "@/lib/result"
 import type { WearLogResultDto } from "@/lib/wear/contracts"
 import type { WeatherSnapshot } from "@/lib/weather/open-meteo"
 
-import type { SavedSuggestionDto, SuggestedOutfitDto, TodaySuggestionDto, TodayViewData } from "./today-model"
+import {
+  TodaySuggestionSchema,
+  type SavedSuggestionDto,
+  type SuggestedOutfitDto,
+  type TodaySuggestionDto,
+  type TodayViewData,
+} from "./today-model"
 import { TodayView, type SuggestOutfits, type TodayActions } from "./today-view"
 
 const router = vi.hoisted(() => ({ refresh: vi.fn(), push: vi.fn(), replace: vi.fn(), back: vi.fn() }))
@@ -59,6 +65,7 @@ function item(n: number, slot: OutfitItemDto["slot"], name: string, extra: Parti
     category: slot === "top" ? "top" : slot === "bottom" ? "bottom" : slot === "shoes" ? "shoes" : "outerwear",
     thumbUrl: null,
     status: "confirmed",
+    collection: "clothing",
     wearCount: 2,
     exists: true,
     ...extra,
@@ -331,7 +338,7 @@ describe("Wore this today", () => {
     }
   }
 
-  it("logs the outfit's items with today's weather, then shows Worn today", async () => {
+  it("logs the outfit's items as an outfit with today's weather, then shows Worn today", async () => {
     const f = fakes()
     const data = viewData({ suggestion: suggestion() })
     const itemIds = data.suggestion?.outfits[0]?.items.map((entry) => entry.itemId) ?? []
@@ -344,7 +351,8 @@ describe("Wore this today", () => {
       )
     )
 
-    expect(f.logWear).toHaveBeenCalledWith({ kind: "items", itemIds, weather: WEATHER })
+    // asOutfit: the server applies the outfit rules, so running gear is refused as for a saved outfit (D-250).
+    expect(f.logWear).toHaveBeenCalledWith({ kind: "items", itemIds, weather: WEATHER, asOutfit: true })
     const worn = within(card("Layered for drizzle")).getByRole("button", { name: "Worn today (Layered for drizzle)" })
     expect(worn.hasAttribute("disabled") || worn.getAttribute("aria-disabled") === "true").toBe(true)
     // The server's copy is read again so the counts follow.
@@ -437,6 +445,64 @@ describe("an outfit with an item gone", () => {
     fireEvent.click(wore)
     expect(f.saveSuggestedOutfit).not.toHaveBeenCalled()
     expect(f.logWear).not.toHaveBeenCalled()
+  })
+
+  it("marks an item moved to running gear and offers neither Save nor Wore this today (D-250)", () => {
+    const f = fakes()
+    const moved = outfit(1, {
+      available: false,
+      items: [
+        item(21, "outerwear", "Neon running jacket", { collection: "running" }),
+        item(22, "top", "Grey merino sweater"),
+        item(23, "bottom", "Dark blue jeans"),
+      ],
+    })
+    render(view(viewData({ suggestion: suggestion({ outfits: [outfit(0), moved, outfit(2)] }) }), f))
+
+    const smart = card("Smart and dry")
+    const rows = within(within(smart).getByRole("list", { name: "Items in Smart and dry" })).getAllByRole("listitem")
+    expect(rows[0]?.textContent).toContain("Running gear")
+    expect(rows[1]?.textContent).not.toContain("Running gear")
+    expect(smart.textContent).toContain(
+      "An item of this outfit was deleted, archived or moved to running gear, so it can no longer be saved or logged."
+    )
+    const save = within(smart).getByRole("button", { name: "Save Smart and dry" })
+    const wore = within(smart).getByRole("button", { name: "Wore this today (Smart and dry)" })
+    for (const button of [save, wore]) {
+      expect(button.hasAttribute("disabled") || button.getAttribute("aria-disabled") === "true").toBe(true)
+    }
+    fireEvent.click(save)
+    fireEvent.click(wore)
+    expect(f.saveSuggestedOutfit).not.toHaveBeenCalled()
+    expect(f.logWear).not.toHaveBeenCalled()
+    // The other cards are untouched.
+    expect(card("Layered for drizzle").textContent).not.toContain("Running gear")
+    expect(card("Layered for drizzle").textContent).not.toContain("can no longer be saved")
+  })
+})
+
+describe("an answer from a server older than running gear", () => {
+  it("reads a missing collection as null: no badge, and the card can still be saved and logged", async () => {
+    const f = fakes()
+    // What a server from before the field sends during a deploy: items without collection.
+    const payload: unknown = JSON.parse(
+      JSON.stringify(suggestion(), (key, value: unknown) => (key === "collection" ? undefined : value))
+    )
+    const parsed = TodaySuggestionSchema.parse(payload)
+    expect(parsed.outfits.flatMap((entry) => entry.items).map((entry) => entry.collection)).toEqual(
+      Array.from({ length: 12 }, () => null)
+    )
+    expect(parsed.outfits.every((entry) => entry.available)).toBe(true)
+    f.saveSuggestedOutfit.mockResolvedValue(ok({ analysisId: ANALYSIS_ID, index: 0, outfitId: uuid(700), alreadySaved: false }))
+    render(view(viewData({ suggestion: parsed }), f))
+
+    const first = card("Layered for drizzle")
+    expect(first.textContent).not.toContain("Running gear")
+    expect(first.textContent).not.toContain("can no longer be saved")
+    const wore = within(first).getByRole("button", { name: "Wore this today (Layered for drizzle)" })
+    expect(wore.hasAttribute("disabled") || wore.getAttribute("aria-disabled") === "true").toBe(false)
+    await act(async () => fireEvent.click(within(first).getByRole("button", { name: "Save Layered for drizzle" })))
+    expect(f.saveSuggestedOutfit).toHaveBeenCalledWith({ analysisId: ANALYSIS_ID, index: 0 })
   })
 })
 

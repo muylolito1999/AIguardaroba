@@ -10,6 +10,7 @@ import { DEFAULT_ITEM_FILTERS, hasActiveFilters, itemFiltersKey, type ItemFilter
 import type { WardrobeListDto } from "@/lib/items/wardrobe"
 
 import { CategoryChips } from "./category-chips"
+import { CollectionSwitch } from "./collection-switch"
 import { colorOptionsWithChosen } from "./color-options"
 import { useWardrobeFilters } from "./use-wardrobe-filters"
 import { VirtualizedGrid } from "./virtualized-grid"
@@ -29,11 +30,12 @@ export type WardrobeResultsProps = {
 }
 
 /**
- * Everything below the page header: toolbar, category chips, the result
- * count, and the grid or an empty state. Server-rendered props carry the
- * filters and results; changes go to the URL (useWardrobeFilters) and come
- * back as new props. Kept mounted across those changes (no key), so the typed
- * search and focus survive while the next list loads.
+ * Everything below the page header: the Clothes | Running switch, toolbar,
+ * category chips, the result count, and the grid or an empty state.
+ * Server-rendered props carry the filters and results; changes go to the URL
+ * (useWardrobeFilters) and come back as new props. Kept mounted across those
+ * changes (no key), so the typed search, focus and the pressed view survive
+ * while the next list loads.
  */
 export function WardrobeResults({ filters: serverFilters, list }: WardrobeResultsProps) {
   const { filters, isPending, update, refresh } = useWardrobeFilters(serverFilters)
@@ -43,7 +45,10 @@ export function WardrobeResults({ filters: serverFilters, list }: WardrobeResult
   useRefreshAfterItemChanges(list, refresh)
   const colorOptions = useMemo(() => colorOptionsWithChosen(list.colors, filters.color), [list.colors, filters.color])
   // Judged on the filters the list was loaded with, not the ones being requested.
+  // The collection is a view, not a filter, and the counts cover that view
+  // only, so this is per view: no running gear yet, or no clothes yet (D-251).
   const wardrobeEmpty = !hasActiveFilters(serverFilters) && list.counts.total === 0
+  const collection = serverFilters.collection
 
   // "Reset filters" sits in the no-matches state, which leaves the page when
   // the reset's list arrives, and focus would fall to <body>. It moves to the
@@ -61,18 +66,23 @@ export function WardrobeResults({ filters: serverFilters, list }: WardrobeResult
 
   function resetAll() {
     resetFromList.current = list
-    update((current) => ({ ...DEFAULT_ITEM_FILTERS, sort: current.sort }))
+    // The view stays: Reset clears what narrows it, not which collection it shows.
+    update((current) => ({ ...DEFAULT_ITEM_FILTERS, collection: current.collection, sort: current.sort }))
   }
 
   function emptyState() {
     if (!wardrobeEmpty) return <WardrobeEmpty kind="no-matches" onReset={resetAll} />
     // Every item archived is not an empty wardrobe: say where the items are.
-    if (list.counts.archived > 0) return <WardrobeEmpty kind="all-archived" archived={list.counts.archived} />
-    return <WardrobeEmpty kind="no-items" />
+    if (list.counts.archived > 0) {
+      return <WardrobeEmpty kind="all-archived" collection={collection} archived={list.counts.archived} />
+    }
+    return <WardrobeEmpty kind="no-items" collection={collection} />
   }
 
   return (
     <div className="flex min-w-0 flex-col gap-4">
+      {/* Always shown, empty states included, so the other view is one press away. */}
+      <CollectionSwitch value={filters.collection} onChange={update} />
       <WardrobeToolbar
         filters={filters}
         total={list.total}

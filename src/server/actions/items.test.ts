@@ -343,3 +343,62 @@ describe("item detail actions", () => {
     expect(await row(item.id)).toMatchObject({ status: "tagged", decision: "undecided", location: "bologna" });
   });
 });
+
+// The running gear switch (D-252).
+describe("setItemCollection", () => {
+  it("moves an item into running gear and back, returning the card, without marking a tag as edited", async () => {
+    const item = await makeTaggedItem(testDb.db, { aiRaw: COAT_TAGS, status: "confirmed" });
+
+    expect(await actions.setItemCollection({ id: item.id, collection: "running" })).toMatchObject({
+      ok: true,
+      data: { id: item.id, collection: "running", status: "confirmed", userEditedFields: [] },
+    });
+    expect(await row(item.id)).toMatchObject({ collection: "running", status: "confirmed", userEditedFields: [] });
+
+    expect(await actions.setItemCollection({ id: item.id, collection: "clothing" })).toMatchObject({
+      ok: true,
+      data: { id: item.id, collection: "clothing" },
+    });
+    expect((await row(item.id)).collection).toBe("clothing");
+  });
+
+  it("refuses a signed-out caller and changes nothing", async () => {
+    mocks.requireSession.mockRejectedValue(new AppError("UNAUTHENTICATED", "Signed out."));
+    const item = await makeTaggedItem(testDb.db, { aiRaw: COAT_TAGS });
+
+    expect(await actions.setItemCollection({ id: item.id, collection: "running" })).toMatchObject({
+      ok: false,
+      error: { code: "UNAUTHENTICATED" },
+    });
+    expect(mocks.requireSession).toHaveBeenCalled();
+    expect((await row(item.id)).collection).toBe("clothing");
+  });
+
+  it("validates its input strictly and changes nothing", async () => {
+    const item = await makeTaggedItem(testDb.db, { aiRaw: COAT_TAGS });
+    // Deliberately malformed: the client could send anything.
+    const malformed: unknown[] = [
+      { id: "nope", collection: "running" },
+      { id: item.id, collection: "cycling" },
+      { id: item.id, collection: "Running gear" },
+      { id: item.id, collection: null },
+      { id: item.id },
+      { id: item.id, collection: "running", decision: "bring" },
+      { id: item.id, collection: "running", status: "archived" },
+    ];
+    for (const input of malformed) {
+      expect(await actions.setItemCollection(input as never)).toMatchObject({
+        ok: false,
+        error: { code: "VALIDATION" },
+      });
+    }
+    expect(await row(item.id)).toMatchObject({ collection: "clothing", status: "tagged", decision: "undecided" });
+  });
+
+  it("answers NOT_FOUND for an item that no longer exists", async () => {
+    expect(await actions.setItemCollection({ id: randomUUID(), collection: "running" })).toMatchObject({
+      ok: false,
+      error: { code: "NOT_FOUND" },
+    });
+  });
+});

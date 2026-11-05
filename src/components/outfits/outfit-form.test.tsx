@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 import { toast } from "@/components/ui/toast"
 import type { OutfitSlot } from "@/lib/db/enums"
-import type { OutfitDetailDto, SlotCandidateDto } from "@/lib/outfits/contracts"
+import type { OutfitDetailDto, OutfitItemDto, SlotCandidateDto } from "@/lib/outfits/contracts"
 import { err, ok, type Result } from "@/lib/result"
 
 import { OutfitForm, type OutfitFormProps } from "./outfit-form"
@@ -14,6 +14,7 @@ const SWEATER = "11111111-1111-4111-8111-111111111111"
 const DRESS = "22222222-2222-4222-8222-222222222222"
 const JEANS = "33333333-3333-4333-8333-333333333333"
 const BELT = "44444444-4444-4444-8444-444444444444"
+const RUNNING = "55555555-5555-4555-8555-555555555555"
 
 function candidate(id: string, category: SlotCandidateDto["category"], name: string, extra: Partial<SlotCandidateDto> = {}) {
   return {
@@ -183,6 +184,68 @@ describe("OutfitForm", () => {
     // Removing the item clears the server's message.
     fireEvent.click(screen.getByRole("button", { name: "Remove Dark jeans" }))
     expect(within(slotGroup("Bottom")).queryByText("This item is archived.")).toBeNull()
+  })
+
+  it("flags an item the outfit holds that moved to running gear, and refuses to send it (D-250)", async () => {
+    const running: OutfitItemDto = {
+      itemId: RUNNING,
+      slot: "bottom",
+      name: "Running tights",
+      category: "bottom",
+      thumbUrl: null,
+      status: "confirmed",
+      collection: "running",
+      wearCount: 4,
+      exists: true,
+    }
+    const { onSubmit } = setup({
+      initial: {
+        ...valuesFromOutfit(null),
+        name: "Long run",
+        entries: [
+          { slot: "top", itemId: SWEATER },
+          { slot: "bottom", itemId: RUNNING },
+        ],
+      },
+      current: [running],
+    })
+
+    const bottom = slotGroup("Bottom")
+    expect(within(bottom).getByText("Running tights")).toBeTruthy()
+    expect(within(bottom).getByText("Running gear")).toBeTruthy()
+    expect(within(bottom).queryByText("Archived")).toBeNull()
+    expect(within(slotGroup("Top or dress")).queryByText("Running gear")).toBeNull()
+
+    fireEvent.click(screen.getByRole("button", { name: "Save outfit" }))
+    expect(within(bottom).getByText("This item is running gear, which outfits leave out.")).toBeTruthy()
+    expect(onSubmit).not.toHaveBeenCalled()
+    expect(document.activeElement).toBe(screen.getByRole("button", { name: "Change bottom" }))
+
+    // Swapped for clothing, it sends.
+    onSubmit.mockResolvedValue(ok({ id: "outfit-1", name: "Long run" } as OutfitDetailDto))
+    await pick("Change bottom", "Dark jeans")
+    expect(within(slotGroup("Bottom")).queryByText("Running gear")).toBeNull()
+    fireEvent.click(screen.getByRole("button", { name: "Save outfit" }))
+    await waitFor(() => expect(onSubmit).toHaveBeenCalledTimes(1))
+  })
+
+  it("shows the server's not_clothing issue next to its slot", async () => {
+    const message = "This item is running gear, which outfits leave out."
+    const { onSubmit, onSaved } = setup()
+    onSubmit.mockResolvedValue(
+      err("VALIDATION", message, {
+        outfitIssues: [{ code: "not_clothing", slot: "bottom", itemId: JEANS, message }],
+      })
+    )
+    await pick("Choose top or dress", "Grey merino sweater")
+    await pick("Choose bottom", "Dark jeans")
+    fireEvent.change(screen.getByLabelText("Name"), { target: { value: "Weekend" } })
+    fireEvent.click(screen.getByRole("button", { name: "Save outfit" }))
+
+    expect(await within(slotGroup("Bottom")).findByText(message)).toBeTruthy()
+    expect(within(slotGroup("Top or dress")).queryByText(message)).toBeNull()
+    expect(onSaved).not.toHaveBeenCalled()
+    expect(toast.add).not.toHaveBeenCalled()
   })
 
   it("toasts other errors", async () => {

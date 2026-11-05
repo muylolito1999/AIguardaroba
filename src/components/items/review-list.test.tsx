@@ -168,6 +168,18 @@ describe("ReviewList", () => {
     expect(screen.queryByRole("region", { name: "Tagging" })).toBeNull()
   })
 
+  it("marks running gear on its card, and clothing not at all (D-252)", () => {
+    setup([
+      taggedCard({ name: "Trail shoes", collection: "running" }),
+      pendingCard({ collection: "running" }),
+      taggedCard({ name: "Rain shell" }),
+    ])
+
+    expect(within(card("Trail shoes")).getByText("Running gear")).toBeTruthy()
+    expect(within(card("Untagged item")).getByText("Running gear")).toBeTruthy()
+    expect(within(card("Rain shell")).queryByText("Running gear")).toBeNull()
+  })
+
   it("keeps a pending item pending when tagging fails, with the reason and a retry", async () => {
     const item = pendingCard()
     const { tagRequest } = setup([item])

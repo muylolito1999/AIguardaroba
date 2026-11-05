@@ -123,6 +123,11 @@ function runBlockedReason(options: {
   const { estimate, fresh } = options.estimate
   if (!fresh || estimate === null) return null
   if (estimate.itemCount === 0) {
+    const { pending, archived, unconfirmed, running } = estimate.excluded
+    // Only running gear stood in the way: confirming or including tagged items cannot help (D-249).
+    if (running > 0 && pending + archived + unconfirmed === 0) {
+      return "Only running gear is in the wardrobe, which the analysis leaves out. Add or confirm some clothes first."
+    }
     return "There are no items to analyse. Confirm some items first, or include tagged items."
   }
   if (estimate.tooLarge) {
@@ -500,7 +505,8 @@ export function RelocationForm({ profiles, defaultDates, actions }: RelocationFo
 
 function EstimateLines({ estimate }: { estimate: RelocationEstimateDto }) {
   const excluded = describeExcluded(estimate.excluded)
-  const excludedTotal = estimate.excluded.pending + estimate.excluded.archived + estimate.excluded.unconfirmed
+  const excludedTotal =
+    estimate.excluded.pending + estimate.excluded.archived + estimate.excluded.unconfirmed + estimate.excluded.running
   return (
     <>
       <p className="font-medium">

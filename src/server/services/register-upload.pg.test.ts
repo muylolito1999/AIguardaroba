@@ -108,6 +108,7 @@ describe.skipIf(!url)("registerUpload and deleteItem of the same id at once, on 
       pathname: blob.pathname,
       sourceHash: createHash("sha256").update(`${itemId}-source`).digest("hex"),
       originalFilename: "IMG_0001.HEIC",
+      collection: "clothing",
     };
     let deleting: Promise<{ deleted: true }> | undefined;
     let raced = false;

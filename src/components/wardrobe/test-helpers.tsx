@@ -4,6 +4,7 @@ import { vi } from "vitest"
 import { parseItemFilters, type ItemFilters } from "@/lib/items/filters"
 
 import { CategoryChips } from "./category-chips"
+import { CollectionSwitch } from "./collection-switch"
 import { useWardrobeFilters } from "./use-wardrobe-filters"
 import { WardrobeToolbar } from "./wardrobe-toolbar"
 import type { CategoryCounts } from "@/lib/items/wardrobe"
@@ -32,7 +33,7 @@ type HarnessProps = {
 
 type ServerState = { filters: ItemFilters; until: Promise<void> | null }
 
-/** The toolbar and chips wired to useWardrobeFilters, as WardrobeResults wires them. */
+/** The view switch, toolbar and chips wired to useWardrobeFilters, as WardrobeResults wires them. */
 export function ControlsHarness({ initial, counts, onNavigatorReady }: HarnessProps) {
   const [server, setServer] = useState<ServerState>({ filters: initial, until: null })
   useLayoutEffect(() => {
@@ -42,6 +43,7 @@ export function ControlsHarness({ initial, counts, onNavigatorReady }: HarnessPr
   const { filters, isPending, update } = useWardrobeFilters(server.filters)
   return (
     <>
+      <CollectionSwitch value={filters.collection} onChange={update} />
       <WardrobeToolbar filters={filters} total={3} isPending={isPending} colorOptions={[]} onChange={update} />
       <CategoryChips filters={filters} counts={counts} onChange={update} />
     </>

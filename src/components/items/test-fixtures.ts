@@ -53,6 +53,7 @@ export function taggedCard(overrides: Partial<ItemCardDto> = {}): ItemCardDto {
     purchaseDate: null,
     location: "bologna",
     decision: "undecided",
+    collection: "clothing",
     aiConfidence: {
       category: 0.95,
       colors: 0.9,

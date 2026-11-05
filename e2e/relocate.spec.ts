@@ -22,8 +22,9 @@ import { E2E_DATABASE_URL, E2E_PASSWORD } from "./constants"
 import { NEEDS_NO_API_KEY, SHELL_TAGGING } from "./live-env"
 
 // /relocate against the production build, without an Anthropic key. Twelve
-// confirmed items, one waiting for tags and one archived are inserted straight
-// into wardrobe_e2e. Run starts a real analysis, whose first part stops with
+// confirmed items, one waiting for tags, one archived and one confirmed piece
+// of running gear (never analysed, D-249) are inserted straight into
+// wardrobe_e2e. Run starts a real analysis, whose first part stops with
 // the configuration error (no key); the spec then completes that analysis in
 // the database with a fixture result and packing rows, exactly as if Claude
 // had answered, so its cache key is the one the server computed for the
@@ -41,6 +42,7 @@ const createdItemIds: string[] = []
 const nameById = new Map<string, string>()
 
 let analysisId = ""
+let runningId = ""
 /** Snapshot item ids in alias order (i1, i2, …), from the analysis the form started. */
 let snapshotIds: string[] = []
 
@@ -149,7 +151,17 @@ test.beforeAll(async ({ baseURL }) => {
   }
   const pending = await makeItem(db, { notes: "relospec photo waiting for tags" })
   const archived = await makeTaggedItem(db, { name: "Relospec archived coat", status: "archived", archivedFrom: "confirmed" })
-  createdItemIds.push(pending.id, archived.id)
+  // Confirmed, so only its collection keeps it out of the run.
+  const running = await makeTaggedItem(db, {
+    name: "Relospec running jacket",
+    status: "confirmed",
+    collection: "running",
+    category: "outerwear",
+    subcategory: "running jacket",
+    warmthLevel: 2,
+  })
+  runningId = running.id
+  createdItemIds.push(pending.id, archived.id, running.id)
 })
 
 test.afterAll(async () => {
@@ -173,7 +185,7 @@ test.afterAll(async () => {
   }
 })
 
-test("the form estimates the confirmed items and says what is left out", async ({ page }) => {
+test("the form estimates the confirmed clothes and says what is left out, running gear included", async ({ page }) => {
   await signIn(page)
   await expect(page.getByRole("heading", { level: 1, name: "Relocate" })).toBeVisible()
   await expect(page.getByLabel("Climate profile")).toHaveValue(/.+/)
@@ -181,7 +193,7 @@ test("the form estimates the confirmed items and says what is left out", async (
   await expect(page.getByRole("switch", { name: "Confirmed items only" })).toHaveAttribute("aria-checked", "true")
 
   await expect(estimate(page)).toContainText("with Sonnet 5.5 · 2 parts · 12 items")
-  await expect(estimate(page)).toContainText("1 waiting for tags and 1 archived are left out.")
+  await expect(estimate(page)).toContainText("1 waiting for tags, 1 archived and 1 running gear item are left out.")
   await expect(page.getByRole("button", { name: "Run analysis" })).toBeEnabled()
 })
 
@@ -199,6 +211,7 @@ test("Run starts the analysis, and without an API key it stops with a configurat
 
   snapshotIds = await completeWithFixtureResult(analysisId)
   expect(snapshotIds).toHaveLength(12)
+  expect(snapshotIds).not.toContain(runningId)
 })
 
 test("an unchanged wardrobe offers the earlier result instead of a new run", async ({ page }) => {
@@ -229,20 +242,42 @@ test("an override is saved to the item and survives a reload", async ({ page }) 
   await expect(page.getByRole("listitem").filter({ has: reloaded }).getByText("Yours: Leave")).toBeVisible()
 })
 
-test("Apply AI decisions fills in the undecided items and keeps the override", async ({ page }) => {
-  await signIn(page)
-  await page.goto(`/relocate/${analysisId}`)
+test("Apply AI decisions fills in the undecided clothes, keeps the override and skips an item moved to running gear", async ({ page }) => {
+  // i4, the AI's Donate, moves to running gear before the page renders, so
+  // the button counts only the clothes Apply writes to, as the server does
+  // (D-249): 10 of the 11 undecided items.
+  const moved = snapshotIds[3] ?? ""
+  const decisions = () => Promise.all(snapshotIds.map((id) => decisionOf(id)))
+  await db.update(items).set({ collection: "running" }).where(eq(items.id, moved))
+  try {
+    await signIn(page)
+    await page.goto(`/relocate/${analysisId}`)
 
-  await page.getByRole("button", { name: "Apply AI decisions to 11 undecided items" }).click()
-  const dialog = page.getByRole("alertdialog")
-  await expect(dialog).toContainText("Items you already decided keep your decision.")
-  await dialog.getByRole("button", { name: "Apply" }).click()
-  await expect(page.getByText("Applied 11 AI decisions")).toBeVisible()
+    await page.getByRole("button", { name: "Apply AI decisions to 10 undecided items", exact: true }).click()
+    const dialog = page.getByRole("alertdialog")
+    await expect(dialog).toContainText("Items you already decided keep your decision.")
+    await dialog.getByRole("button", { name: "Apply" }).click()
+    await expect(page.getByText("Applied 10 AI decisions")).toBeVisible()
+    // Only the running item is undecided now, and Apply would write nothing to it.
+    await expect(page.getByRole("button", { name: "No undecided items left" })).toBeDisabled()
+    // i1 keeps the owner's Leave; i4 keeps no decision.
+    await expect
+      .poll(decisions)
+      .toEqual(["leave", "bring", "leave", "undecided", "sell", "bring", "bring", "leave", "donate", "sell", "bring", "bring"])
+  } finally {
+    // Back among the clothes, even when a check above failed: the later tests
+    // need the unchanged wardrobe and its 12 items.
+    await db.update(items).set({ collection: "clothing" }).where(eq(items.id, moved))
+  }
 
-  const expected = ["leave", "bring", "leave", "donate", "sell", "bring", "bring", "leave", "donate", "sell", "bring", "bring"]
+  // Back among the clothes it is offered again and takes the run's decision.
+  await page.reload()
+  await page.getByRole("button", { name: "Apply AI decisions to 1 undecided item", exact: true }).click()
+  await page.getByRole("alertdialog").getByRole("button", { name: "Apply" }).click()
+  await expect(page.getByText("Applied 1 AI decision", { exact: true })).toBeVisible()
   await expect
-    .poll(async () => Promise.all(snapshotIds.map((id) => decisionOf(id))))
-    .toEqual(expected)
+    .poll(decisions)
+    .toEqual(["leave", "bring", "leave", "donate", "sell", "bring", "bring", "leave", "donate", "sell", "bring", "bring"])
   await expect(page.getByRole("button", { name: "No undecided items left" })).toBeDisabled()
 })
 

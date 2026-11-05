@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 
-import { previousWardrobeListHref, type NavigationLike } from "./wardrobe-return"
+import { previousWardrobeListHref, wardrobeListHref, type NavigationLike } from "./wardrobe-return"
 
 const ORIGIN = "https://wardrobe.example"
 
@@ -30,5 +30,12 @@ describe("previousWardrobeListHref", () => {
     expect(previousWardrobeListHref({ currentEntry: null, entries: () => [] }, ORIGIN)).toBeNull()
     expect(previousWardrobeListHref(history([null, `${ORIGIN}/wardrobe/abc`], 1), ORIGIN)).toBeNull()
     expect(previousWardrobeListHref(null, ORIGIN)).toBeNull()
+  })
+})
+
+describe("wardrobeListHref", () => {
+  it("opens the view of the item's collection (D-251)", () => {
+    expect(wardrobeListHref("clothing")).toBe("/wardrobe")
+    expect(wardrobeListHref("running")).toBe("/wardrobe?collection=running")
   })
 })

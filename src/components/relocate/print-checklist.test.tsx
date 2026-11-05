@@ -27,6 +27,7 @@ function makeView(decisions: Record<string, ItemDecision> = {}): RelocationViewD
         currentDecision: decisions[id] ?? "undecided",
         status: "confirmed",
         location: "bologna",
+        collection: "clothing",
         exists: true,
       } satisfies RelocationItemRefDto,
     ])

@@ -50,7 +50,7 @@ const DATES = { dateFrom: "2026-11-03", dateTo: "2027-11-02" }
 function estimateDto(overrides: Partial<RelocationEstimateDto> = {}): RelocationEstimateDto {
   return {
     itemCount: 287,
-    excluded: { pending: 12, archived: 0, unconfirmed: 3 },
+    excluded: { pending: 12, archived: 0, unconfirmed: 3, running: 0 },
     chunkCount: 4,
     months: [11, 12, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
     model: "claude-sonnet-5-5",
@@ -147,6 +147,23 @@ describe("RelocationForm", () => {
     expect(status.textContent).toContain("≈ $0.38 with Sonnet 5.5 · 5 parts · 287 items")
     expect(status.textContent).toContain("Likely between $0.27 and $0.57 at medium effort.")
     expect(status.textContent).toContain("12 waiting for tags and 3 not confirmed are left out.")
+  })
+
+  it("names running gear in the left-out sentence and counts it in the total (D-249)", async () => {
+    const answers = [
+      estimateDto({ excluded: { pending: 0, archived: 0, unconfirmed: 0, running: 1 } }),
+      estimateDto({ excluded: { pending: 1, archived: 0, unconfirmed: 0, running: 2 } }),
+    ]
+    setup({ estimate: async () => ok(answers.shift() ?? estimateDto()) })
+    await advance(ESTIMATE_DEBOUNCE_MS)
+    await flush()
+    // Running gear alone: one item, so "is".
+    expect(screen.getByRole("status").textContent).toContain("1 running gear item is left out.")
+
+    fireEvent.change(screen.getByLabelText("Your constraints"), { target: { value: "Bike commute" } })
+    await advance(ESTIMATE_DEBOUNCE_MS)
+    await flush()
+    expect(screen.getByRole("status").textContent).toContain("1 waiting for tags and 2 running gear items are left out.")
   })
 
   it("waits for typing to pause, and ignores an answer that arrives after a newer one", async () => {
@@ -263,6 +280,34 @@ describe("RelocationForm", () => {
     )
     fireEvent.click(run)
     expect(startRelocation).not.toHaveBeenCalled()
+  })
+
+  it("says when only running gear leaves nothing to analyse, and keeps the usual reason otherwise (D-249)", async () => {
+    const answers = [
+      estimateDto({ itemCount: 0, excluded: { pending: 0, archived: 0, unconfirmed: 0, running: 4 } }),
+      estimateDto({ itemCount: 0, excluded: { pending: 0, archived: 0, unconfirmed: 2, running: 4 } }),
+      estimateDto({ itemCount: 0, excluded: { pending: 1, archived: 0, unconfirmed: 0, running: 4 } }),
+    ]
+    const { startRelocation } = setup({ estimate: async () => ok(answers.shift() ?? estimateDto()) })
+    const reasonText = () =>
+      document.getElementById(runButton().getAttribute("aria-describedby") ?? "")?.textContent ?? null
+    await advance(ESTIMATE_DEBOUNCE_MS)
+    await flush()
+
+    expect(runButton().getAttribute("aria-disabled")).toBe("true")
+    expect(reasonText()).toBe(
+      "Only running gear is in the wardrobe, which the analysis leaves out. Add or confirm some clothes first."
+    )
+    fireEvent.click(runButton())
+    expect(startRelocation).not.toHaveBeenCalled()
+
+    for (const constraints of ["Bike commute", "Bike commute, office"]) {
+      fireEvent.change(screen.getByLabelText("Your constraints"), { target: { value: constraints } })
+      await advance(ESTIMATE_DEBOUNCE_MS)
+      await flush()
+      expect(runButton().getAttribute("aria-disabled")).toBe("true")
+      expect(reasonText()).toBe("There are no items to analyse. Confirm some items first, or include tagged items.")
+    }
   })
 
   it("starts once however often Run is pressed, then opens the run", async () => {
