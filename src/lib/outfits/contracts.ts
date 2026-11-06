@@ -20,12 +20,18 @@ import {
 // Slots
 // ---------------------------------------------------------------------------
 
-/** The item categories each slot takes. A dress fills the top slot (D-038). */
+/**
+ * The item categories each slot takes. A dress fills the top slot (D-038). A
+ * top can also be worn as the mid layer over another top: a sweater, hoodie or
+ * cardigan over a t-shirt or shirt (D-253).
+ */
 export const SLOT_CATEGORIES: Readonly<Record<OutfitSlot, readonly ItemCategory[]>> = {
   outerwear: ["outerwear"],
+  mid_layer: ["top"],
   base_layer: ["base_layer"],
   top: ["top", "dress"],
   bottom: ["bottom"],
+  socks: ["socks"],
   shoes: ["shoes"],
   hat: ["hat_beanie"],
   gloves: ["gloves"],
@@ -35,9 +41,11 @@ export const SLOT_CATEGORIES: Readonly<Record<OutfitSlot, readonly ItemCategory[
 
 export const SLOT_LABELS: Readonly<Record<OutfitSlot, string>> = {
   outerwear: "Outerwear",
+  mid_layer: "Mid layer",
   base_layer: "Base layer",
   top: "Top or dress",
   bottom: "Bottom",
+  socks: "Socks",
   shoes: "Shoes",
   hat: "Hat",
   gloves: "Gloves",
@@ -45,13 +53,19 @@ export const SLOT_LABELS: Readonly<Record<OutfitSlot, string>> = {
   accessory: "Accessories",
 };
 
-/** Display order: the main pieces first, then the cold-weather extras. */
+/**
+ * Display order: the main pieces from the outside in (outerwear, the mid
+ * layer, the top, the base layer under it), then the bottom, the feet and the
+ * cold-weather extras.
+ */
 export const SLOT_ORDER: readonly OutfitSlot[] = [
   "outerwear",
+  "mid_layer",
   "top",
   "base_layer",
   "bottom",
   "shoes",
+  "socks",
   "hat",
   "scarf",
   "gloves",
@@ -60,12 +74,33 @@ export const SLOT_ORDER: readonly OutfitSlot[] = [
 
 /** The only slot that takes more than one item. */
 export const MAX_ACCESSORIES = 3;
-/** One per slot plus the accessories, with room to spare. */
-export const MAX_OUTFIT_ITEMS = 12;
+/** One per slot (ten single slots) plus the accessories, with room to spare. */
+export const MAX_OUTFIT_ITEMS = 14;
 
-/** The slot whose categories include `category`, or null for a category no slot takes ("other"). */
+/**
+ * The slot an item of each category goes in by default, or null for a
+ * category no slot takes ("other"). A top's home is the top slot; it can also
+ * fill mid_layer, which SLOT_CATEGORIES allows (D-253).
+ */
+export const CATEGORY_HOME_SLOT: Readonly<Record<ItemCategory, OutfitSlot | null>> = {
+  outerwear: "outerwear",
+  top: "top",
+  bottom: "bottom",
+  dress: "top",
+  shoes: "shoes",
+  socks: "socks",
+  gloves: "gloves",
+  hat_beanie: "hat",
+  scarf: "scarf",
+  base_layer: "base_layer",
+  accessory: "accessory",
+  bag: "accessory",
+  other: null,
+};
+
+/** The home slot of `category`, or null for a category no slot takes ("other"). */
 export function slotForCategory(category: ItemCategory): OutfitSlot | null {
-  return SLOT_ORDER.find((slot) => SLOT_CATEGORIES[slot].includes(category)) ?? null;
+  return CATEGORY_HOME_SLOT[category] ?? null;
 }
 
 const SLOT_RANK = new Map<OutfitSlot, number>(SLOT_ORDER.map((slot, index) => [slot, index]));

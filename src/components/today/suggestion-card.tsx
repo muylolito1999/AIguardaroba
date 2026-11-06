@@ -8,6 +8,7 @@ import { ItemThumb } from "@/components/outfits/outfit-thumbs"
 import { Badge } from "@/components/ui/badge"
 import { Button, buttonVariants } from "@/components/ui/button"
 import { SLOT_LABELS } from "@/lib/outfits/contracts"
+import { directionLabel } from "@/lib/outfits/style/directions"
 
 import type { SuggestedOutfitDto } from "./today-model"
 
@@ -25,8 +26,9 @@ export type SuggestionCardProps = {
 }
 
 /**
- * One suggested outfit: its items with their slots, Claude's reason, whether
- * it keeps the owner dry, and Save and "Wore this today". An outfit whose
+ * One suggested outfit: its style direction (D-256), its items with their
+ * slots in SLOT_ORDER (as the DTO lists them), Claude's reason, whether it
+ * keeps the owner dry, and Save and "Wore this today". An outfit whose
  * item was deleted, archived or moved to running gear since offers neither
  * (D-250); that item carries a badge saying which.
  */
@@ -41,15 +43,20 @@ export function SuggestionCard({
   onWore,
 }: SuggestionCardProps) {
   const titleId = `${cardId}-title`
+  // A key this build does not know (removed since, or from a newer server) shows nothing.
+  const style = directionLabel(outfit.direction)
   return (
     <article
       aria-labelledby={titleId}
       className="flex h-full min-w-0 flex-col gap-4 rounded-xl bg-card p-4 text-card-foreground ring-1 ring-foreground/10"
     >
       <header className="flex flex-wrap items-start justify-between gap-2">
-        <h3 id={titleId} className="min-w-0 font-heading text-base font-semibold text-pretty">
-          {outfit.title}
-        </h3>
+        <div className="flex min-w-0 flex-col gap-0.5">
+          <h3 id={titleId} className="font-heading text-base font-semibold text-pretty">
+            {outfit.title}
+          </h3>
+          {style === null ? null : <p className="text-sm text-muted-foreground">Style: {style}</p>}
+        </div>
         {outfit.rainOk ? (
           <Badge variant="secondary">
             <CloudRain aria-hidden />

@@ -2,6 +2,163 @@
 
 Newest entry first. Each entry records the state at the end of a working session. Task tracking lives in Beads (`bd ready`, `bd show <id>`); the reasons behind choices are in [DECISIONS.md](DECISIONS.md).
 
+## 2026-11-06 — Smarter outfit suggestions: layering, socks, colour, variety (wardrobe-9sm)
+
+### State
+
+- **Feature (owner request):** outfit suggestions kept repeating "hoodie + jacket + trousers + maybe an accessory", sometimes paired shoes with no socks, never put a t-shirt under a hoodie or sweater, and showed little colour sense. The goal: outfits that read like a stylist's, layered and coordinated, with real variety from day to day.
+- **Status:** built, reviewed and checked locally, then committed at the owner's request after a pre-commit review. Not pushed, not migrated to production and not deployed.
+- **Owner's decisions, asked before the build:**
+  - the full data-model change: `mid_layer` and `socks` slots, a `socks` category, and a migration that moves existing socks;
+  - effort medium for the outfit call.
+- **Taxonomy (D-253):**
+  - category `socks`; slots `mid_layer` (a top worn over the top) and `socks`;
+  - `CATEGORY_HOME_SLOT` / `slotForCategory`; `MAX_OUTFIT_ITEMS` 14;
+  - the manual builder stays permissive. It gets "Choose mid layer" and "Choose socks", and the pickers list mid-layer tops first for the mid layer and base tops first for the top;
+  - wool socks no longer count as base layers in the winter checklist.
+- **Migration (D-254):** `drizzle/20261105230129_socks-and-layers`, hand-edited.
+  - The migrator applies all pending migrations in one transaction, and Postgres refuses an enum value added by `ADD VALUE` before commit. So `item_category` is recreated, and socks are moved while the columns are text.
+  - `outfit_slot` gains its values through `ADD VALUE`.
+- **Prompt versions (D-255):**
+  - `tag-v2`: a socks category and preferred subcategory words;
+  - `reloc-v5`: the category list changed, so the next relocation run with an identical wardrobe calls Claude again;
+  - `shop-v3`: socks unlock 0.
+- **The engine, `outfit-v3` (D-256 to D-258):**
+  - Claude writes 5 candidates, each following an assigned style direction. Inside the strict check, the pure library in `src/lib/outfits/style/` does the rest:
+    1. drops broken candidates;
+    2. repairs layering: a lone hoodie, knit or blazer moves to the mid layer over a base top; socks go with closed shoes and come off with sandals; shoes are added when missing;
+    3. dedupes by core pieces;
+    4. scores colour harmony, pattern, formality, weather fit (now per piece too), novelty against the last 7 days of suggestions and 14 days of wears, and taste (liked and disliked saved outfits);
+    5. keeps 3 diverse outfits.
+  - Repairs avoid giving every card the same companion tee or socks. Fewer than 3 usable candidates triggers a retry.
+  - Seventeen directions are drawn per run, seeded by day, city and run count; today's and yesterday's directions are down-weighted.
+  - `/today` cards show "Style: <label>".
+  - Effort medium; cap and ceiling 8,800 tokens; estimate about $0.10 per suggestion on Sonnet (was about $0.05).
+  - `canSuggestOutfits` counts distinct core combinations, so a wardrobe that cannot give 3 different cores is refused before any paid call.
+  - `callStructured` now logs and charges an attempt whose strict transform throws, then stops without a retry (`check_failed`).
+- **How it was built:** in four areas, with parallel agents on disjoint files.
+  - A: taxonomy, migration, propagation.
+  - B: the style library.
+  - C: prompt, strict pipeline, history loader, service, UI.
+  - D: verification and docs.
+  - After A, B and C, and on the whole feature, a Fable review ran, followed by fixes and the gate.
+- **Docs:**
+  - DECISIONS D-253 to D-258, with the status lines of the earlier entries they touch.
+  - README: Features, Database, Adding items, Stats, Outfits, Today, "What Claude sees for outfits", What to buy next, Deploy, Costs, Changing models, Testing, Project structure.
+  - `e2e/README.md`: the outfits and today bullets.
+
+### Decisions
+
+D-253, D-254, D-255, D-256, D-257, D-258.
+
+### Review
+
+Four Fable reviews (Areas A, B and C, then the whole feature), read-only. Every finding was fixed, recorded, or filed in Beads.
+- **Area A:** no high findings.
+  - Two medium ones (the interim prompt lacked the new slots; the outfit count) were carried into C and fixed there.
+  - A test assertion that could not fail was made strict.
+- **Area B:** no high findings.
+  - Fixed: open-shoe detection shared with the layering vocabulary (German and Italian sandals); dedupe by core pieces, so two outfits differing only in socks no longer both show; report counts for pre-dropped candidates; NaN hardening; a hoodie over a thermal is left alone; jacket vocabulary; a navy name that a saturated hex would turn into a colour; all-dark neutrals scored as tonal; direction feasibility per category; one shared sneaker vocabulary; dead code removed.
+- **Area C:**
+  - High, fixed: `countPossibleOutfits` counted hats, scarves and accessories as new outfits, so a small wardrobe could pass the refusal and pay for three attempts that could never succeed. It now counts distinct cores, and a test checks it against the selection over nine small wardrobes.
+  - Medium, fixed: an exception inside the strict transform skipped `ai_calls` logging (`call.ts`).
+  - Low, fixed: `runIndex` counts failed runs; `pat:` is emitted for every pattern that is not plain.
+  - Low, filed: angle brackets in item names (wardrobe-imv); a `wear_logs` index (wardrobe-i76).
+  - From the visual check, fixed: a summer-weight bottom, dress or shoe costs points below a 15 °C feels-like. The `/today` refusal text was rewritten for the new count.
+- **Whole feature:** no high findings.
+  - Fixed: repairs no longer give every card the same tee or socks. A companion already used costs 0.25 points, so another equally fitting piece wins but a clearly better fit still repeats; the reviewer's first version, a hard rank, was replaced because it could put a red tee under a hoodie only for variety.
+  - Also fixed: one definition of "keeps dry" for scoring and selection; denim counts as a texture; the prompt's repeat rule names shoes, with the outfit-v3 pins replaced before it ever shipped; the history labels carry the direction and who made a liked outfit; `varietyTokens` is now 1,200; unused exports removed.
+  - Open: medium effort with the 8,800 cap is unvalidated until a live run (wardrobe-r67).
+  - Filed: the chilly-band outerwear rule (wardrobe-1zu); the batch-reply guard (wardrobe-yro).
+- **Pre-commit review**, at the owner's request before the commit: three parallel Fable reviews (taxonomy, migration and UI; the style library; the integration), read-only. No high findings.
+  - Medium, fixed:
+    - A long-sleeve shirt with a word before "shirt" ("long sleeve linen shirt", "long sleeve oxford") was read as a tee, so worn open over a tee it was dropped as a tee in the mid layer. The tee pattern now steps aside for any shirt word later in the name.
+    - The dry pick that step 7 brings in on a rainy day could show no rain badge, because `rain_ok` also needed Claude's own true. `rain_ok` is now `keepsDry` of the repaired outfit, the rule the prompt gives Claude.
+  - Low, fixed:
+    - Weather-ready was offered on a rainy day to a wardrobe with rain boots and no outerwear, where no outfit can keep dry. It now needs what `keepsDry` needs.
+    - On a cold day warm socks tied with athletic ones in sneakers, and the test passed only through the running socks' formality tag. Cold-day warm socks are now worth 0.8, and 0.3 less in smart shoes, where dress socks still win. The test now checks casual and untagged running socks too.
+    - A repair could put a top of unplaced kind (a puffer filed as a top, a turtleneck) under a hoodie when every tee needed repair. Added base tops are now tees and shirts only.
+    - HANDOFF said 7 production migrations after this one; it is 6.
+  - Left as designed:
+    - Loose wear logs of one day form one worn outfit.
+    - `countPossibleOutfits` is a deliberate floor.
+    - An `AppError` from the strict transform is rethrown as is; nothing in the library throws one.
+    - Italian sock names (wardrobe-4bn).
+  - Noted in wardrobe-r67: the 110 s deadline counts from the route's start, so the time before the call (weather, items, history, lock) comes out of the first-token margin.
+
+### Checks run
+
+All times local (CET), 2026-11-06. Every gate, e2e and database command ran through a scratchpad wrapper that takes one lock and moves `.env.local` (production values) aside, restoring it in a trap. Each run printed both "moved aside" and "restored".
+
+- **Migration test:**
+  - `test/db/migration-socks.test.ts` migrates PGlite in two phases: the earlier migrations, then rows, then the new one.
+  - A mutation run with the naive `ADD VALUE` + `UPDATE` SQL failed with "unsafe use of new value", as intended. The file was restored byte-identical.
+- **Local Docker migration:** about 12:07.
+  - Four `base_layer`/`top` rows and one shopping row were injected into `wardrobe`, then `pnpm db:migrate` ran with the Docker URL set inline.
+  - Both sock items and the sock shopping row moved; the thermal top and the tee stayed. Both enums are in the order of the TS lists, and the database records 6 migrations.
+  - The injected rows were removed.
+  - `wardrobe_e2e` was migrated by the e2e global setup.
+- **Gates** (`pnpm typecheck && pnpm lint && pnpm test && pnpm build`). All four passed each time:
+  - after Area A: 12:03:53 to 12:06:04 (167 files passed, 6 skipped; 2,711 tests passed, 8 skipped);
+  - after Area B: typecheck done 12:35:04, build done 12:37:08 (175 files passed, 6 skipped; 3,305 tests passed, 8 skipped);
+  - after Area C: 13:12:55 to 13:15:00 (175 files passed, 6 skipped; 3,468 tests passed, 8 skipped);
+  - after the Area C fixes: typecheck done 13:36:34, build done 13:38:29 (175 files passed, 6 skipped; 3,491 tests passed, 8 skipped);
+  - after the whole-feature fixes (the docs included except these last check lines): typecheck done 14:05:16, lint 14:05:32, `pnpm test` 14:05:33 to 14:06:51 (175 files passed, 6 skipped; 3,500 tests passed, 8 skipped), build done 14:07:10.
+  - **final**, after the pre-commit fixes: 18:14:25 to 18:16:39; typecheck done 18:14:36, lint 18:14:57, `pnpm test` 18:14:58 to 18:16:19 (175 files passed, 6 skipped; 3,507 tests passed, 8 skipped), build done 18:16:39.
+- **Headed e2e** (`playwright test`):
+  - `outfits`, `stats` and `a11y` after Area A, 12:07:19 to 12:08:33: 11 passed.
+  - Full suite after Area C, to 13:18:22: 85 passed, 1 skipped (the smoke spec, no Blob token).
+  - Full suite after the Area C fixes, 13:38:54 to 13:41:58: 85 passed, 1 skipped.
+  - Full suite after the whole-feature fixes, to 14:10:19: 85 passed, 1 skipped.
+  - `today` and `outfits` after the pre-commit fixes, 18:16:49 to 18:17:34: 10 passed.
+- **Opt-in Postgres tests**, 14:10:31 to 14:10:35: `TEST_DATABASE_URL=…/wardrobe_e2e`, the six `.pg.test.ts` files. 6 files, 8 tests passed.
+- **Visible-browser check**, 13:20 to 13:43. The Chrome extension was not connected, so this used headed Playwright Chromium against `next start -p 3100`. The environment was e2e-like: blank app variables, the Open-Meteo stub, Docker `wardrobe` with the demo seed and three sock items.
+  - Today's suggestion was built by the real snapshot, variety plan and strict adapter over the fixture's fake 5-candidate reply.
+  - `/today` at 1440 and 390 px, light and dark: three cards, a "Style: …" line on each, "Mid layer" and "Socks" rows in slot order, no sideways scroll.
+  - Builder: the mid-layer picker lists hoodies and sweaters first; the socks picker lists the three socks.
+  - `/wardrobe`: the Socks chip ("Socks 3").
+  - The item page: "Socks · wool socks" and Category "Socks".
+  - No console or page errors.
+  - The script's two failures were its own text locator on the item page. The screenshot shows the category.
+  - The empty-wardrobe refusal text was checked at 390 px: the button is disabled and the new text shows.
+  - The fake reply ignores the weather (linen shorts and a summer dress at 2 to 8 °C). Printing the five candidates' scores showed the ranking is sensible, but the selection only ranks Claude's candidates. Taste and weather quality depend on the live prompt (wardrobe-r67).
+  - Afterwards the demo rows, the sock items and the suggestion were removed: `wardrobe` holds 0 items and 0 analyses. Ports 3100 and 3901 were freed.
+
+### Migration and deploy state
+
+- **New migration:** `drizzle/20261105230129_socks-and-layers`. Applied to Docker `wardrobe` and `wardrobe_e2e` only. **Not applied to production.**
+- **Order for the owner's go-ahead (wardrobe-h48):**
+  1. Run `pnpm db:migrate:prod` with `.env.local` moved aside.
+  2. Do a read-only check: `item_category` has socks after shoes; `outfit_slot` has `mid_layer` and socks; the base_layer socks have moved; 6 migrations.
+  3. Push straight after.
+  - Do not roll back across this migration: old code rejects stored suggestions and outfits that hold the new slots. Roll forward instead.
+- **Committed, not pushed.** Pushing deploys, so it waits for the migration (step 3 above). The commit carries no attribution trailer (AGENTS.md).
+
+### Live checks pending
+
+wardrobe-r67 needs the owner's OK for the spend (about $0.10). It is a real "Suggest outfits" under `outfit-v3`, checking:
+- that the API accepts the schema;
+- 5 candidates and 3 kept;
+- the layering;
+- latency at effort medium;
+- `thinking_tokens` and cost against `OUTFIT_ESTIMATE`;
+- reuse on a second click;
+- "Suggest again" with a `<recent>` block and new directions.
+
+If thinking tokens approach the cap, the first lever is 4 candidates (D-258).
+
+### Owner steps
+
+1. Say whether to commit, migrate production and deploy (wardrobe-h48).
+2. Approve one paid live suggestion (wardrobe-r67).
+3. After the production migration, look over the base layers for any socks named only in Italian (wardrobe-4bn).
+
+### Next steps
+
+1. wardrobe-h48: production migration, then push straight after (the push deploys), then the wardrobe-r67 live checks. The epic wardrobe-9sm and its area tasks (.1 to .4) are closed with the commit.
+2. Follow-ups: wardrobe-9k4 (fleeces and gilets as mid layers), wardrobe-ddj (builder hint), wardrobe-1zu (chilly-day outerwear), wardrobe-imv (angle brackets in names), wardrobe-i76 (index), wardrobe-yro (batch guard), wardrobe-4bn (Italian sock names).
+3. Earlier open items are unchanged: wardrobe-8n6, wardrobe-mfl, wardrobe-sak, wardrobe-ov8, wardrobe-7kj, wardrobe-xxi.
+
 ## 2026-11-05 — Running gear, a second item collection (wardrobe-f7b)
 
 ### State

@@ -56,17 +56,32 @@ describe("slots", () => {
     expect(Object.keys(SLOT_CATEGORIES).sort()).toEqual([...OUTFIT_SLOTS].sort());
   });
 
-  it("gives every category but other exactly one slot", () => {
+  it("takes a top in the mid layer and socks in their own slot (D-253)", () => {
+    expect(SLOT_CATEGORIES.mid_layer).toEqual(["top"]);
+    expect(SLOT_CATEGORIES.socks).toEqual(["socks"]);
+  });
+
+  it("gives every category but other one home slot that takes it; only a top fits a second slot", () => {
     for (const category of ITEM_CATEGORIES) {
       const slots = OUTFIT_SLOTS.filter((slot) => SLOT_CATEGORIES[slot].includes(category));
-      expect(slots, category).toHaveLength(category === "other" ? 0 : 1);
-      expect(slotForCategory(category)).toBe(slots[0] ?? null);
+      const home = slotForCategory(category);
+      if (category === "other") {
+        expect(slots).toEqual([]);
+        expect(home).toBeNull();
+        continue;
+      }
+      expect(home, category).not.toBeNull();
+      expect(slots, category).toContain(home);
+      expect(slots, category).toHaveLength(category === "top" ? 2 : 1);
     }
+    expect(slotForCategory("top")).toBe("top");
+    expect(slotForCategory("dress")).toBe("top");
+    expect(slotForCategory("socks")).toBe("socks");
   });
 
   it("orders and labels every slot once", () => {
     expect([...SLOT_ORDER].sort()).toEqual([...OUTFIT_SLOTS].sort());
-    expect(SLOT_ORDER.slice(0, 4)).toEqual(["outerwear", "top", "base_layer", "bottom"]);
+    expect(SLOT_ORDER.slice(0, 5)).toEqual(["outerwear", "mid_layer", "top", "base_layer", "bottom"]);
     for (const slot of OUTFIT_SLOTS) expect(SLOT_LABELS[slot]).toMatch(/^[A-Z]/);
   });
 
@@ -258,9 +273,9 @@ describe("validateOutfit", () => {
   });
 
   it(`rejects more than ${MAX_OUTFIT_ITEMS} items`, () => {
-    const accessories = Array.from({ length: 11 }, () => item("accessory"));
+    const accessories = Array.from({ length: MAX_OUTFIT_ITEMS - 1 }, () => item("accessory"));
     const { entries, items } = outfit(["top", top], ["bottom", bottom], ...accessories.map((entry) => ["accessory", entry] as [OutfitSlot, OutfitCheckItem]));
-    expect(entries).toHaveLength(13);
+    expect(entries).toHaveLength(MAX_OUTFIT_ITEMS + 1);
     expect(codes(validateOutfit(entries, items))).toContain("too_many_items");
   });
 
@@ -337,8 +352,8 @@ describe("OutfitInputSchema", () => {
     ["rating 3.5", { rating: 3.5 }],
     ["1,001 characters of notes", { notes: "x".repeat(1001) }],
     ["no items", { items: [] }],
-    ["13 items", { items: Array.from({ length: 13 }, () => ({ slot: "accessory", itemId: randomUUID() })) }],
-    ["an unknown slot", { items: [{ slot: "socks", itemId: randomUUID() }] }],
+    [`${MAX_OUTFIT_ITEMS + 1} items`, { items: Array.from({ length: MAX_OUTFIT_ITEMS + 1 }, () => ({ slot: "accessory", itemId: randomUUID() })) }],
+    ["an unknown slot", { items: [{ slot: "belt", itemId: randomUUID() }] }],
     ["a non-uuid item id", { items: [{ slot: "top", itemId: "i1" }] }],
     ["an unknown key", { extra: true }],
   ])("rejects %s", (_label, change) => {

@@ -34,6 +34,7 @@ import {
   OUTFIT_SYSTEM_PROMPT,
   OutfitSuggestionResultSchema,
   OutfitSuggestionWireSchema,
+  planVariety,
   toCheckItems,
   type HomeLocation,
   type OutfitSuggestionResult,
@@ -43,21 +44,27 @@ import { canonicalJson, sha256Hex } from "@/lib/relocation/payload";
 import { AppError, CONFIG_ERROR_MESSAGE, INTERNAL_ERROR_MESSAGE } from "@/lib/result";
 import { calendarDayIn } from "@/lib/wear/contracts";
 import type { WeatherSnapshot } from "@/lib/weather/open-meteo";
+import { loadVarietyHistory } from "@/server/services/outfit-history";
 import { saveOutfit } from "@/server/services/outfits";
 import { getHomeProfile, type HomeProfileDto } from "@/server/services/settings";
 import { loadTodayWeather, type TodayWeather } from "@/server/weather";
 
-// The /today outfit suggestions (D-038, D-039): three outfits from the items at
-// home for today's forecast, chosen by Claude (MODELS.outfits) and stored as an
-// analyses row of kind outfit_suggestion, then saved as outfits or logged as
-// worn from the page.
+// The /today outfit suggestions (D-038, D-039, D-256, D-257): three outfits
+// from the items at home for today's forecast, stored as an analyses row of
+// kind outfit_suggestion, then saved as outfits or logged as worn from the
+// page. Claude (MODELS.outfits) proposes OUTFIT_CANDIDATE_COUNT (five)
+// candidates, each following a style direction planned from the wardrobe, the
+// weather and the variety history (recent, liked and disliked outfits); the
+// deterministic style check (src/lib/outfits/style) drops the unusable ones,
+// repairs layers and socks, scores the rest and keeps three.
 //
 // A suggestion costs money, so it is made only when asked and never twice by
 // accident:
 // - Without `force`, a request whose items, forecast day, prompt version,
 //   model and home city match a stored suggestion of today answers that one
 //   and calls nobody (a second click, a second tab, a page that showed
-//   "Suggest outfits" before another tab made one).
+//   "Suggest outfits" before another tab made one). The variety inputs are
+//   not part of that match (see prepare).
 // - A request is refused with CONFLICT while another one runs (its analyses
 //   row is "running" and younger than the route can live), so two tabs never
 //   pay for two calls at once.
@@ -214,6 +221,7 @@ async function toTodaySuggestion(db: Db, row: Analysis, today: string): Promise<
       title: outfit.title,
       why: outfit.why,
       rainOk: outfit.rain_ok,
+      direction: outfit.direction ?? null,
       items: entries,
       // The rule the cards show: deleted, archived or moved out of clothing (D-250).
       available: entries.every((entry) => outfitItemProblem(entry) === null),
@@ -318,10 +326,13 @@ function placeOf(profile: Pick<HomeProfileDto, "city" | "country">): string {
 }
 
 /**
- * Everything a suggestion for today depends on. The cache key covers the item
- * lines (wear counts included), the forecast day, the prompt version, the
- * model and the home city: a stored suggestion with the same key would be
- * asked for with the very same request.
+ * What a suggestion for today is reused by. The cache key covers the prompt
+ * version, the model, the home city, the forecast day and the item lines (wear
+ * counts included). The variety inputs (the history of recent, liked and
+ * disliked outfits, and the style directions planned from it) only shape a
+ * paid run and are not part of the key, so a request without `force` still
+ * answers the stored suggestion after an outfit was saved or rated; only
+ * "Suggest again" (force) asks for something new (D-257).
  */
 async function prepare(db: Db, today: TodayWeather, model: PricedModelId): Promise<Prepared> {
   const { profile, weather } = today;
@@ -373,7 +384,9 @@ export async function quoteOutfitSuggestion(
 function tooFewItems(city: string): AppError {
   return new AppError(
     "VALIDATION",
-    `Three different outfits need at least two tops or dresses, and a bottom for each top, among the tagged items in ${city} or of unknown location. Tag or confirm more items first.`,
+    "Three different outfits need more tops, dresses, bottoms, shoes or outerwear to combine: hats, scarves, gloves, " +
+      "socks, base layers and accessories do not make another outfit. Only tagged or confirmed items in " +
+      `${city} or of unknown location count. Tag or confirm more items first.`,
   );
 }
 
@@ -483,11 +496,17 @@ async function loadRow(db: Db, analysisId: string): Promise<Analysis> {
  * (UPSTREAM when it cannot be read: never outfits without weather), the
  * eligible items, the three-outfit check (VALIDATION), the stored suggestion
  * when `force` is not set, the budget (BUDGET_EXCEEDED), the API key
- * (CONFIG), the running check (CONFLICT) and the stored suggestion once more
- * under the lock, then one Claude call at effort low
- * with the strict check, which retries unknown aliases and invalid outfits.
- * A failed call marks the row failed, with every paid attempt's cost on it,
- * and is rethrown.
+ * (CONFIG), then the variety history (loadVarietyHistory) and the style
+ * directions planned from it (planVariety), so a refused request reads
+ * neither; then the running check (CONFLICT) and the stored suggestion once
+ * more under the lock, then one Claude call at effort medium for
+ * OUTFIT_CANDIDATE_COUNT candidates. Its strict check maps the aliases and
+ * runs the deterministic style check, which drops unusable candidates,
+ * repairs layers and socks, and picks three; fewer than three usable
+ * candidates is invalid output, which callStructured retries. The stored
+ * meta adds the selection's counts and the directions asked for. A failed
+ * call marks the row failed, with every paid attempt's cost on it, and is
+ * rethrown.
  */
 export async function suggestOutfits(
   db: Db,
@@ -509,6 +528,13 @@ export async function suggestOutfits(
 
   await assertWithinBudget(db, { estimateUsd: prepared.estimateUsd, now: new Date(now()) });
   const anthropic = deps.anthropic();
+  const history = await loadVarietyHistory(db, { profileId: prepared.profile.id, today: prepared.weather.date });
+  const variety = planVariety({
+    snapshot: prepared.snapshot,
+    weather: prepared.weather,
+    history,
+    profileId: prepared.profile.id,
+  });
   const start = await startRun(db, prepared, force);
   if ("stored" in start) return await toTodaySuggestion(db, start.stored, prepared.today);
   const { analysisId } = start;
@@ -524,11 +550,15 @@ export async function suggestOutfits(
             weather: prepared.weather,
             place: placeOf(prepared.profile),
             lines: prepared.snapshot.lines,
+            variety,
           }),
         },
       ],
       wire: OutfitSuggestionWireSchema,
-      strict: makeOutfitSuggestionStrictSchema(prepared.snapshot, toCheckItems(prepared.items)),
+      strict: makeOutfitSuggestionStrictSchema(prepared.snapshot, toCheckItems(prepared.items), {
+        weather: prepared.weather,
+        history,
+      }),
       effort: OUTFIT_CALL_PARAMS.effort,
       maxTokens: OUTFIT_CALL_PARAMS.maxTokens,
       maxTokensCeiling: OUTFIT_CALL_PARAMS.maxTokensCeiling,
@@ -545,8 +575,9 @@ export async function suggestOutfits(
       onAttemptCost: (usd) => addSuggestionCost(db, analysisId, usd),
     });
 
+    const { outfits: picked, report } = call.data;
     const result = OutfitSuggestionResultSchema.parse({
-      outfits: call.data.outfits,
+      outfits: picked,
       weather: prepared.weather,
       meta: {
         prompt_version: OUTFIT_PROMPT_VERSION,
@@ -554,6 +585,10 @@ export async function suggestOutfits(
         effort: OUTFIT_CALL_PARAMS.effort,
         item_count: prepared.snapshot.itemCount,
         dropped_count: prepared.snapshot.droppedCount,
+        candidate_count: report.received,
+        dropped_candidates: Object.values(report.dropped).reduce((sum, count) => sum + (count ?? 0), 0),
+        repaired_candidates: report.repaired,
+        directions: [...variety.directions],
       },
     } satisfies OutfitSuggestionResult);
     await db

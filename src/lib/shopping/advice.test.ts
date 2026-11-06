@@ -214,6 +214,11 @@ const PINNED = {
     system: "5ffc55ebcf9497a6bbe1c4acfc4c76f12877f4c5bb86badf5afd5707c4e59ddc",
     templates: "ec11c6bd184f682b2efb6e1c580c136819a798d4552369ca74a8ae53c5d8e0e0",
   },
+  // Socks, a category of their own since D-253, are named among the pieces that unlock 0.
+  "shop-v3": {
+    system: "6cf2bb9c346802058279372bb036c801820d10aba4a32656ffebc6b5dbc97b07",
+    templates: "ec11c6bd184f682b2efb6e1c580c136819a798d4552369ca74a8ae53c5d8e0e0",
+  },
 } as const;
 
 function renderTemplates(): string {
@@ -227,7 +232,7 @@ function renderTemplates(): string {
 
 describe("SHOPPING_PROMPT_VERSION", () => {
   it("pins the system prompt for its version", () => {
-    expect(SHOPPING_PROMPT_VERSION).toBe("shop-v2");
+    expect(SHOPPING_PROMPT_VERSION).toBe("shop-v3");
     expect(sha256(SHOPPING_SYSTEM_PROMPT)).toBe(PINNED[SHOPPING_PROMPT_VERSION].system);
   });
 

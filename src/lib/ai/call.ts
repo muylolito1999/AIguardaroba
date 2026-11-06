@@ -349,7 +349,9 @@ function validateOptions(options: CallStructuredOptions<unknown>, ceiling: numbe
  * strict-validated data with the summed cost of all attempts. Throws AppError:
  * AI_REFUSAL, AI_INVALID_OUTPUT, AI_UNAVAILABLE, AI_TIMEOUT, CONFIG (rejected
  * key or unknown model) or INTERNAL. An AppError raised inside an attempt
- * (such as CONFIG from env) is rethrown unchanged.
+ * (such as CONFIG from env) is rethrown unchanged. An exception thrown while
+ * the strict schema checks a reply ends the call without a retry, after the
+ * paid attempt is logged and reported: INTERNAL, or the AppError itself.
  */
 export async function callStructured<T>(options: CallStructuredOptions<T>): Promise<CallStructuredResult<T>> {
   const { deps } = options;
@@ -407,13 +409,28 @@ export async function callStructured<T>(options: CallStructuredOptions<T>): Prom
       const { message, requestId } = outcome;
       const usage = usageColumns(options.model, message.usage);
       totalCostUsd += usage.costUsd;
-      const reply = readStructuredReply(message, options.strict);
+      const paid = { ...row, ...usage, stopReason: message.stop_reason, requestId };
+      let reply: StructuredReply<T>;
+      try {
+        reply = readStructuredReply(message, options.strict);
+      } catch (error) {
+        // A strict schema may run app code in a transform (the outfit
+        // suggestion's selection does), and zod lets an exception thrown there
+        // escape safeParse. The attempt was paid for, so it is still logged and
+        // charged; it is not retried, as the same check would throw again.
+        await log({
+          ...paid,
+          status: "error",
+          errorCode: "check_failed",
+          errorMessage: error instanceof Error ? error.message : String(error),
+        });
+        await options.onAttemptCost?.(usage.costUsd);
+        if (error instanceof AppError) throw error;
+        throw new AppError("INTERNAL", "Claude's reply could not be checked.", { attempts: attempt }, { cause: error });
+      }
       await log({
-        ...row,
-        ...usage,
+        ...paid,
         status: replyCallStatus(reply),
-        stopReason: message.stop_reason,
-        requestId,
         errorCode: reply.kind === "ok" ? null : reply.kind,
         errorMessage: replyDetail(reply),
       });

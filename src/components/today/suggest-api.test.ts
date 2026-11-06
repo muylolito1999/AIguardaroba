@@ -34,6 +34,7 @@ const SUGGESTION: TodaySuggestionDto = {
       index: 0,
       title: "Layered for drizzle",
       why: "Feels like 2 to 8 °C.",
+      direction: "knit_layers",
       rainOk: true,
       items: [
         {

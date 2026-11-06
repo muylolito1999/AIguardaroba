@@ -6,7 +6,14 @@ import { z } from "zod"
 
 import { relations } from "@/lib/db/relations"
 import { aiCalls, analyses, appSettings, climateProfiles, items, outfitItems, outfits, wearLogs } from "@/lib/db/schema"
-import { OUTFIT_PROMPT_VERSION } from "@/lib/outfits/suggestion"
+import { SLOT_LABELS } from "@/lib/outfits/contracts"
+import { directionLabel } from "@/lib/outfits/style/directions"
+import {
+  OUTFIT_CALL_PARAMS,
+  OUTFIT_CANDIDATE_COUNT,
+  OUTFIT_PROMPT_VERSION,
+  type SuggestedOutfit,
+} from "@/lib/outfits/suggestion"
 import { calendarDayIn } from "@/lib/wear/contracts"
 
 import { makeImage } from "../test/factories"
@@ -30,13 +37,16 @@ import { OPEN_METEO_STUB_URL } from "./open-meteo-stub"
 //   and on a desktop only the open page's own row says "page";
 // - without an API key, "Suggest outfits" shows the configuration error and
 //   no Claude call is logged;
-// - a complete suggestion for today, inserted as if Claude had answered,
-//   shows three cards; Save makes an outfit and "Wore this today" logs the
-//   items, with Undo, and the Undo toast leaves the last card's Save free;
+// - a complete outfit-v3 suggestion for today, inserted as if Claude had
+//   answered (five candidates, three kept, the style directions and the
+//   selection's counts in its meta), shows three cards, each with its style
+//   direction, and a card with a mid layer and socks lists both rows; Save
+//   makes an outfit and "Wore this today" logs the items, with Undo, and the
+//   Undo toast leaves the last card's Save free;
 // - a card whose item was moved to running gear since badges it and offers
 //   neither Save nor "Wore this today" (D-250); the item is moved back after;
 // - Settings, Home city moves /today to Hamburg (and back).
-// A wardrobe of 17 items (the shared outfit fixtures, located in Bologna) is
+// A wardrobe of 20 items (the shared outfit fixtures, located in Bologna) is
 // inserted straight into wardrobe_e2e; it and everything made from it are
 // deleted in afterAll, and the home city is put back.
 
@@ -232,7 +242,7 @@ test("without an API key, Suggest outfits shows the configuration error and logs
   const before = await callCount()
 
   const suggest = page.getByRole("button", { name: "Suggest outfits" })
-  // At least this spec's 17 items; another spec's leftovers would only add to them.
+  // At least this spec's 20 items; another spec's leftovers would only add to them.
   await expect(page.locator(`#${await suggest.getAttribute("aria-describedby")}`)).toContainText(
     /\d+ items in Bologna or of unknown location/
   )
@@ -246,13 +256,30 @@ test("without an API key, Suggest outfits shows the configuration error and logs
   expect(stored).toHaveLength(0)
 })
 
-/** A complete suggestion for today in Bologna, inserted as if Claude had answered; deleted in afterAll. */
+/**
+ * A complete outfit-v3 suggestion for today in Bologna, inserted as if Claude
+ * had answered; deleted in afterAll. The fixture result runs the real strict
+ * adapter and style check over five candidates, so its outfits carry their
+ * directions and its meta the selection's counts; the knit and the repaired
+ * hoodie are kept as mid layers, with socks in the boots. The outfits are
+ * chosen for the fixture's own day (3 November), so the season of the day the
+ * spec runs cannot change the picks, and stored with today's forecast.
+ */
 async function insertTodaySuggestion() {
   const today = todayIn("Europe/Rome")
-  const result = makeOutfitSuggestionResult(
-    wardrobe,
-    makeWeatherSnapshot({ date: today, timezone: "Europe/Rome", fetchedAt: new Date().toISOString() })
-  )
+  const chosen = makeOutfitSuggestionResult(wardrobe, makeWeatherSnapshot({ timezone: "Europe/Rome" }))
+  const result = {
+    ...chosen,
+    weather: makeWeatherSnapshot({ date: today, timezone: "Europe/Rome", fetchedAt: new Date().toISOString() }),
+  }
+  // What the card assertions rely on; a fixture change that loses it should fail here, not at a locator.
+  if (result.meta.directions?.length !== OUTFIT_CANDIDATE_COUNT || result.meta.candidate_count !== OUTFIT_CANDIDATE_COUNT) {
+    throw new Error("The fixture result is not an outfit-v3 result of five candidates")
+  }
+  if (result.outfits.some((outfit) => directionLabel(outfit.direction) === null)) {
+    throw new Error("Every fixture outfit needs a known style direction")
+  }
+  if (layeredOutfit(result.outfits) === undefined) throw new Error("No fixture outfit has a mid layer and socks")
   const [row] = await db
     .insert(analyses)
     .values({
@@ -263,7 +290,7 @@ async function insertTodaySuggestion() {
       dateTo: today,
       params: { force: false, savedOutfitIds: [null, null, null] },
       model: "claude-sonnet-5-5",
-      effort: "low",
+      effort: OUTFIT_CALL_PARAMS.effort,
       promptVersion: OUTFIT_PROMPT_VERSION,
       result,
       costUsd: 0.04,
@@ -273,6 +300,20 @@ async function insertTodaySuggestion() {
   if (row === undefined) throw new Error("no analysis")
   analysisIds.push(row.id)
   return { row, result, today }
+}
+
+/** The first outfit with both a mid layer and socks. */
+function layeredOutfit(list: readonly SuggestedOutfit[]): SuggestedOutfit | undefined {
+  return list.find(
+    (outfit) => outfit.items.some((entry) => entry.slot === "mid_layer") && outfit.items.some((entry) => entry.slot === "socks")
+  )
+}
+
+/** The fixture name of an item, as the card shows it. */
+function itemName(itemId: string | undefined): string {
+  const name = wardrobe.find((item) => item.id === itemId)?.name
+  if (name === undefined || name === null) throw new Error(`No fixture item ${itemId ?? "(none)"}`)
+  return name
 }
 
 test("a stored suggestion for today shows three cards; Save makes an outfit and Wore this today logs it", async ({
@@ -290,6 +331,26 @@ test("a stored suggestion for today shows three cards; Save makes an outfit and 
   const firstCard = page.getByRole("article", { name: first.title })
   await expect(firstCard).toContainText(first.why)
   await expectNoHorizontalScroll(page)
+
+  // Each card names its style direction (D-256).
+  for (const outfit of result.outfits) {
+    const label = directionLabel(outfit.direction)
+    if (label === null) throw new Error(`No direction on ${outfit.title}`)
+    await expect(page.getByRole("article", { name: outfit.title }).getByText(`Style: ${label}`, { exact: true })).toBeVisible()
+  }
+  // A layered card lists its mid layer and its socks under their slot names.
+  const layered = layeredOutfit(result.outfits)
+  if (layered === undefined) throw new Error("No outfit with a mid layer and socks")
+  const layeredRows = page
+    .getByRole("article", { name: layered.title })
+    .getByRole("list", { name: `Items in ${layered.title}` })
+    .getByRole("listitem")
+  for (const slot of ["mid_layer", "socks"] as const) {
+    const entry = layered.items.find((item) => item.slot === slot)
+    const row = layeredRows.filter({ hasText: itemName(entry?.itemId) })
+    await expect(row).toHaveCount(1)
+    await expect(row).toContainText(SLOT_LABELS[slot])
+  }
 
   // Save makes an outfit of source ai, once.
   await firstCard.getByRole("button", { name: `Save ${first.title}` }).click()

@@ -2,15 +2,19 @@ import { randomUUID } from "node:crypto";
 
 import type { ItemCategory, ItemDecision, OutfitSlot } from "@/lib/db/enums";
 import { slotForCategory } from "@/lib/outfits/contracts";
+import { EMPTY_HISTORY, type DirectionKey, type VarietyHistory } from "@/lib/outfits/style/types";
 import {
   buildSuggestionSnapshot,
   makeOutfitSuggestionStrictSchema,
   OUTFIT_CALL_PARAMS,
+  OUTFIT_CANDIDATE_COUNT,
   OUTFIT_PROMPT_VERSION,
+  OUTFIT_SUGGESTION_COUNT,
   toCheckItems,
   type OutfitSuggestionResult,
   type OutfitSuggestionWire,
   type SuggestionItemInput,
+  type SuggestionLine,
   type SuggestionSnapshot,
 } from "@/lib/outfits/suggestion";
 import type { ShoppingAdviceWire } from "@/lib/shopping/advice";
@@ -48,9 +52,11 @@ type Template = Pick<
 
 /**
  * A small, complete wardrobe for a Hamburg autumn: every slot has at least
- * one item, and the keys name them for readable tests. Each template also
- * satisfies items_tagged_complete_check once `condition` is added (the
- * builders add "good").
+ * one item, and the keys name them for readable tests. The tops cover the
+ * layering roles (a tee and an oxford to wear underneath, a crew-neck sweater
+ * and a hoodie to wear over them), and two pairs of socks go with the closed
+ * shoes. Each template also satisfies items_tagged_complete_check once
+ * `condition` is added (the builders add "good").
  */
 export const OUTFIT_TEMPLATES = {
   shell: { name: "Navy waterproof shell jacket", category: "outerwear", subcategory: "rain jacket", colors: ["navy"], materials: ["polyester"], warmthLevel: 2, waterproof: true, windproof: true, insulated: false, breathable: true, seasons: ["spring", "autumn"], formality: "casual" },
@@ -60,11 +66,15 @@ export const OUTFIT_TEMPLATES = {
   tee: { name: "White cotton t-shirt", category: "top", subcategory: "t-shirt", colors: ["white"], materials: ["cotton"], warmthLevel: 1, waterproof: false, windproof: false, insulated: false, breathable: true, seasons: ["spring", "summer"], formality: "casual" },
   oxford: { name: "Light blue oxford shirt", category: "top", subcategory: "shirt", colors: ["light blue"], materials: ["cotton"], warmthLevel: 2, waterproof: false, windproof: false, insulated: false, breathable: true, seasons: ["spring", "summer", "autumn"], formality: "smart_casual" },
   sweater: { name: "Grey merino crew-neck sweater", category: "top", subcategory: "sweater", colors: ["grey"], materials: ["merino"], warmthLevel: 3, waterproof: false, windproof: false, insulated: false, breathable: true, seasons: ["winter", "spring", "autumn"], formality: "smart_casual" },
+  // A light cotton hoodie (w2): worn over the tee, never alone on bare skin.
+  hoodie: { name: "Grey lightweight cotton hoodie", category: "top", subcategory: "hoodie", colors: ["grey"], materials: ["cotton"], warmthLevel: 2, waterproof: false, windproof: false, insulated: false, breathable: true, seasons: ["spring", "autumn"], formality: "casual" },
   dress: { name: "Black wool shift dress", category: "dress", subcategory: "shift dress", colors: ["black"], materials: ["wool"], warmthLevel: 2, waterproof: false, windproof: false, insulated: false, breathable: null, seasons: ["winter", "autumn"], formality: "business" },
   jeans: { name: "Dark blue slim jeans", category: "bottom", subcategory: "jeans", colors: ["dark blue"], materials: ["denim", "elastane"], warmthLevel: 2, waterproof: false, windproof: false, insulated: false, breathable: null, seasons: ["winter", "spring", "autumn"], formality: "casual" },
   chinos: { name: "Stone cotton chinos", category: "bottom", subcategory: "chinos", colors: ["stone"], materials: ["cotton"], warmthLevel: 2, waterproof: false, windproof: false, insulated: false, breathable: true, seasons: ["spring", "summer", "autumn"], formality: "smart_casual" },
   boots: { name: "Brown waterproof leather boots", category: "shoes", subcategory: "chelsea boots", colors: ["brown"], materials: ["leather", "rubber"], warmthLevel: 3, waterproof: true, windproof: true, insulated: false, breathable: null, seasons: ["winter", "spring", "autumn"], formality: "smart_casual" },
   sneakers: { name: "White canvas sneakers", category: "shoes", subcategory: "sneakers", colors: ["white"], materials: ["canvas", "rubber"], warmthLevel: 1, waterproof: false, windproof: false, insulated: false, breathable: true, seasons: ["spring", "summer"], formality: "casual" },
+  woolSocks: { name: "Charcoal merino wool socks", category: "socks", subcategory: "wool socks", colors: ["charcoal"], materials: ["merino", "polyamide"], warmthLevel: 3, waterproof: false, windproof: false, insulated: false, breathable: true, seasons: ["winter", "autumn"], formality: "casual" },
+  dressSocks: { name: "Navy cotton dress socks", category: "socks", subcategory: "dress socks", colors: ["navy"], materials: ["cotton", "elastane"], warmthLevel: 1, waterproof: false, windproof: false, insulated: false, breathable: true, seasons: ["winter", "spring", "summer", "autumn"], formality: "business" },
   beanie: { name: "Charcoal ribbed wool beanie", category: "hat_beanie", subcategory: "beanie", colors: ["charcoal"], materials: ["wool"], warmthLevel: 3, waterproof: false, windproof: false, insulated: false, breathable: true, seasons: ["winter", "autumn"], formality: "casual" },
   gloves: { name: "Black leather gloves", category: "gloves", subcategory: "gloves", colors: ["black"], materials: ["leather", "wool"], warmthLevel: 3, waterproof: false, windproof: true, insulated: true, breathable: null, seasons: ["winter"], formality: "smart_casual" },
   scarf: { name: "Camel wool scarf", category: "scarf", subcategory: "scarf", colors: ["camel"], materials: ["wool"], warmthLevel: 3, waterproof: false, windproof: false, insulated: false, breathable: true, seasons: ["winter", "autumn"], formality: "smart_casual" },
@@ -92,6 +102,9 @@ export function makeOutfitItem(overrides: Partial<OutfitFixtureItem> = {}): Outf
     materials: [...template.materials],
     seasons: [...template.seasons],
     materialGuess: null,
+    colorHex: [],
+    pattern: null,
+    fit: null,
     condition: "good",
     status: "confirmed",
     location: "hamburg",
@@ -184,62 +197,211 @@ export function makeWeatherSnapshot(overrides: Partial<WeatherSnapshot> = {}): W
 // Outfit suggestions
 // ---------------------------------------------------------------------------
 
-type PickedOutfit = { slot: OutfitSlot; alias: string }[];
+/** An outfit as Claude names it: aliases by slot. */
+export type PickedOutfit = { slot: OutfitSlot; alias: string }[];
+
+/** The directions fakeOutfitSuggestionReply follows unless told otherwise, one per candidate pickCandidateOutfits builds. */
+export const FAKE_DIRECTIONS: readonly DirectionKey[] = [
+  "knit_layers",
+  "smart_collar",
+  "sporty_clean",
+  "dress_led",
+  "classic_balanced",
+];
+
+const FAKE_TITLES = ["Layered for drizzle", "Smart and dry", "Light and quick", "Dress for a grey day", "Clean and simple"];
+
+/** The candidate pickCandidateOutfits leaves for the selection to repair: a hoodie alone in top, closed shoes without socks. */
+export const REPAIR_CANDIDATE_INDEX = 2;
 
 /**
- * Three different valid outfits from a snapshot's lines: tops with bottoms
- * and dresses (alone), each with the first shoes, then with each outerwear,
- * taken in that order until three distinct sets exist. Throws when the lines
- * cannot make three.
+ * Up to `count` different outfits from a snapshot's lines, built the way a
+ * stylist would, in this order when the wardrobe allows:
+ * 0. a knit (the hoodie when there is no other mid top) over the second base
+ *    top (the oxford in the fixture wardrobe), or a mid top alone when there
+ *    is no base top, with the first outerwear, bottom and shoes;
+ * 1. a base top alone with the second outerwear, bottom and shoes;
+ * 2. (REPAIR_CANDIDATE_INDEX) a hoodie or sweatshirt ALONE in the top slot
+ *    with the first bottom, closed shoes and no socks, under the third
+ *    outerwear: the selection moves the hoodie to mid_layer, puts a tee under
+ *    it and adds socks;
+ * 3. the first dress with the second outerwear and the first shoes;
+ * 4. the first base top with the second bottom, the second shoes and the
+ *    first outerwear.
+ * Then base tops with bottoms, and dresses, under no outerwear and then each
+ * outerwear, until `count` distinct item sets exist. Closed shoes get socks
+ * (except in the repair candidate), others none. Throws when the lines cannot
+ * make OUTFIT_SUGGESTION_COUNT different outfits.
  */
-export function pickThreeOutfits(snapshot: Pick<SuggestionSnapshot, "lines">): PickedOutfit[] {
-  const by = (category: ItemCategory) => snapshot.lines.filter((line) => line.category === category).map((line) => line.alias);
-  const bases: PickedOutfit[] = [
-    ...by("top").flatMap((top) =>
-      by("bottom").map((bottom) => [
-        { slot: "top" as const, alias: top },
-        { slot: "bottom" as const, alias: bottom },
-      ]),
-    ),
-    ...by("dress").map((dress) => [{ slot: "top" as const, alias: dress }]),
-  ];
-  const shoes = by("shoes").slice(0, 1).map((alias) => ({ slot: "shoes" as const, alias }));
-  const outers: (PickedOutfit[number] | null)[] = [null, ...by("outerwear").map((alias) => ({ slot: "outerwear" as const, alias }))];
+export function pickCandidateOutfits(
+  snapshot: Pick<SuggestionSnapshot, "lines">,
+  count: number = OUTFIT_CANDIDATE_COUNT,
+): PickedOutfit[] {
+  const kit = fixtureKit(snapshot.lines);
   const picks: PickedOutfit[] = [];
-  for (const outer of outers) {
-    for (const base of bases) {
-      if (picks.length === 3) return picks;
-      picks.push([...(outer === null ? [] : [outer]), ...base, ...shoes]);
-    }
+  const seen = new Set<string>();
+  for (const outfit of [...designedOutfits(kit), ...fallbackOutfits(kit)]) {
+    if (picks.length >= count) break;
+    const key = outfit
+      .map((entry) => entry.alias)
+      .sort((a, b) => a.localeCompare(b))
+      .join(",");
+    if (seen.has(key)) continue;
+    seen.add(key);
+    picks.push(outfit);
   }
-  if (picks.length < 3) throw new Error("pickThreeOutfits: the snapshot cannot make three outfits");
+  if (picks.length < Math.min(count, OUTFIT_SUGGESTION_COUNT)) {
+    throw new Error(`pickCandidateOutfits: the snapshot cannot make ${OUTFIT_SUGGESTION_COUNT} outfits`);
+  }
   return picks;
 }
 
-/** A valid wire reply for a snapshot (3 distinct outfits). Change the returned object to test failures. */
-export function fakeOutfitSuggestionReply(snapshot: Pick<SuggestionSnapshot, "lines">): OutfitSuggestionWire {
+/** The lines by what an outfit does with them. */
+type FixtureKit = {
+  /** Tops whose layer role is base or either. */
+  bases: SuggestionLine[];
+  /** Tops whose layer role is mid. */
+  mids: SuggestionLine[];
+  /** The first mid top whose subcategory says hoodie or sweatshirt. */
+  hoodie: SuggestionLine | undefined;
+  /** The other mid tops. */
+  knits: SuggestionLine[];
+  bottoms: SuggestionLine[];
+  dresses: SuggestionLine[];
+  shoes: SuggestionLine[];
+  socks: SuggestionLine[];
+  outers: SuggestionLine[];
+};
+
+function fixtureKit(lines: readonly SuggestionLine[]): FixtureKit {
+  const of = (category: ItemCategory) => lines.filter((line) => line.category === category);
+  const tops = of("top");
+  const mids = tops.filter((line) => line.role === "mid");
+  // By subcategory: "sweater" must not read as a sweatshirt.
+  const hoodie = mids.find((line) => /^i\d+\|top\/[^|]*(?:hood|sweat ?shirt)/i.test(line.text));
   return {
-    outfits: pickThreeOutfits(snapshot).map((items, index) => ({
-      title: ["Layered for drizzle", "Smart and dry", "Light and quick"][index] ?? `Outfit ${index + 1}`,
-      items: items.map(({ slot, alias }) => ({ slot, item: alias })),
-      why: "Feels like 2 to 8 °C with an 80 % chance of rain: a waterproof layer over a warm mid layer, and boots that stay dry.",
-      rain_ok: index === 0,
-    })),
+    bases: tops.filter((line) => line.role !== "mid"),
+    mids,
+    hoodie,
+    knits: mids.filter((line) => line !== hoodie),
+    bottoms: of("bottom"),
+    dresses: of("dress"),
+    shoes: of("shoes"),
+    socks: of("socks"),
+    outers: of("outerwear"),
+  };
+}
+
+/** The line at `index`, wrapping around; undefined for an empty list. */
+function at(list: readonly SuggestionLine[], index: number): SuggestionLine | undefined {
+  return list.length === 0 ? undefined : list[index % list.length];
+}
+
+function put(slot: OutfitSlot, line: SuggestionLine | undefined): PickedOutfit {
+  return line === undefined ? [] : [{ slot, alias: line.alias }];
+}
+
+/** Shoes number `index`, with socks number `index` when they are closed. */
+function feet(kit: FixtureKit, index: number): PickedOutfit {
+  const shoe = at(kit.shoes, index);
+  const sock = shoe?.feet === "closed" ? at(kit.socks, index) : undefined;
+  return [...put("shoes", shoe), ...put("socks", sock)];
+}
+
+/** The five outfits pickCandidateOutfits describes, those the wardrobe allows. */
+function designedOutfits(kit: FixtureKit): PickedOutfit[] {
+  const { bases, mids, hoodie, knits, bottoms, dresses, shoes, outers } = kit;
+  const outfits: PickedOutfit[] = [];
+  if (bottoms.length > 0 && bases.length + mids.length > 0) {
+    // A knit over a base top; a mid top alone only when there is no base top.
+    const torso =
+      bases.length === 0 ? put("top", at(mids, 0)) : [...put("mid_layer", knits[0] ?? hoodie), ...put("top", at(bases, 1))];
+    outfits.push([...put("outerwear", at(outers, 0)), ...torso, ...put("bottom", at(bottoms, 0)), ...feet(kit, 0)]);
+  }
+  if (bottoms.length > 0 && bases.length > 0) {
+    outfits.push([...put("outerwear", at(outers, 1)), ...put("top", at(bases, 1)), ...put("bottom", at(bottoms, 1)), ...feet(kit, 1)]);
+  }
+  if (hoodie !== undefined && bottoms.length > 0) {
+    outfits.push([
+      ...put("outerwear", at(outers, 2)),
+      ...put("top", hoodie),
+      ...put("bottom", at(bottoms, 0)),
+      ...put("shoes", shoes.find((line) => line.feet === "closed") ?? at(shoes, 0)),
+    ]);
+  }
+  if (dresses.length > 0) {
+    outfits.push([...put("outerwear", at(outers, 1)), ...put("top", at(dresses, 0)), ...feet(kit, 0)]);
+  }
+  if (bottoms.length > 0 && bases.length > 0) {
+    outfits.push([...put("outerwear", at(outers, 0)), ...put("top", at(bases, 0)), ...put("bottom", at(bottoms, 1)), ...feet(kit, 1)]);
+  }
+  return outfits;
+}
+
+/** Base tops with bottoms, then dresses, under no outerwear and then under each outerwear, with the first shoes. */
+function fallbackOutfits(kit: FixtureKit): PickedOutfit[] {
+  const outfits: PickedOutfit[] = [];
+  for (const outer of [undefined, ...kit.outers]) {
+    for (const base of kit.bases) {
+      for (const bottom of kit.bottoms) {
+        outfits.push([...put("outerwear", outer), ...put("top", base), ...put("bottom", bottom), ...feet(kit, 0)]);
+      }
+    }
+    for (const dress of kit.dresses) outfits.push([...put("outerwear", outer), ...put("top", dress), ...feet(kit, 0)]);
+  }
+  return outfits;
+}
+
+/**
+ * A wire reply for a snapshot: pickCandidateOutfits (5 candidates unless
+ * `count` says otherwise), each following directions[index] (FAKE_DIRECTIONS
+ * by default), rain_ok when its outerwear is waterproof or waterproof shoes
+ * go with outerwear. The strict adapter keeps at least
+ * OUTFIT_SUGGESTION_COUNT of them on the fixture wardrobe. Change the
+ * returned object to test failures.
+ */
+export function fakeOutfitSuggestionReply(
+  snapshot: Pick<SuggestionSnapshot, "lines">,
+  options: { directions?: readonly DirectionKey[]; count?: number } = {},
+): OutfitSuggestionWire {
+  const directions = options.directions ?? FAKE_DIRECTIONS;
+  const lineOf = new Map(snapshot.lines.map((line) => [line.alias, line]));
+  const waterproof = (entry: PickedOutfit[number] | undefined) =>
+    entry !== undefined && /\|wp1 /.test(lineOf.get(entry.alias)?.text ?? "");
+  return {
+    outfits: pickCandidateOutfits(snapshot, options.count ?? OUTFIT_CANDIDATE_COUNT).map((items, index) => {
+      const outer = items.find((entry) => entry.slot === "outerwear");
+      const shoes = items.find((entry) => entry.slot === "shoes");
+      return {
+        direction: directions[index] ?? directions[index % Math.max(directions.length, 1)] ?? "classic_balanced",
+        title: FAKE_TITLES[index] ?? `Outfit ${index + 1}`,
+        items: items.map(({ slot, alias }) => ({ slot, item: alias })),
+        why: "Feels like 2 to 8 °C with an 80 % chance of rain: a waterproof layer over a warm mid layer, and boots that stay dry.",
+        rain_ok: waterproof(outer) || (outer !== undefined && waterproof(shoes)),
+      };
+    }),
   };
 }
 
 /**
  * A stored suggestion result for these items and this weather: the snapshot,
- * a fake reply and the strict schema, exactly as the service would build it.
+ * a fake reply and the strict adapter with the given history (none by
+ * default), exactly as the service would build it, the selection's numbers
+ * and the reply's directions included.
  */
 export function makeOutfitSuggestionResult(
   items: readonly OutfitFixtureItem[],
   weather: WeatherSnapshot = makeWeatherSnapshot(),
   model = "claude-sonnet-5-5",
+  options: { history?: VarietyHistory; directions?: readonly DirectionKey[] } = {},
 ): OutfitSuggestionResult {
   const snapshot = buildSuggestionSnapshot(items, weather);
-  const strict = makeOutfitSuggestionStrictSchema(snapshot, toCheckItems(items));
-  const parsed = strict.parse(fakeOutfitSuggestionReply(snapshot));
+  const reply = fakeOutfitSuggestionReply(snapshot, options.directions === undefined ? {} : { directions: options.directions });
+  const strict = makeOutfitSuggestionStrictSchema(snapshot, toCheckItems(items), {
+    weather,
+    history: options.history ?? EMPTY_HISTORY,
+  });
+  const parsed = strict.parse(reply);
   return {
     outfits: parsed.outfits,
     weather,
@@ -249,6 +411,10 @@ export function makeOutfitSuggestionResult(
       effort: OUTFIT_CALL_PARAMS.effort,
       item_count: snapshot.itemCount,
       dropped_count: snapshot.droppedCount,
+      candidate_count: parsed.report.received,
+      dropped_candidates: Object.values(parsed.report.dropped).reduce((sum, count) => sum + (count ?? 0), 0),
+      repaired_candidates: parsed.report.repaired,
+      directions: reply.outfits.map((outfit) => outfit.direction),
     },
   };
 }

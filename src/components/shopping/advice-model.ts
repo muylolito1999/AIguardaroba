@@ -13,7 +13,7 @@ export type AdviceSource = (typeof ADVICE_SOURCES)[number]
 
 /**
  * The categories the outfit count is made of (combinatorics.ts): a candidate
- * of any other category (a base layer, a hat, a bag) always unlocks 0, which
+ * of any other category (a base layer, socks, a hat, a bag) always unlocks 0, which
  * the panel says instead of showing zeros.
  */
 export const COUNTED_CATEGORIES: readonly ItemCategory[] = ["top", "bottom", "dress", "shoes", "outerwear"]

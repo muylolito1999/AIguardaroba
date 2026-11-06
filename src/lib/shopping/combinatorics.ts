@@ -15,7 +15,7 @@
 //   piece may have, so it fits when some level would;
 // - rain: in a rainy scenario the outerwear or the shoes are waterproof (an
 //   unknown flag counts as not waterproof).
-// Layers, hats, gloves, scarves and accessories are not part of the count, so
+// Layers, socks, hats, gloves, scarves and accessories are not part of the count, so
 // a candidate of those categories unlocks 0 by definition.
 
 import type { ClimateMonth } from "@/lib/climate/types";
@@ -306,8 +306,12 @@ export function scenariosFromProfile(profile: { city: string; months: readonly C
 // Candidates from the shopping list
 // ---------------------------------------------------------------------------
 
-/** Tested in order; the first match wins. A "dress shirt" is a top, a "shirt dress" a dress. */
+/**
+ * Tested in order; the first match wins. A "dress shirt" is a top, a "shirt
+ * dress" a dress, and "boot socks" or "thermal socks" are socks.
+ */
 const CATEGORY_RULES: ReadonlyArray<[ItemCategory, RegExp]> = [
+  ["socks", /\b(socks?|sock liners?)\b/],
   ["base_layer", /\b(base ?layers?|baselayers?|thermal (tops?|bottoms?|underwear|leggings)|long johns)\b/],
   ["outerwear", /\b(jackets?|coats?|parkas?|shells?|anoraks?|raincoats?|windbreakers?|puffers?|gilets?)\b/],
   ["shoes", /\b(boots?|shoes?|sneakers?|trainers?|loafers?|sandals?|footwear|wellies|wellingtons)\b/],

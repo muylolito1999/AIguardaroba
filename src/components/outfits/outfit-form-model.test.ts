@@ -6,6 +6,7 @@ import type { OutfitDetailDto, OutfitItemDto, SlotCandidateDto } from "@/lib/out
 import {
   checkForm,
   itemInfoFrom,
+  orderCandidates,
   serverErrorsFrom,
   toOutfitInput,
   valuesFromOutfit,
@@ -19,6 +20,8 @@ const BOTTOM = "33333333-3333-4333-8333-333333333333"
 const BELT = "44444444-4444-4444-8444-444444444444"
 const ARCHIVED = "55555555-5555-4555-8555-555555555555"
 const RUNNING = "66666666-6666-4666-8666-666666666666"
+const HOODIE = "77777777-7777-4777-8777-777777777777"
+const SOCKS = "88888888-8888-4888-8888-888888888888"
 
 function candidate(id: string, category: SlotCandidateDto["category"], name: string): SlotCandidateDto {
   return {
@@ -38,9 +41,11 @@ function candidate(id: string, category: SlotCandidateDto["category"], name: str
 
 const EMPTY: Record<OutfitSlot, SlotCandidateDto[]> = {
   outerwear: [],
+  mid_layer: [],
   base_layer: [],
   top: [],
   bottom: [],
+  socks: [],
   shoes: [],
   hat: [],
   gloves: [],
@@ -50,8 +55,10 @@ const EMPTY: Record<OutfitSlot, SlotCandidateDto[]> = {
 
 const CANDIDATES: Record<OutfitSlot, SlotCandidateDto[]> = {
   ...EMPTY,
-  top: [candidate(TOP, "top", "Grey sweater"), candidate(DRESS, "dress", "Black dress")],
+  mid_layer: [candidate(TOP, "top", "Grey sweater"), candidate(HOODIE, "top", "Hoodie")],
+  top: [candidate(TOP, "top", "Grey sweater"), candidate(HOODIE, "top", "Hoodie"), candidate(DRESS, "dress", "Black dress")],
   bottom: [candidate(BOTTOM, "bottom", "Jeans")],
+  socks: [candidate(SOCKS, "socks", "Wool socks")],
   accessory: [candidate(BELT, "accessory", "Belt")],
 }
 
@@ -123,6 +130,32 @@ describe("outfit form model", () => {
       info
     )
     expect(wrong).toMatchObject({ ok: false, slots: { bottom: expect.arrayContaining(["This item does not belong in the bottom slot."]) } })
+  })
+
+  it("takes a top as the mid layer over another top, and socks, but one item only once (D-253)", () => {
+    const info = itemInfoFrom(CANDIDATES, [])
+    const layered = [
+      { slot: "top" as const, itemId: TOP },
+      { slot: "mid_layer" as const, itemId: HOODIE },
+      { slot: "bottom" as const, itemId: BOTTOM },
+      { slot: "socks" as const, itemId: SOCKS },
+    ]
+    expect(checkForm(values({ entries: layered }), info)).toMatchObject({ ok: true })
+
+    // The top's item is not added to the mid layer as well.
+    const top = [{ slot: "top" as const, itemId: TOP }]
+    expect(withItem(top, "mid_layer", TOP)).toEqual(top)
+    const twice = checkForm(
+      values({
+        entries: [
+          { slot: "top", itemId: TOP },
+          { slot: "mid_layer", itemId: TOP },
+          { slot: "bottom", itemId: BOTTOM },
+        ],
+      }),
+      info
+    )
+    expect(twice).toEqual({ ok: false, fields: {}, slots: { mid_layer: ["An item can be in an outfit only once."] } })
   })
 
   it("knows an archived item the outfit holds, which no slot lists", () => {
@@ -215,6 +248,77 @@ describe("outfit form model", () => {
     ).toEqual({ fields: { rating: "Choose a rating from 1 to 5, or none." }, slots: {} })
     expect(serverErrorsFrom({ code: "NOT_FOUND", message: "That outfit no longer exists." })).toBeNull()
     expect(serverErrorsFrom({ code: "VALIDATION", message: "Odd", details: { issues: [{ path: "items.0" }] } })).toBeNull()
+  })
+
+  describe("orderCandidates", () => {
+    // As the server lists them: by name. Names decide the role here (no subcategory), except where given.
+    const tee = candidate("a-tee", "top", "Breton striped tee")
+    const cardigan = candidate("b-cardigan", "top", "Camel cardigan")
+    const blazer = { ...candidate("c-blazer", "top", "Charcoal favourite"), subcategory: "blazer" }
+    const hoodie = candidate("d-hoodie", "top", "Navy cotton hoodie")
+    const turtleneck = candidate("e-turtleneck", "top", "Oatmeal turtleneck")
+    const shirt = candidate("f-shirt", "top", "White oxford shirt")
+    const dress = candidate("g-dress", "dress", "Wrap dress")
+    const tops = [tee, cardigan, blazer, hoodie, turtleneck, shirt]
+    const names = (list: readonly SlotCandidateDto[]) => list.map((entry) => entry.name)
+
+    it("lists the layer tops first for the mid layer, then the unplaced, then tees and shirts", () => {
+      expect(names(orderCandidates("mid_layer", tops))).toEqual([
+        "Camel cardigan",
+        "Charcoal favourite",
+        "Navy cotton hoodie",
+        "Oatmeal turtleneck",
+        "Breton striped tee",
+        "White oxford shirt",
+      ])
+    })
+
+    it("lists tees and shirts first for the top, then the unplaced and dresses, then the layer tops", () => {
+      expect(names(orderCandidates("top", [dress, ...tops]))).toEqual([
+        "Breton striped tee",
+        "White oxford shirt",
+        "Wrap dress",
+        "Oatmeal turtleneck",
+        "Camel cardigan",
+        "Charcoal favourite",
+        "Navy cotton hoodie",
+      ])
+    })
+
+    it("keeps the given order within a role, whatever it is", () => {
+      const reversed = [...tops].reverse()
+      expect(names(orderCandidates("mid_layer", reversed))).toEqual([
+        "Navy cotton hoodie",
+        "Charcoal favourite",
+        "Camel cardigan",
+        "Oatmeal turtleneck",
+        "White oxford shirt",
+        "Breton striped tee",
+      ])
+      // Already in order: unchanged.
+      const ordered = orderCandidates("top", [dress, ...tops])
+      expect(orderCandidates("top", ordered)).toEqual(ordered)
+    })
+
+    it("leaves every other slot's order alone, and never drops or changes an item", () => {
+      const bottoms = [candidate("z", "bottom", "Wool trousers"), candidate("y", "bottom", "Jeans")]
+      expect(orderCandidates("bottom", bottoms)).toEqual(bottoms)
+      expect(orderCandidates("outerwear", [])).toEqual([])
+      const socks = [candidate("s2", "socks", "Wool socks"), candidate("s1", "socks", "Ankle socks")]
+      expect(orderCandidates("socks", socks)).toEqual(socks)
+
+      const given = [dress, ...tops]
+      const copy = [...given]
+      const byId = (list: readonly SlotCandidateDto[]) => [...list].sort((a, b) => a.id.localeCompare(b.id))
+      const ordered = orderCandidates("mid_layer", given)
+      expect(ordered).not.toBe(given)
+      // The input is not reordered in place, and the output holds the same items, unchanged.
+      expect(given).toEqual(copy)
+      expect(byId(ordered)).toEqual(byId(given))
+      expect(orderCandidates("bottom", given)).not.toBe(given)
+      // Not a top at all: last in the mid layer.
+      expect(ordered.at(-1)).toBe(dress)
+    })
   })
 
   it("replaces a slot's item, but adds accessories", () => {

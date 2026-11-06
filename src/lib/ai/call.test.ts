@@ -807,6 +807,69 @@ describe("callStructured: final failures", () => {
   });
 });
 
+describe("callStructured: a strict schema that throws", () => {
+  // A strict schema may run app code in a transform (the outfit suggestion's
+  // selection does); zod lets an exception thrown there escape safeParse.
+  function throwingSchema(error: Error) {
+    return ItemTagsSchema.transform((): ItemTags => {
+      throw error;
+    });
+  }
+
+  it("logs and charges the paid attempt, then ends with INTERNAL without a retry", async () => {
+    const usage = { input_tokens: 1_800, output_tokens: 650 };
+    fake.enqueue(fakeMessage({ json: VALID_TAGS, usage }), fakeMessage({ json: VALID_TAGS }));
+    const reported: number[] = [];
+    const crash = new RangeError("Invalid day: never");
+
+    const error = await appError(
+      callStructured(tagOptions({ strict: throwingSchema(crash), onAttemptCost: (usd) => void reported.push(usd) })),
+    );
+
+    expect(error.code).toBe("INTERNAL");
+    expect(error.message).toBe("Claude's reply could not be checked.");
+    expect(error.details).toEqual({ attempts: 1 });
+    expect(error.cause).toBe(crash);
+    // A deterministic crash would crash again: one request, no retry.
+    expect(fake.requests).toHaveLength(1);
+    expect(fake.remaining()).toBe(1);
+    expect(sleeps).toEqual([]);
+    const expected = computeCostUsd("claude-haiku-5-5", usage);
+    const logged = await rows();
+    expect(logged).toHaveLength(1);
+    expect(logged[0]).toMatchObject({
+      status: "error",
+      stopReason: "end_turn",
+      requestId: "req_fake_1",
+      errorCode: "check_failed",
+      errorMessage: "Invalid day: never",
+      inputTokens: 1_800,
+      outputTokens: 650,
+    });
+    expect(logged[0]?.costUsd).toBeCloseTo(expected, 6);
+    expect(reported).toHaveLength(1);
+    expect(reported[0]).toBeCloseTo(expected, 12);
+  });
+
+  it("rethrows an AppError from the transform unchanged, after logging and charging the attempt", async () => {
+    fake.enqueue(fakeMessage({ json: VALID_TAGS }), fakeMessage({ json: VALID_TAGS }));
+    const reported: number[] = [];
+    const thrown = new AppError("VALIDATION", "Choose Bologna or Hamburg as the home city in Settings.");
+
+    await expect(
+      callStructured(tagOptions({ strict: throwingSchema(thrown), onAttemptCost: (usd) => void reported.push(usd) })),
+    ).rejects.toBe(thrown);
+
+    expect(fake.requests).toHaveLength(1);
+    const logged = await rows();
+    expect(logged).toHaveLength(1);
+    expect(logged[0]).toMatchObject({ status: "error", errorCode: "check_failed", errorMessage: thrown.message });
+    expect(reported).toHaveLength(1);
+    expect(reported[0]).toBeCloseTo(logged[0]?.costUsd ?? Number.NaN, 6);
+    expect(reported[0]).toBeGreaterThan(0);
+  });
+});
+
 describe("readStructuredReply", () => {
   it("reads replies for batch processing", () => {
     expect(readStructuredReply(fakeMessage({ json: VALID_TAGS }), ItemTagsSchema)).toEqual({

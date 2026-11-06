@@ -197,7 +197,7 @@ describe("unlockCount", () => {
 
   it("is zero for a shell whose waterproofing is unknown, and for categories outside the count", () => {
     expect(unlockCount(wardrobe, { ...shell, waterproof: null }, janRainy)).toBe(0);
-    for (const category of ["gloves", "hat_beanie", "scarf", "base_layer", "accessory", "bag", "other"] as const) {
+    for (const category of ["socks", "gloves", "hat_beanie", "scarf", "base_layer", "accessory", "bag", "other"] as const) {
       expect(unlockCount(wardrobe, makeComboItem({ category, warmthLevel: 3 }), janRainy)).toBe(0);
     }
   });
@@ -290,6 +290,16 @@ describe("candidateFromShoppingRow", () => {
     ["something unknown", row("Something nice"), { category: "other", warmthLevel: null, formality: null, waterproof: null }],
   ] as const)("reads %s", (_label, input, expected) => {
     expect(candidateFromShoppingRow(input)).toMatchObject({ id: "row-1", ...expected });
+  });
+
+  it.each([
+    ["Merino dress socks", 3],
+    ["Wool boot socks", 3],
+    ["Thermal ski socks", 3],
+    ["Sock liners", null],
+    ["Running sock", null],
+  ] as const)("reads %s as socks before any other category", (itemType, warmthLevel) => {
+    expect(candidateFromShoppingRow(row(itemType))).toMatchObject({ category: "socks", warmthLevel });
   });
 
   it("keeps the row's own category over the keywords", () => {

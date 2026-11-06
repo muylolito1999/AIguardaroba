@@ -41,6 +41,7 @@ function stats(overrides: Partial<WardrobeStatsDto> = {}): WardrobeStatsDto {
       bottom: 0,
       dress: 0,
       shoes: 1,
+      socks: 0,
       gloves: 0,
       hat_beanie: 0,
       scarf: 2,
@@ -201,7 +202,8 @@ describe("StatsView", () => {
 
     // Every category is listed, largest first, zeros included.
     const categories = within(screen.getByRole("table", { name: "By category" })).getAllByRole("rowheader")
-    expect(categories).toHaveLength(12)
+    expect(categories).toHaveLength(13)
+    expect(countIn("By category", "Socks")).toBe("0")
     expect(categories.slice(0, 3).map((cell) => cell.textContent)).toEqual(["Outerwear", "Scarf", "Shoes"])
     expect(countIn("By category", "Outerwear")).toBe("2")
     expect(countIn("By category", "Dress")).toBe("0")

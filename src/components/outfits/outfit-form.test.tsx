@@ -15,6 +15,9 @@ const DRESS = "22222222-2222-4222-8222-222222222222"
 const JEANS = "33333333-3333-4333-8333-333333333333"
 const BELT = "44444444-4444-4444-8444-444444444444"
 const RUNNING = "55555555-5555-4555-8555-555555555555"
+const TEE = "66666666-6666-4666-8666-666666666666"
+const HOODIE = "77777777-7777-4777-8777-777777777777"
+const SOCKS = "88888888-8888-4888-8888-888888888888"
 
 function candidate(id: string, category: SlotCandidateDto["category"], name: string, extra: Partial<SlotCandidateDto> = {}) {
   return {
@@ -33,14 +36,20 @@ function candidate(id: string, category: SlotCandidateDto["category"], name: str
   } satisfies SlotCandidateDto
 }
 
+const TOPS = [
+  candidate(SWEATER, "top", "Grey merino sweater", { wearCount: 3, lastWornAt: "2026-10-30T11:00:00.000Z" }),
+  candidate(HOODIE, "top", "Navy cotton hoodie"),
+  candidate(TEE, "top", "White cotton tee"),
+]
+
+// As the server lists them: every top is a candidate for the top and the mid layer (D-253).
 const CANDIDATES: Record<OutfitSlot, SlotCandidateDto[]> = {
   outerwear: [],
+  mid_layer: TOPS,
   base_layer: [],
-  top: [
-    candidate(DRESS, "dress", "Black wool dress", { colors: ["black"] }),
-    candidate(SWEATER, "top", "Grey merino sweater", { wearCount: 3, lastWornAt: "2026-10-30T11:00:00.000Z" }),
-  ],
+  top: [candidate(DRESS, "dress", "Black wool dress", { colors: ["black"] }), ...TOPS],
   bottom: [candidate(JEANS, "bottom", "Dark jeans")],
+  socks: [candidate(SOCKS, "socks", "Grey wool socks")],
   shoes: [],
   hat: [],
   gloves: [],
@@ -163,6 +172,74 @@ describe("OutfitForm", () => {
     fireEvent.change(screen.getByLabelText("Name"), { target: { value: "Dinner" } })
     fireEvent.click(screen.getByRole("button", { name: "Save outfit" }))
     await waitFor(() => expect(onSubmit).toHaveBeenCalledTimes(1))
+  })
+
+  it("layers a hoodie over a tee, adds socks and saves them, never offering one item for two slots (D-253)", async () => {
+    const { onSubmit, onSaved } = setup()
+    onSubmit.mockResolvedValue(ok({ id: "outfit-1", name: "Layers" } as OutfitDetailDto))
+    expect(within(slotGroup("Mid layer")).getByText("Optional: a sweater, hoodie or cardigan over the top")).toBeTruthy()
+    expect(within(slotGroup("Socks")).getByText("Optional")).toBeTruthy()
+
+    await pick("Choose top or dress", "White cotton tee")
+    // The tee is in the top: the mid layer's picker shows it as chosen and does not offer it again.
+    fireEvent.click(screen.getByRole("button", { name: "Choose mid layer" }))
+    const dialog = await screen.findByRole("dialog")
+    expect(within(dialog).getByText("Choose a mid layer")).toBeTruthy()
+    const tee = within(dialog).getByRole("button", { name: /White cotton tee/ })
+    expect(tee.getAttribute("aria-disabled")).toBe("true")
+    expect(within(tee).getByText("Chosen")).toBeTruthy()
+    fireEvent.click(within(dialog).getByRole("button", { name: /Navy cotton hoodie/ }))
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull())
+
+    await pick("Choose bottom", "Dark jeans")
+    await pick("Choose socks", "Grey wool socks")
+    expect(within(slotGroup("Top or dress")).getByText("White cotton tee")).toBeTruthy()
+    expect(within(slotGroup("Mid layer")).getByText("Navy cotton hoodie")).toBeTruthy()
+    expect(within(slotGroup("Socks")).getByText("Grey wool socks")).toBeTruthy()
+    expect(within(slotGroup("Top or dress")).queryByText("Navy cotton hoodie")).toBeNull()
+
+    fireEvent.change(screen.getByLabelText("Name"), { target: { value: "Layers" } })
+    fireEvent.click(screen.getByRole("button", { name: "Save outfit" }))
+    await waitFor(() => expect(onSubmit).toHaveBeenCalledTimes(1))
+    const sent = onSubmit.mock.calls[0]?.[0]
+    expect(sent?.items).toHaveLength(4)
+    expect(sent?.items).toEqual(
+      expect.arrayContaining([
+        { slot: "top", itemId: TEE },
+        { slot: "mid_layer", itemId: HOODIE },
+        { slot: "bottom", itemId: JEANS },
+        { slot: "socks", itemId: SOCKS },
+      ])
+    )
+    await waitFor(() => expect(onSaved).toHaveBeenCalledTimes(1))
+  })
+
+  it("lists the hoodie before the tee for the mid layer, and the tee first for the top", async () => {
+    // As the server lists them, by name: the tee comes before the hoodie.
+    const tee = candidate(TEE, "top", "Breton striped tee")
+    const hoodie = candidate(HOODIE, "top", "Navy cotton hoodie")
+    const turtleneck = candidate(SWEATER, "top", "Oatmeal turtleneck")
+    const dress = candidate(DRESS, "dress", "Wrap dress")
+    const names = ["Breton striped tee", "Navy cotton hoodie", "Oatmeal turtleneck", "Wrap dress"]
+    setup({ candidates: { ...CANDIDATES, mid_layer: [tee, hoodie, turtleneck], top: [tee, hoodie, turtleneck, dress] } })
+
+    const listed = async (buttonName: string) => {
+      fireEvent.click(screen.getByRole("button", { name: buttonName }))
+      const dialog = await screen.findByRole("dialog")
+      const rows = within(within(dialog).getByRole("list", { name: "Items" })).getAllByRole("listitem")
+      return { dialog, order: rows.map((row) => names.find((name) => row.textContent?.includes(name))) }
+    }
+
+    const mid = await listed("Choose mid layer")
+    expect(mid.order).toEqual(["Navy cotton hoodie", "Oatmeal turtleneck", "Breton striped tee"])
+    fireEvent.click(within(mid.dialog).getByRole("button", { name: /Navy cotton hoodie/ }))
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull())
+
+    const top = await listed("Choose top or dress")
+    expect(top.order).toEqual(["Breton striped tee", "Oatmeal turtleneck", "Wrap dress", "Navy cotton hoodie"])
+    // The hoodie is in the mid layer: still listed, last, as chosen.
+    const chosen = within(top.dialog).getByRole("button", { name: /Navy cotton hoodie/ })
+    expect(chosen.getAttribute("aria-disabled")).toBe("true")
   })
 
   it("shows the server's slot issues next to the slot", async () => {

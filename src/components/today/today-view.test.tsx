@@ -77,6 +77,7 @@ function outfit(index: number, extra: Partial<SuggestedOutfitDto> = {}): Suggest
     index,
     title: ["Layered for drizzle", "Smart and dry", "Light and quick"][index] ?? `Outfit ${index}`,
     why: "Feels like 2 to 8 °C with an 80 % chance of rain.",
+    direction: ["knit_layers", "smart_collar", "weather_ready"][index] ?? null,
     rainOk: index === 0,
     items: [
       item(index * 10 + 1, "outerwear", "Navy waterproof shell jacket"),
@@ -271,6 +272,7 @@ describe("Suggest outfits", () => {
     expect(f.suggest).not.toHaveBeenCalled()
     const description = document.getElementById(button.getAttribute("aria-describedby") ?? "")
     expect(description?.textContent).toContain("Three different outfits need more tagged items in Hamburg")
+    expect(description?.textContent).toContain("more tops, dresses, bottoms, shoes or outerwear to combine")
   })
 
   it("shows today's stored suggestion with Suggest again", () => {
@@ -503,6 +505,76 @@ describe("an answer from a server older than running gear", () => {
     expect(wore.hasAttribute("disabled") || wore.getAttribute("aria-disabled") === "true").toBe(false)
     await act(async () => fireEvent.click(within(first).getByRole("button", { name: "Save Layered for drizzle" })))
     expect(f.saveSuggestedOutfit).toHaveBeenCalledWith({ analysisId: ANALYSIS_ID, index: 0 })
+  })
+})
+
+describe("the style direction (D-256)", () => {
+  it("shows each card's direction by its label under the title, as plain text", () => {
+    render(view(viewData({ suggestion: suggestion() }), fakes()))
+    const first = card("Layered for drizzle")
+    const line = within(first).getByText("Style: Knit layers")
+    expect(line.className).toContain("text-muted-foreground")
+    // Under the title, in the card's header; the card's name stays the title alone.
+    const title = within(first).getByRole("heading", { name: "Layered for drizzle" })
+    expect(title.compareDocumentPosition(line) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(line.closest("header")).not.toBeNull()
+    expect(within(card("Smart and dry")).getByText("Style: Smart collar")).toBeTruthy()
+    expect(within(card("Light and quick")).getByText("Style: Weather-ready")).toBeTruthy()
+  })
+
+  it("shows no style line for no direction or a key it does not know", () => {
+    const outfits = [outfit(0, { direction: null }), outfit(1, { direction: "retro_glam" }), outfit(2, { direction: "" })]
+    render(view(viewData({ suggestion: suggestion({ outfits }) }), fakes()))
+    for (const title of ["Layered for drizzle", "Smart and dry", "Light and quick"]) {
+      expect(card(title).textContent).not.toContain("Style:")
+    }
+    expect(screen.queryByText(/retro_glam/)).toBeNull()
+  })
+
+  it("lists a mid layer and socks with their slot names, in slot order", () => {
+    const layered = outfit(0, {
+      items: [
+        item(1, "outerwear", "Navy waterproof shell jacket"),
+        item(5, "mid_layer", "Navy cotton hoodie", { category: "top" }),
+        item(2, "top", "White cotton tee"),
+        item(3, "bottom", "Dark blue jeans"),
+        item(4, "shoes", "Brown leather boots"),
+        item(6, "socks", "Grey wool socks", { category: "socks", wearCount: 0 }),
+      ],
+    })
+    render(view(viewData({ suggestion: suggestion({ outfits: [layered, outfit(1), outfit(2)] }) }), fakes()))
+    const rows = within(
+      within(card("Layered for drizzle")).getByRole("list", { name: "Items in Layered for drizzle" })
+    ).getAllByRole("listitem")
+    expect(rows.map((row) => row.textContent)).toEqual([
+      "Outerwear · Worn 2 timesNavy waterproof shell jacket",
+      "Mid layer · Worn 2 timesNavy cotton hoodie",
+      "Top or dress · Worn 2 timesWhite cotton tee",
+      "Bottom · Worn 2 timesDark blue jeans",
+      "Shoes · Worn 2 timesBrown leather boots",
+      "Socks · Never wornGrey wool socks",
+    ])
+  })
+})
+
+describe("an answer from a server older than style directions", () => {
+  it("reads a missing direction as null and shows no style line", () => {
+    const payload: unknown = JSON.parse(
+      JSON.stringify(suggestion(), (key, value: unknown) => (key === "direction" ? undefined : value))
+    )
+    const parsed = TodaySuggestionSchema.parse(payload)
+    expect(parsed.outfits.map((entry) => entry.direction)).toEqual([null, null, null])
+    render(view(viewData({ suggestion: parsed }), fakes()))
+    expect(cards()).toHaveLength(3)
+    expect(screen.queryByText(/^Style:/)).toBeNull()
+  })
+
+  it("keeps a direction the server sends", () => {
+    expect(TodaySuggestionSchema.parse(suggestion()).outfits.map((entry) => entry.direction)).toEqual([
+      "knit_layers",
+      "smart_collar",
+      "weather_ready",
+    ])
   })
 })
 

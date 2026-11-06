@@ -147,6 +147,12 @@ const CATALOGUE: Record<ItemCategory, readonly Kind[]> = {
     { subcategory: "sneakers", noun: "sneakers", materials: ["canvas", "rubber"], warmth: [1, 2], seasons: ["spring", "summer", "autumn"], formality: ["casual", "athletic"], waterproof: 0.1, windproof: 0.2, insulated: 0 },
     { subcategory: "loafers", noun: "loafers", materials: ["leather"], warmth: [2, 2], seasons: ["spring", "autumn"], formality: ["smart_casual", "business"], waterproof: 0, windproof: 0.3, insulated: 0 },
   ],
+  // Not in CATEGORY_WEIGHTS, so never drawn: the demo wardrobe stays as it was before the socks category (D-254).
+  socks: [
+    { subcategory: "wool socks", noun: "wool socks", materials: ["merino wool", "nylon"], warmth: [3, 4], seasons: ["winter", "autumn"], formality: ["casual", "athletic"], waterproof: 0, windproof: 0, insulated: 0.2 },
+    { subcategory: "dress socks", noun: "dress socks", materials: ["cotton", "nylon"], warmth: [1, 2], seasons: ["spring", "autumn", "winter"], formality: ["smart_casual", "business", "formal"], waterproof: 0, windproof: 0, insulated: 0 },
+    { subcategory: "sports socks", noun: "sports socks", materials: ["cotton", "polyester"], warmth: [1, 1], seasons: ["spring", "summer"], formality: ["casual", "athletic"], waterproof: 0, windproof: 0, insulated: 0 },
+  ],
   gloves: [
     { subcategory: "gloves", noun: "leather gloves", materials: ["leather", "wool"], warmth: [3, 4], seasons: ["winter"], formality: ["smart_casual"], waterproof: 0.2, windproof: 0.9, insulated: 0.6 },
     { subcategory: "mittens", noun: "knit mittens", materials: ["wool"], warmth: [4, 4], seasons: ["winter"], formality: ["casual"], waterproof: 0, windproof: 0.2, insulated: 0.5 },

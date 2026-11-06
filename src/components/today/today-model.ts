@@ -18,6 +18,12 @@ export type SuggestedOutfitDto = {
   index: number
   title: string
   why: string
+  /**
+   * The style direction key the outfit follows (D-256), which directionLabel
+   * names on the card. null for a suggestion stored before directions; a key
+   * since removed has no label, so the card shows nothing either way.
+   */
+  direction: string | null
   rainOk: boolean
   /** In SLOT_ORDER. An item deleted since has exists false. */
   items: OutfitItemDto[]
@@ -123,6 +129,8 @@ const SuggestedOutfitSchema: z.ZodType<SuggestedOutfitDto> = z.object({
   index: z.number().int(),
   title: z.string(),
   why: z.string(),
+  // An older server omits it during a deploy; null shows no style line.
+  direction: z.string().nullable().default(null),
   rainOk: z.boolean(),
   items: z.array(OutfitItemSchema),
   available: z.boolean(),

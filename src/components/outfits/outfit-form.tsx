@@ -30,6 +30,7 @@ import {
   checkForm,
   FIELD_ORDER,
   itemInfoFrom,
+  orderCandidates,
   serverErrorsFrom,
   withItem,
   type FieldErrors,
@@ -46,9 +47,11 @@ const RATINGS = ["1", "2", "3", "4", "5"] as const
 /** The slot as the picker button names it: "Choose top or dress", "Add accessory". */
 const SLOT_NOUNS: Readonly<Record<OutfitSlot, string>> = {
   outerwear: "outerwear",
+  mid_layer: "mid layer",
   base_layer: "base layer",
   top: "top or dress",
   bottom: "bottom",
+  socks: "socks",
   shoes: "shoes",
   hat: "hat",
   gloves: "gloves",
@@ -95,6 +98,11 @@ export function OutfitForm({ initial, candidates, current, submitLabel, onSubmit
 
   const info = useMemo(() => itemInfoFrom(candidates, current), [candidates, current])
   const check = useMemo(() => checkForm(values, info), [values, info])
+  // The open picker's items, the best fit for the slot first: layer tops in the mid layer, base tops in the top.
+  const pickerCandidates = useMemo(
+    () => (pickerSlot === null ? [] : orderCandidates(pickerSlot, candidates[pickerSlot])),
+    [candidates, pickerSlot]
+  )
   const local: Shown = attempted && !check.ok ? { fields: check.fields, slots: check.slots } : NONE
   const fieldError = (name: FieldName) => local.fields[name] ?? serverErrors.fields[name]
   const slotMessages = (slot: OutfitSlot | "outfit") => [
@@ -353,7 +361,7 @@ export function OutfitForm({ initial, candidates, current, submitLabel, onSubmit
 
       <SlotPickerDialog
         slot={pickerSlot}
-        candidates={pickerSlot === null ? [] : candidates[pickerSlot]}
+        candidates={pickerCandidates}
         chosenIds={chosenIds}
         onChoose={choose}
         onClose={() => setPickerSlot(null)}
@@ -366,6 +374,7 @@ export function OutfitForm({ initial, candidates, current, submitLabel, onSubmit
 function requirementOf(slot: OutfitSlot, topIsDress: boolean): string {
   if (slot === "top") return "Required"
   if (slot === "bottom") return topIsDress ? "Optional with a dress" : "Required"
+  if (slot === "mid_layer") return "Optional: a sweater, hoodie or cardigan over the top"
   if (slot === "accessory") return `Optional, up to ${MAX_ACCESSORIES}`
   return "Optional"
 }

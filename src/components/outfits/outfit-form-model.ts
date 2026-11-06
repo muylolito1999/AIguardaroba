@@ -18,6 +18,8 @@ import {
   type OutfitItemDto,
   type SlotCandidateDto,
 } from "@/lib/outfits/contracts"
+import { layerRole } from "@/lib/outfits/style/layering"
+import type { LayerRole } from "@/lib/outfits/style/types"
 import type { AppErrorPayload } from "@/lib/result"
 
 import { parseCelsius } from "./format"
@@ -227,6 +229,37 @@ export function serverErrorsFrom(error: AppErrorPayload): { fields: FieldErrors;
     if (Object.keys(fields).length > 0) return { fields, slots: {} }
   }
   return null
+}
+
+/** A candidate's layer role, or "none" for anything that is not a top (a dress). */
+type RoleKey = LayerRole | "none"
+
+/**
+ * Where each role is listed in the slots that take tops: the pieces worn over
+ * a top first in the mid layer, the ones worn under a layer first in the top
+ * slot. Unplaced tops (a turtleneck) sit in between, with the dresses in the
+ * top slot. A slot without a row keeps its order.
+ */
+const ROLE_RANK: Readonly<Partial<Record<OutfitSlot, Readonly<Record<RoleKey, number>>>>> = {
+  mid_layer: { mid: 0, either: 1, base: 2, none: 3 },
+  top: { base: 0, either: 1, none: 1, mid: 2 },
+}
+
+/**
+ * The slot's candidates in the order its picker lists them: for the mid
+ * layer, knits, sweats and tailored tops (layerRole "mid") first, then tops
+ * the vocabulary cannot place, then tees and shirts; for the top slot, tees
+ * and shirts first, then unplaced tops and dresses, then the layer tops. The
+ * order is stable (the server's order, by name, holds within a role), nothing
+ * is left out, and every other slot keeps its order. A new array either way.
+ */
+export function orderCandidates(slot: OutfitSlot, candidates: readonly SlotCandidateDto[]): SlotCandidateDto[] {
+  const rank = ROLE_RANK[slot]
+  if (rank === undefined) return [...candidates]
+  return candidates
+    .map((candidate, index) => ({ candidate, index, at: rank[layerRole(candidate) ?? "none"] }))
+    .sort((a, b) => a.at - b.at || a.index - b.index)
+    .map(({ candidate }) => candidate)
 }
 
 /** Puts `item` in `slot`: it replaces the slot's item, except accessories, which are added. */

@@ -154,6 +154,33 @@ describe("computeWinterReadiness", () => {
     expect(all.evidenceIds).toEqual([merino.id, guessed.id, bySubcategory.id, byName.id]);
   });
 
+  // D-254: socks have their own category; merino or wool socks are not base layers.
+  it("never counts socks as base layers, merino or wool ones included, nor anywhere else on the list", () => {
+    const merinoSocks = item({
+      category: "socks",
+      subcategory: "wool socks",
+      materials: ["merino wool", "nylon"],
+      warmthLevel: 4,
+    });
+    const thermalSocks = item({
+      category: "socks",
+      name: "Thermal ski socks",
+      materialGuess: "wool blend",
+      insulated: true,
+    });
+    const merino = item({ category: "base_layer", materials: ["merino"] });
+
+    const socksOnly = computeWinterReadiness([merinoSocks, thermalSocks]);
+    for (const row of socksOnly) expect(row, row.key).toMatchObject({ satisfied: false, evidenceIds: [] });
+
+    // Next to one real base layer the row still asks for one more.
+    expect(rowFor(computeWinterReadiness([merinoSocks, merino, thermalSocks]), "base_layers")).toMatchObject({
+      satisfied: false,
+      evidenceIds: [merino.id],
+      need: "1 more base layer in merino, wool or a thermal fabric (1 of 2 so far).",
+    });
+  });
+
   it.each(["leave", "donate", "sell"] as const)(
     "never counts an item marked %s, since it will not be in Hamburg",
     (decision) => {

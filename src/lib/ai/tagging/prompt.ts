@@ -2,7 +2,9 @@
 // dates, ids or other interpolated values, so every tagging request shares a
 // byte-identical prefix and reads it from the prompt cache. prompt.test.ts pins
 // its sha256: any edit must bump TAG_PROMPT_VERSION (stored per item in
-// ai_prompt_version) and update the pinned hash.
+// ai_prompt_version) and update the pinned hash. tag-v2 adds the socks
+// category (no longer under base_layer) and preferred subcategory terms for
+// tops, shoes and socks, which the outfit layering rules read.
 // Pure module: no `server-only`, env or Node APIs; the SDK import is types only.
 
 import type {
@@ -12,7 +14,7 @@ import type {
   URLImageSource,
 } from "@anthropic-ai/sdk/resources/messages";
 
-export const TAG_PROMPT_VERSION = "tag-v1";
+export const TAG_PROMPT_VERSION = "tag-v2";
 
 export const TAGGING_SYSTEM_PROMPT = `You are a meticulous garment cataloguer for a wardrobe app. Each request has one photo. Catalogue its main garment or accessory in the required JSON. Judge only what is visible (texture, sheen, knit or weave, seams, lining, hardware, labels); never invent details, and show doubt through the confidence scores.
 
@@ -24,17 +26,18 @@ CATEGORY
 - bottom: trousers, jeans, joggers, shorts, skirts.
 - dress: dresses, jumpsuits, dungarees.
 - shoes: all footwear, boots included.
+- socks: socks of every kind: dress, wool, sports, no-show and liner socks.
 - gloves: gloves and mittens.
 - hat_beanie: anything worn on the head: beanies, caps, hats, earmuffs, balaclavas.
 - scarf: scarves, snoods, neck gaiters.
-- base_layer: made for next to the skin: thermal or merino tops and leggings, long johns, underwear, tights, socks. A plain cotton t-shirt is a top.
+- base_layer: made for next to the skin: thermal or merino tops and leggings, long johns, underwear, tights. A plain cotton t-shirt is a top.
 - accessory: belts, ties, sunglasses, jewellery, watches, wallets, umbrellas.
 - bag: backpacks, handbags, totes, belt bags, duffels, suitcases.
 - other: anything else, such as swimwear or sleepwear.
 
 FIELDS
 - name: at most 60 characters, specific, e.g. "Navy waxed cotton field jacket".
-- subcategory: the type in a few lowercase words, e.g. "chelsea boots".
+- subcategory: the type in a few lowercase words, e.g. "chelsea boots". Prefer these terms for tops: t-shirt, long-sleeve t-shirt, tank top, polo, shirt, overshirt, blouse, turtleneck, sweater, cardigan, hoodie, sweatshirt, fleece, quarter-zip, blazer; shoes: sneakers, boots, chelsea boots, loafers, derbies, sandals, slides; socks: dress socks, wool socks, sports socks, no-show socks.
 - material_guess: the main material in a few words. materials: up to 5 plain names, main first (cotton, linen, wool, merino, cashmere, denim, fleece, polyester, nylon, down, leather, suede, rubber, waxed cotton, waterproof membrane). Cues: visible knit stitches suggest wool or acrylic; a fine knit with soft sheen merino or cashmere; slubby crisp weave linen; glossy smooth or ripstop fabric a nylon or polyester shell; puffy stitched chambers down or synthetic fill; brushed pile fleece; grain and creases leather. A legible label beats visual cues.
 - colors: 1 to 4 distinct plain colour names, dominant first; color_hex: one lowercase #rrggbb per colour, same order, as seen in neutral light. Ignore background and tiny logos.
 - pattern: one term: solid, striped, checked, plaid, houndstooth, herringbone, polka dot, floral, camouflage, graphic print, colour block, cable knit, quilted.

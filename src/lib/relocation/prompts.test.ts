@@ -50,6 +50,11 @@ const PINNED = {
     system: "f36db30a66911682c1f183fd429ead1f67d0fc59d75424d63dd921d83250246d",
     templates: "304765dfe43e620d51e172918684c5c0d197f96332cc79061a61b9df13d810d3",
   },
+  // The socks category enters the summary text and the gap category enum; no prompt text changed.
+  "reloc-v5": {
+    system: "f36db30a66911682c1f183fd429ead1f67d0fc59d75424d63dd921d83250246d",
+    templates: "4edc730088cabda0ef53141c4069a69668f2194ca4a01efed79bceb8e27f965b",
+  },
 } as const;
 
 function sha256(text: string): string {
@@ -135,7 +140,7 @@ const context: SharedContextInput = {
 
 describe("RELOC_PROMPT_VERSION", () => {
   it("pins the system prompt for its version", () => {
-    expect(RELOC_PROMPT_VERSION).toBe("reloc-v4");
+    expect(RELOC_PROMPT_VERSION).toBe("reloc-v5");
     expect(sha256(RELOCATION_SYSTEM_PROMPT)).toBe(PINNED[RELOC_PROMPT_VERSION].system);
   });
 

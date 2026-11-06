@@ -21,6 +21,7 @@ export const CATEGORY_LABELS: Record<ItemCategory, string> = {
   bottom: "Bottom",
   dress: "Dress",
   shoes: "Shoes",
+  socks: "Socks",
   gloves: "Gloves",
   hat_beanie: "Hat or beanie",
   scarf: "Scarf",

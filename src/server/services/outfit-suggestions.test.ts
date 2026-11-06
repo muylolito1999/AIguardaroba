@@ -1,9 +1,10 @@
 import { randomUUID } from "node:crypto";
 
 import type { PGlite, QueryOptions, Results, Transaction } from "@electric-sql/pglite";
-import { and, eq, inArray, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/pglite";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { z } from "zod";
 
 import type { AnthropicLike } from "@/lib/ai/client";
 import { BOLOGNA } from "@/lib/climate/bologna";
@@ -22,10 +23,19 @@ import {
   type ClimateProfile,
   type Item,
 } from "@/lib/db/schema";
+import { validateOutfit } from "@/lib/outfits/contracts";
+import { directionLabel } from "@/lib/outfits/style/directions";
+import { DIRECTION_KEYS, EMPTY_HISTORY, type DirectionKey, type VarietyHistory } from "@/lib/outfits/style/types";
 import {
   buildSuggestionSnapshot,
+  estimateOutfitSuggestionUsd,
   isEligibleForToday,
+  makeOutfitSuggestionStrictSchema,
+  OUTFIT_CALL_PARAMS,
+  OUTFIT_CANDIDATE_COUNT,
   OUTFIT_PROMPT_VERSION,
+  planVariety,
+  toCheckItems,
   type OutfitSuggestionResult,
   type OutfitSuggestionWire,
   type SuggestionSnapshot,
@@ -49,9 +59,11 @@ import {
 } from "../../../test/outfit-fixtures";
 
 // PGlite plus the scripted Claude (no network): which items reach the prompt,
-// when a suggestion is reused, forced, blocked or retried, what is stored and
-// what Save makes of it. The forecast comes from a mock of src/server/weather,
-// whose cached fetch has its own tests.
+// the style directions and history it names, when a suggestion is reused,
+// forced, blocked or retried, which of the five candidates are stored and what
+// Save makes of them. The forecast comes from a mock of src/server/weather,
+// whose cached fetch has its own tests; the variety history is the real
+// loader, wrapped in a spy to see when it is read.
 
 const mocks = vi.hoisted(() => ({
   requireSession: vi.fn(),
@@ -76,17 +88,26 @@ vi.mock("@/lib/ai/budget", async (importOriginal) => {
     },
   };
 });
+vi.mock("@/server/services/outfit-history", async (importOriginal) => {
+  const original = await importOriginal<typeof import("@/server/services/outfit-history")>();
+  return { ...original, loadVarietyHistory: vi.fn(original.loadVarietyHistory) };
+});
 
 const { getTodaySuggestion, quoteOutfitSuggestion, saveSuggestedOutfit, suggestOutfits } = await import(
   "./outfit-suggestions"
 );
 const { logWear, undoWear } = await import("./wear");
 const { getOutfit } = await import("./outfits");
+const { loadVarietyHistory } = await import("@/server/services/outfit-history");
 const { makeWeatherSnapshot } = await import("../../../test/outfit-fixtures");
+const historySpy = vi.mocked(loadVarietyHistory);
 
 // 14:20 in Hamburg on Tuesday 3 November 2026, the fixture forecast's day.
 const NOW = new Date("2026-11-03T13:20:00.000Z");
 const DEADLINE = NOW.getTime() + 110_000;
+/** Items in the fixture wardrobe (insertWardrobe), all eligible in Hamburg. */
+const WARDROBE_SIZE = Object.keys(OUTFIT_TEMPLATES).length;
+const HAMBURG_ID = "5f0c2a4e-8d1b-4c3a-9e7f-2b6d1a0c9e31";
 
 let testDb: TestDb;
 let hamburg: ClimateProfile;
@@ -221,6 +242,47 @@ function instructionOf(fake: FakeAnthropic, call = 0): string {
   return block.text;
 }
 
+/** The rows of a tagged block of the instruction, or null when the block is left out. */
+function blockOf(text: string, tag: string): string[] | null {
+  const lines = text.split("\n");
+  const start = lines.indexOf(`<${tag}>`);
+  const end = lines.indexOf(`</${tag}>`);
+  if (start < 0 || end < start) return null;
+  return lines.slice(start + 1, end);
+}
+
+/** Today's aliases of these items in line order, as the instruction's history rows name them. */
+function aliasesIn(snapshot: SuggestionSnapshot, itemIds: readonly string[]): string {
+  const ids = new Set(itemIds);
+  return snapshot.lines
+    .filter((line) => ids.has(line.itemId))
+    .map((line) => line.alias)
+    .join(" ");
+}
+
+/** The directions planVariety draws for the service's snapshot and this history in Hamburg. */
+function plannedDirections(snapshot: SuggestionSnapshot, history: VarietyHistory = EMPTY_HISTORY): DirectionKey[] {
+  return [...planVariety({ snapshot, weather, history, profileId: hamburg.id }).directions];
+}
+
+/** What the strict adapter makes of a reply for the items now in the database (no history). */
+async function selectionOf(snapshot: SuggestionSnapshot, reply: OutfitSuggestionWire) {
+  const rows = await testDb.db.select().from(items);
+  return makeOutfitSuggestionStrictSchema(snapshot, toCheckItems(rows), { weather, history: EMPTY_HISTORY }).parse(reply);
+}
+
+/** The structured-output format of a recorded request, as far as the tests read it. */
+const RequestFormatSchema = z.object({
+  type: z.literal("json_schema"),
+  schema: z.object({
+    properties: z.object({
+      outfits: z.object({
+        items: z.object({ properties: z.object({ direction: z.object({ enum: z.array(z.string()) }) }) }),
+      }),
+    }),
+  }),
+});
+
 async function suggestionRows() {
   return testDb.db.select().from(analyses).where(eq(analyses.kind, "outfit_suggestion"));
 }
@@ -255,7 +317,7 @@ async function storeSuggestion(
       dateTo: snapshot.date,
       params: {},
       model: "claude-sonnet-5-5",
-      effort: "low",
+      effort: OUTFIT_CALL_PARAMS.effort,
       promptVersion: OUTFIT_PROMPT_VERSION,
       result,
       costUsd: 0.04,
@@ -275,7 +337,8 @@ beforeEach(async () => {
   mocks.requireSession.mockReset();
   mocks.requireSession.mockResolvedValue({ sub: "owner", iat: 0, exp: 0 });
   vi.spyOn(console, "error").mockImplementation(() => undefined);
-  const rows = await testDb.db.insert(climateProfiles).values([HAMBURG, BOLOGNA]).returning();
+  // A fixed id for Hamburg: the style directions are drawn with a seed of the day, the home city and the run.
+  const rows = await testDb.db.insert(climateProfiles).values([{ ...HAMBURG, id: HAMBURG_ID }, BOLOGNA]).returning();
   const h = rows.find((row) => row.slug === "hamburg");
   const b = rows.find((row) => row.slug === "bologna");
   if (h === undefined || b === undefined) throw new Error("profiles missing");
@@ -289,6 +352,8 @@ beforeEach(async () => {
   mocks.budgetGate.reached = false;
   mocks.loadTodayWeather.mockReset();
   mocks.loadTodayWeather.mockImplementation(async () => today());
+  // Clear, not reset: the spy keeps calling the real loader.
+  historySpy.mockClear();
 });
 
 afterAll(async () => {
@@ -331,12 +396,10 @@ describe("suggestOutfits", () => {
     ]) {
       expect(text).not.toContain(name);
     }
-    expect(text).toContain('<items count="19">');
+    // The fixture wardrobe and the two extras at home or of unknown location.
+    expect(text).toContain(`<items count="${WARDROBE_SIZE + 2}">`);
     expect(text).toContain('<weather place="Hamburg, Germany">');
-    const request = fake.requests[0]?.params;
-    expect(request?.model).toBe("claude-sonnet-5-5");
-    expect(request?.output_config?.effort).toBe("low");
-    expect(request?.max_tokens).toBe(8000);
+    expect(fake.requests[0]?.params.model).toBe("claude-sonnet-5-5");
   });
 
   it("leaves running gear out of the prompt and its counts, however eligible it is otherwise (D-249)", async () => {
@@ -353,10 +416,10 @@ describe("suggestOutfits", () => {
     const quote = await quoteOutfitSuggestion(testDb.db, today());
     const suggestion = await suggestOutfits(testDb.db, deps(fake));
 
-    expect(quote).toMatchObject({ itemCount: 17, droppedCount: 0, canSuggest: true });
-    expect(suggestion.itemCount).toBe(17);
+    expect(quote).toMatchObject({ itemCount: WARDROBE_SIZE, droppedCount: 0, canSuggest: true });
+    expect(suggestion.itemCount).toBe(WARDROBE_SIZE);
     const text = instructionOf(fake);
-    expect(text).toContain('<items count="17">');
+    expect(text).toContain(`<items count="${WARDROBE_SIZE}">`);
     for (const item of running) expect(text).not.toContain(item.name);
     const used = new Set(suggestion.outfits.flatMap((outfit) => outfit.items.map((item) => item.itemId)));
     for (const item of running) expect(used.has(item.id)).toBe(false);
@@ -365,7 +428,10 @@ describe("suggestOutfits", () => {
 
   it("stores the result with the model, effort, prompt version, estimate and the cost of the call", async () => {
     await insertWardrobe();
-    const fake = createFakeAnthropic([fakeMessage({ json: await validReply(), model: "claude-sonnet-5-5" })]);
+    const snapshot = await serviceSnapshot();
+    const reply = fakeOutfitSuggestionReply(snapshot);
+    const selection = await selectionOf(snapshot, reply);
+    const fake = createFakeAnthropic([fakeMessage({ json: reply, model: "claude-sonnet-5-5" })]);
 
     const suggestion = await suggestOutfits(testDb.db, deps(fake));
 
@@ -377,11 +443,11 @@ describe("suggestOutfits", () => {
       dateFrom: "2026-11-03",
       dateTo: "2026-11-03",
       model: "claude-sonnet-5-5",
-      effort: "low",
+      effort: "medium",
       promptVersion: OUTFIT_PROMPT_VERSION,
       error: null,
     });
-    expect(row?.estimatedCostUsd).toBeGreaterThan(0);
+    expect(row?.estimatedCostUsd).toBeCloseTo(estimateOutfitSuggestionUsd("claude-sonnet-5-5", snapshot.lines), 6);
     expect(row?.completedAt?.toISOString()).toBe(NOW.toISOString());
     const calls = await callRows();
     expect(calls).toHaveLength(1);
@@ -392,23 +458,159 @@ describe("suggestOutfits", () => {
     // The stored result names items by id and keeps the forecast it was made for.
     const result = row?.result as OutfitSuggestionResult;
     expect(result.weather).toEqual(weather);
+    // The selection's numbers are those of the reply; the directions are those the instruction asked for.
     expect(result.meta).toEqual({
       prompt_version: OUTFIT_PROMPT_VERSION,
       model: "claude-sonnet-5-5",
-      effort: "low",
-      item_count: 17,
+      effort: "medium",
+      item_count: WARDROBE_SIZE,
       dropped_count: 0,
+      candidate_count: selection.report.received,
+      dropped_candidates: Object.values(selection.report.dropped).reduce((sum, count) => sum + (count ?? 0), 0),
+      repaired_candidates: selection.report.repaired,
+      directions: plannedDirections(snapshot),
     });
+    expect(result.outfits).toEqual(selection.outfits);
     const known = new Set((await testDb.db.select({ id: items.id }).from(items)).map((item) => item.id));
     for (const outfit of result.outfits) for (const entry of outfit.items) expect(known.has(entry.itemId)).toBe(true);
 
-    // The answer is the page's DTO: names, slots in order, nothing saved or worn yet.
+    // The answer is the page's DTO: names, slots in order, the direction, nothing saved or worn yet.
     expect(suggestion.date).toBe("2026-11-03");
     expect(suggestion.profileId).toBe(hamburg.id);
-    expect(suggestion.itemCount).toBe(17);
+    expect(suggestion.itemCount).toBe(WARDROBE_SIZE);
     const [first] = suggestion.outfits;
-    expect(first).toMatchObject({ index: 0, available: true, savedOutfitId: null, wornToday: false });
+    expect(first).toMatchObject({
+      index: 0,
+      direction: result.outfits[0]?.direction,
+      available: true,
+      savedOutfitId: null,
+      wornToday: false,
+    });
     expect(first?.items.every((item) => item.exists && item.name.length > 0)).toBe(true);
+  });
+
+  it("keeps three of the five candidates, each valid and with its direction, the lone hoodie repaired", async () => {
+    const wardrobe = await insertWardrobe();
+    const snapshot = await serviceSnapshot();
+    // Claude follows the directions the instruction assigns.
+    const planned = plannedDirections(snapshot);
+    const reply = fakeOutfitSuggestionReply(snapshot, { directions: planned });
+    expect(reply.outfits).toHaveLength(OUTFIT_CANDIDATE_COUNT);
+    const selection = await selectionOf(snapshot, reply);
+    const fake = createFakeAnthropic([fakeMessage({ json: reply, model: "claude-sonnet-5-5" })]);
+
+    const suggestion = await suggestOutfits(testDb.db, deps(fake));
+
+    const [row] = await suggestionRows();
+    const result = row?.result as OutfitSuggestionResult;
+    expect(result.outfits).toHaveLength(3);
+    const checkItems = toCheckItems(await testDb.db.select().from(items));
+    for (const outfit of result.outfits) {
+      expect(validateOutfit(outfit.items, checkItems), outfit.title).toMatchObject({ ok: true });
+      expect(planned, outfit.title).toContain(outfit.direction);
+    }
+    expect(suggestion.outfits.map((outfit) => outfit.direction)).toEqual(result.outfits.map((outfit) => outfit.direction));
+    expect(result.meta).toMatchObject({
+      candidate_count: OUTFIT_CANDIDATE_COUNT,
+      dropped_candidates: Object.values(selection.report.dropped).reduce((sum, count) => sum + (count ?? 0), 0),
+      repaired_candidates: selection.report.repaired,
+      directions: planned,
+    });
+    // The candidate with the hoodie alone in top and boots without socks is repaired.
+    expect(result.meta.repaired_candidates).toBeGreaterThanOrEqual(1);
+    expect(result.meta.directions).toHaveLength(OUTFIT_CANDIDATE_COUNT);
+
+    expect(result.outfits).toEqual(selection.outfits);
+
+    // Picked for the fixture wardrobe and this seed: the tee goes under the hoodie, socks into the boots.
+    const hoodieOutfit = result.outfits.find((outfit) => outfit.items.some((entry) => entry.itemId === wardrobe.hoodie.id));
+    if (hoodieOutfit !== undefined) {
+      const slotOf = (itemId: string) => hoodieOutfit.items.find((entry) => entry.itemId === itemId)?.slot;
+      expect(slotOf(wardrobe.hoodie.id)).toBe("mid_layer");
+      expect(slotOf(wardrobe.tee.id)).toBe("top");
+      expect(hoodieOutfit.items.some((entry) => entry.slot === "socks")).toBe(true);
+    }
+  });
+
+  it("asks at effort medium with the 8,800-token cap, the direction enum and one direction per candidate", async () => {
+    await insertWardrobe();
+    const snapshot = await serviceSnapshot();
+    const fake = createFakeAnthropic([fakeMessage({ json: fakeOutfitSuggestionReply(snapshot) })]);
+
+    await suggestOutfits(testDb.db, deps(fake));
+
+    const request = fake.requests[0]?.params;
+    expect(request?.output_config?.effort).toBe("medium");
+    expect(request?.max_tokens).toBe(8800);
+    const format = RequestFormatSchema.parse(request?.output_config?.format);
+    expect(format.schema.properties.outfits.items.properties.direction.enum).toEqual([...DIRECTION_KEYS]);
+
+    const directions = blockOf(instructionOf(fake), "directions");
+    const planned = plannedDirections(snapshot);
+    expect(directions).toHaveLength(OUTFIT_CANDIDATE_COUNT);
+    directions?.forEach((row, index) => expect(row).toMatch(new RegExp(`^Outfit ${index + 1}: ${planned[index]} \\(`)));
+    // A first suggestion of the day has no history to name.
+    for (const tag of ["recent", "liked", "disliked"]) expect(blockOf(instructionOf(fake), tag)).toBeNull();
+  });
+
+  it("names the first run's outfits in a forced run's <recent> block and draws other directions", async () => {
+    await insertWardrobe();
+    const snapshot = await serviceSnapshot();
+    const reply = fakeOutfitSuggestionReply(snapshot);
+    const fake = createFakeAnthropic([fakeMessage({ json: reply }), fakeMessage({ json: reply })]);
+    const first = await suggestOutfits(testDb.db, deps(fake));
+
+    const forced = await suggestOutfits(testDb.db, { ...deps(fake), now: () => NOW.getTime() + 60_000 }, { force: true });
+
+    const recent = blockOf(instructionOf(fake, 1), "recent");
+    // Each named with its direction's label, read back from the stored run.
+    const shown = first.outfits.map((outfit) => {
+      const label = directionLabel(outfit.direction);
+      expect(label).not.toBeNull();
+      return `- today, suggested (${label}): ${aliasesIn(snapshot, outfit.items.map((item) => item.itemId))}`;
+    });
+    expect(recent).toEqual(expect.arrayContaining(shown));
+    expect(blockOf(instructionOf(fake, 0), "recent")).toBeNull();
+
+    const rows = await suggestionRows();
+    const metaOf = (id: string) => (rows.find((row) => row.id === id)?.result as OutfitSuggestionResult).meta;
+    const firstDirections = metaOf(first.analysisId).directions;
+    const forcedDirections = metaOf(forced.analysisId).directions;
+    expect(forcedDirections).toHaveLength(OUTFIT_CANDIDATE_COUNT);
+    // The second run of the day draws with another seed, away from the first run's directions.
+    expect(forcedDirections).not.toEqual(firstDirections);
+    const asked = blockOf(instructionOf(fake, 1), "directions")?.map((row) => row.split(" ")[2]);
+    expect(asked).toEqual(forcedDirections);
+  });
+
+  it("names a recent wear in <recent> and a saved outfit rated 5 in <liked>", async () => {
+    const wardrobe = await insertWardrobe();
+    const { coat, oxford, chinos, boots, tee, jeans, sneakers } = wardrobe;
+    const [liked] = await testDb.db.insert(outfits).values({ name: "Sunday best", rating: 5, createdAt: NOW }).returning();
+    if (liked === undefined) throw new Error("no outfit");
+    await testDb.db.insert(outfitItems).values([
+      { outfitId: liked.id, itemId: coat.id, slot: "outerwear" },
+      { outfitId: liked.id, itemId: oxford.id, slot: "top" },
+      { outfitId: liked.id, itemId: chinos.id, slot: "bottom" },
+      { outfitId: liked.id, itemId: boots.id, slot: "shoes" },
+    ]);
+    // "Wore this today" on a card two days ago: loose logs of one day form one worn outfit.
+    await testDb.db
+      .insert(wearLogs)
+      .values([tee, jeans, sneakers].map((item) => ({ itemId: item.id, wornOn: "2026-11-01", createdAt: NOW })));
+    const snapshot = await serviceSnapshot();
+    const fake = createFakeAnthropic([fakeMessage({ json: fakeOutfitSuggestionReply(snapshot) })]);
+
+    await suggestOutfits(testDb.db, deps(fake));
+
+    const text = instructionOf(fake);
+    expect(blockOf(text, "recent")).toEqual([`- 2 days ago, worn: ${aliasesIn(snapshot, [tee.id, jeans.id, sneakers.id])}`]);
+    // Saved in the builder (source "user"), so the note says the owner built it.
+    expect(blockOf(text, "liked")).toEqual([
+      `- built by the owner, rated 5: ${aliasesIn(snapshot, [coat.id, oxford.id, chinos.id, boots.id])}`,
+    ]);
+    expect(blockOf(text, "disliked")).toBeNull();
+    expect(historySpy).toHaveBeenCalledWith(testDb.db, { profileId: hamburg.id, today: "2026-11-03" });
   });
 
   it("answers today's stored suggestion without a call when nothing changed", async () => {
@@ -416,12 +618,15 @@ describe("suggestOutfits", () => {
     const fake = createFakeAnthropic([fakeMessage({ json: await validReply() })]);
     const first = await suggestOutfits(testDb.db, deps(fake));
 
+    expect(historySpy).toHaveBeenCalledTimes(1);
     const anthropic = vi.fn(() => fake);
     const second = await suggestOutfits(testDb.db, deps(fake, { anthropic }));
 
     expect(second.analysisId).toBe(first.analysisId);
     expect(fake.requests).toHaveLength(1);
     expect(anthropic).not.toHaveBeenCalled();
+    // The history (now holding the first run) is neither read nor part of the reuse key (D-257).
+    expect(historySpy).toHaveBeenCalledTimes(1);
     expect(await callRows()).toHaveLength(1);
     expect(await suggestionRows()).toHaveLength(1);
   });
@@ -463,6 +668,7 @@ describe("suggestOutfits", () => {
     await expect(suggestOutfits(testDb.db, deps(fake, { anthropic }))).rejects.toMatchObject({ code: "BUDGET_EXCEEDED" });
 
     expect(anthropic).not.toHaveBeenCalled();
+    expect(historySpy).not.toHaveBeenCalled();
     expect(fake.requests).toHaveLength(0);
     expect(await suggestionRows()).toHaveLength(0);
     expect(await callRows()).toHaveLength(1);
@@ -479,19 +685,26 @@ describe("suggestOutfits", () => {
     });
 
     expect(anthropic).toHaveBeenCalledTimes(1);
+    expect(historySpy).not.toHaveBeenCalled();
     expect(await suggestionRows()).toHaveLength(0);
     expect(await callRows()).toHaveLength(0);
   });
 
   it("refuses before any paid call when the items cannot make three different outfits", async () => {
     const one = makeOutfitWardrobe();
-    await insertItems([one.tee, one.jeans, one.boots]);
+    // A hat, scarf, gloves, socks and a bag do not make another outfit: only one core exists.
+    await insertItems([one.tee, one.jeans, one.boots, one.beanie, one.scarf, one.gloves, one.woolSocks, one.tote]);
     const anthropic = vi.fn(() => createFakeAnthropic());
 
     await expect(suggestOutfits(testDb.db, deps(createFakeAnthropic(), { anthropic }))).rejects.toMatchObject({
       code: "VALIDATION",
+      message:
+        "Three different outfits need more tops, dresses, bottoms, shoes or outerwear to combine: hats, scarves, gloves, " +
+        "socks, base layers and accessories do not make another outfit. Only tagged or confirmed items in Hamburg or of " +
+        "unknown location count. Tag or confirm more items first.",
     });
     expect(anthropic).not.toHaveBeenCalled();
+    expect(historySpy).not.toHaveBeenCalled();
     expect(await suggestionRows()).toHaveLength(0);
   });
 
@@ -577,42 +790,73 @@ describe("suggestOutfits", () => {
     expect(suggestion.outfits).toHaveLength(3);
   });
 
-  it("retries a reply that names an unknown alias, and stores the cost of both attempts", async () => {
+  it("drops a candidate that names an unknown alias and keeps three of the rest without a retry", async () => {
+    await insertWardrobe();
+    const reply = await validReply();
+    const entry = reply.outfits[1]?.items[0];
+    if (entry === undefined) throw new Error("no entry");
+    entry.item = "i999";
+    const fake = createFakeAnthropic([fakeMessage({ json: reply })]);
+
+    const suggestion = await suggestOutfits(testDb.db, deps(fake));
+
+    expect(fake.requests).toHaveLength(1);
+    expect(suggestion.outfits).toHaveLength(3);
+    const [row] = await suggestionRows();
+    expect((row?.result as OutfitSuggestionResult).meta).toMatchObject({
+      candidate_count: OUTFIT_CANDIDATE_COUNT,
+      dropped_candidates: 1,
+    });
+  });
+
+  it("retries a reply with fewer than three usable candidates, and stores the good reply and the cost of both", async () => {
     await insertWardrobe();
     const good = await validReply();
     const bad = structuredClone(good);
-    const entry = bad.outfits[0]?.items[0];
-    if (entry === undefined) throw new Error("no entry");
-    entry.item = "i999";
+    // Three of the five name items this request did not list.
+    [0, 1, 3].forEach((index, n) => {
+      const entry = bad.outfits[index]?.items[0];
+      if (entry === undefined) throw new Error("no entry");
+      entry.item = `i99${n}`;
+    });
     const fake = createFakeAnthropic([fakeMessage({ json: bad }), fakeMessage({ json: good })]);
 
     const suggestion = await suggestOutfits(testDb.db, deps(fake));
 
     expect(fake.requests).toHaveLength(2);
-    const calls = await callRows();
-    expect(calls.map((call) => call.status).sort()).toEqual(["invalid_output", "success"]);
+    const calls = await testDb.db.select().from(aiCalls).orderBy(asc(aiCalls.attempt));
+    expect(calls).toHaveLength(2);
+    expect(calls[0]).toMatchObject({ attempt: 1, status: "invalid_output", analysisId: suggestion.analysisId });
+    expect(calls[0]?.errorMessage).toContain("2 of 5 candidates usable, 3 needed: 3 unknown_alias");
+    expect(calls[1]).toMatchObject({ attempt: 2, status: "success", analysisId: suggestion.analysisId });
     const [row] = await suggestionRows();
+    expect(row?.status).toBe("complete");
+    // The stored outfits and counts are the good reply's.
+    expect((row?.result as OutfitSuggestionResult).outfits).toEqual(
+      (await selectionOf(await serviceSnapshot(), good)).outfits,
+    );
+    expect((row?.result as OutfitSuggestionResult).meta).toMatchObject({ candidate_count: 5, dropped_candidates: 0 });
     const total = calls.reduce((sum, call) => sum + call.costUsd, 0);
     expect(row?.costUsd).toBeCloseTo(total, 6);
     expect(suggestion.costUsd).toBeCloseTo(total, 6);
   });
 
-  it("retries a reply whose outfit breaks the slot rules", async () => {
+  it("retries a reply whose outfits break the slot rules until fewer than three are left", async () => {
     await insertWardrobe();
     const snapshot = await serviceSnapshot();
     const good = fakeOutfitSuggestionReply(snapshot);
     const bad = structuredClone(good);
-    const first = bad.outfits[0];
-    if (first === undefined) throw new Error("no outfit");
-    // No bottom with a top.
-    first.items = first.items.filter((entry) => entry.slot !== "bottom");
+    // No bottom with a top, in every candidate that has one but the repairable hoodie.
+    const broken = bad.outfits.filter((outfit, index) => index !== 2 && outfit.items.some((entry) => entry.slot === "bottom"));
+    expect(broken).toHaveLength(3);
+    for (const outfit of broken) outfit.items = outfit.items.filter((entry) => entry.slot !== "bottom");
     const fake = createFakeAnthropic([fakeMessage({ json: bad }), fakeMessage({ json: good })]);
 
     await suggestOutfits(testDb.db, deps(fake));
 
     expect(fake.requests).toHaveLength(2);
     const [invalid] = (await callRows()).filter((call) => call.status === "invalid_output");
-    expect(invalid?.errorMessage).toContain("missing_bottom");
+    expect(invalid?.errorMessage).toContain("3 invalid_outfit");
   });
 
   it("marks the suggestion failed with every paid attempt's cost when no reply passes", async () => {
@@ -640,9 +884,12 @@ describe("quoteOutfitSuggestion", () => {
   it("prices a call for today's items without an API key and says whether three outfits are possible", async () => {
     await insertWardrobe();
     const quote = await quoteOutfitSuggestion(testDb.db, today());
-    expect(quote).toMatchObject({ model: "claude-sonnet-5-5", itemCount: 17, droppedCount: 0, canSuggest: true });
-    expect(quote.estimateUsd).toBeGreaterThan(0);
-    expect(quote.estimateUsd).toBeLessThan(0.2);
+    expect(quote).toMatchObject({ model: "claude-sonnet-5-5", itemCount: WARDROBE_SIZE, droppedCount: 0, canSuggest: true });
+    expect(quote.estimateUsd).toBeCloseTo(estimateOutfitSuggestionUsd("claude-sonnet-5-5", (await serviceSnapshot()).lines), 6);
+    // Five candidates at effort medium: several cents on Sonnet for a small wardrobe, not a dime and a half.
+    expect(quote.estimateUsd).toBeGreaterThan(0.05);
+    expect(quote.estimateUsd).toBeLessThan(0.15);
+    expect(historySpy).not.toHaveBeenCalled();
   });
 
   it("follows the home city's items", async () => {

@@ -112,7 +112,8 @@ function quoteText(data: TodayViewData, again: boolean): string {
   if (!quote.canSuggest) {
     return (
       `Three different outfits need more tagged items in ${place.city} or of unknown location: ` +
-      "at least two tops or dresses, with a bottom for each top. Tag or confirm more items first."
+      "more tops, dresses, bottoms, shoes or outerwear to combine. Hats, scarves, gloves, socks, base layers and " +
+      "accessories do not make another outfit. Tag or confirm more items first."
     )
   }
   const items = plural(quote.itemCount, "item", "items")

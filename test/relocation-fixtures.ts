@@ -72,6 +72,9 @@ const TEMPLATES: Record<ItemCategory, readonly Template[]> = {
     { name: "Brown leather chelsea boots", category: "shoes", subcategory: "chelsea boots", colors: ["brown"], materials: ["leather", "rubber"], warmthLevel: 3, waterproof: false, windproof: true, insulated: false, seasons: ["winter", "spring", "autumn"], formality: "smart_casual" },
     { name: "White canvas sneakers", category: "shoes", subcategory: "sneakers", colors: ["white"], materials: ["canvas", "rubber"], warmthLevel: 1, waterproof: false, windproof: false, insulated: false, seasons: ["spring", "summer"], formality: "casual" },
   ],
+  socks: [
+    { name: "Grey wool socks", category: "socks", subcategory: "wool socks", colors: ["grey"], materials: ["wool", "nylon"], warmthLevel: 2, waterproof: false, windproof: false, insulated: false, seasons: ["winter", "autumn"], formality: "casual" },
+  ],
   gloves: [
     { name: "Black leather gloves", category: "gloves", subcategory: "gloves", colors: ["black"], materials: ["leather", "wool"], warmthLevel: 3, waterproof: false, windproof: true, insulated: true, seasons: ["winter"], formality: "smart_casual" },
   ],
@@ -83,7 +86,7 @@ const TEMPLATES: Record<ItemCategory, readonly Template[]> = {
   ],
   base_layer: [
     { name: "Black merino long-sleeve base layer", category: "base_layer", subcategory: "thermal top", colors: ["black"], materials: ["merino"], warmthLevel: 2, waterproof: false, windproof: false, insulated: false, seasons: ["winter", "autumn"], formality: "athletic" },
-    { name: "Grey wool socks", category: "base_layer", subcategory: "socks", colors: ["grey"], materials: ["wool", "nylon"], warmthLevel: 2, waterproof: false, windproof: false, insulated: false, seasons: ["winter", "autumn"], formality: "casual" },
+    { name: "Black merino leggings", category: "base_layer", subcategory: "thermal leggings", colors: ["black"], materials: ["merino"], warmthLevel: 2, waterproof: false, windproof: false, insulated: false, seasons: ["winter", "autumn"], formality: "athletic" },
   ],
   accessory: [
     { name: "Brown leather belt", category: "accessory", subcategory: "belt", colors: ["brown"], materials: ["leather"], warmthLevel: 1, waterproof: false, windproof: false, insulated: false, seasons: ["winter", "spring", "summer", "autumn"], formality: "smart_casual" },
@@ -103,10 +106,11 @@ const TYPICAL_SHARES: ReadonlyArray<readonly [ItemCategory, number]> = [
   ["bottom", 45],
   ["dress", 10],
   ["shoes", 30],
+  ["socks", 12],
   ["gloves", 5],
   ["hat_beanie", 8],
   ["scarf", 8],
-  ["base_layer", 40],
+  ["base_layer", 28],
   ["accessory", 24],
   ["bag", 12],
   ["other", 8],

@@ -18,9 +18,11 @@ const SEARCH_MAX = 100
 
 export const PICK_TITLES: Readonly<Record<OutfitSlot, string>> = {
   outerwear: "Choose outerwear",
+  mid_layer: "Choose a mid layer",
   base_layer: "Choose a base layer",
   top: "Choose a top or dress",
   bottom: "Choose a bottom",
+  socks: "Choose socks",
   shoes: "Choose shoes",
   hat: "Choose a hat",
   gloves: "Choose gloves",
@@ -31,7 +33,7 @@ export const PICK_TITLES: Readonly<Record<OutfitSlot, string>> = {
 export type SlotPickerDialogProps = {
   /** The slot being filled; null when the dialog is closed. */
   slot: OutfitSlot | null
-  /** The slot's items (its categories, not archived, clothing only: D-249), by name. */
+  /** The slot's items (its categories, not archived, clothing only: D-249), in the order to list them (orderCandidates). */
   candidates: readonly SlotCandidateDto[]
   /** Items already in the outfit: shown as chosen and not offered again. */
   chosenIds: ReadonlySet<string>

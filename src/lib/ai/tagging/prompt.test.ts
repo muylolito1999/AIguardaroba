@@ -20,6 +20,11 @@ const PINNED = {
     system: "c6e3ece4d5fd2447996762ea3b5f01ee38ad73a75bc7a82c1a62274e1f207b0a",
     instruction: "54d7d744b96806e6dd3be7e9f713e638cc398154a3ea543ae6869b252b338e9b",
   },
+  // The socks category, socks out of base_layer and preferred subcategory terms; the instruction is unchanged.
+  "tag-v2": {
+    system: "46c60bbe7a9215b9b7fb7657d619ceb0a43fa78cbb45aa4a7d4c65c2827d9731",
+    instruction: "54d7d744b96806e6dd3be7e9f713e638cc398154a3ea543ae6869b252b338e9b",
+  },
 } as const;
 
 function sha256(text: string): string {
@@ -28,7 +33,7 @@ function sha256(text: string): string {
 
 describe("tagging prompt", () => {
   it("matches the hashes pinned for its version", () => {
-    expect(TAG_PROMPT_VERSION).toBe("tag-v1");
+    expect(TAG_PROMPT_VERSION).toBe("tag-v2");
     expect(sha256(TAGGING_SYSTEM_PROMPT)).toBe(PINNED[TAG_PROMPT_VERSION].system);
     expect(sha256(TAGGING_USER_INSTRUCTION)).toBe(PINNED[TAG_PROMPT_VERSION].instruction);
   });
@@ -61,6 +66,15 @@ describe("tagging prompt", () => {
     expect(TAGGING_SYSTEM_PROMPT).toContain("lowercase #rrggbb");
     expect(TAGGING_SYSTEM_PROMPT).toMatch(/null when you cannot tell/);
     expect(TAGGING_SYSTEM_PROMPT).toMatch(/brand_guess only from a legible name or logo/);
+  });
+
+  it("files socks under socks, not base_layer, and names the preferred subcategory terms", () => {
+    const line = (prefix: string) => TAGGING_SYSTEM_PROMPT.split("\n").find((candidate) => candidate.startsWith(prefix)) ?? "";
+    expect(line("- socks:")).toContain("no-show");
+    expect(line("- base_layer:")).not.toMatch(/socks/);
+    for (const term of ["long-sleeve t-shirt", "overshirt", "quarter-zip", "chelsea boots", "slides", "wool socks", "no-show socks"]) {
+      expect(line("- subcategory:")).toContain(term);
+    }
   });
 
   it("never asks for reasoning, thinking or thoughts", () => {

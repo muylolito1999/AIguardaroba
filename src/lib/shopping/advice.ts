@@ -27,7 +27,7 @@ export {
   type ShoppingRecommendation,
 } from "@/lib/shopping/advice-result";
 
-export const SHOPPING_PROMPT_VERSION = "shop-v2";
+export const SHOPPING_PROMPT_VERSION = "shop-v3";
 
 const A = SHOPPING_ADVICE_LIMITS;
 
@@ -129,7 +129,7 @@ The app counts outfits deterministically, and you must take its numbers as given
 - An outfit here is a top or a dress, plus a bottom unless it is a dress, plus shoes, with or without outerwear. It fits a scenario when the formality of its pieces is within one step (athletic, casual, smart_casual, business, formal), their summed warmth suits the month's mean temperature, each piece suits the month on its own (no summer-weight bottom, dress or shoes in cool or colder months, outerwear when it is near freezing, no heavy outerwear in mild or warm months), and, in a rainy month, the outerwear or the shoes are waterproof.
 - "unlocks" says how many new outfits the purchase would add in each scenario. The attributes of a candidate are read from its description and may be rough, so treat the counts as a strong signal rather than exact truth.
 - A scenario where the wardrobe makes few or no outfits today is a real gap: a purchase that unlocks outfits there is worth more than one that adds to a month already well covered.
-- Base layers, hats, gloves, scarves, bags and accessories are not part of the count, so they always unlock 0. Judge them from the climate instead: in cold, wet or windy months they can matter as much as a coat.
+- Base layers, socks, hats, gloves, scarves, bags and accessories are not part of the count, so they always unlock 0. Judge them from the climate instead: in cold, wet or windy months they can matter as much as a coat.
 
 RANKING
 - Rank the candidates worth buying, most important first: at least 1 and at most ${A.maxRecommendations}. Leave out what the wardrobe does not need yet, duplicates of a better candidate, and anything the climate does not justify.

@@ -24,6 +24,7 @@ export const ITEM_CATEGORIES = [
   "bottom",
   "dress",
   "shoes",
+  "socks",
   "gloves",
   "hat_beanie",
   "scarf",
@@ -70,12 +71,14 @@ export type PackingGroup = (typeof PACKING_GROUPS)[number];
 export const OUTFIT_SOURCES = ["user", "ai"] as const;
 export type OutfitSource = (typeof OUTFIT_SOURCES)[number];
 
-// The spec's slots plus base_layer (D-038).
+// The spec's slots plus base_layer (D-038), mid_layer and socks (D-253).
 export const OUTFIT_SLOTS = [
   "outerwear",
+  "mid_layer",
   "base_layer",
   "top",
   "bottom",
+  "socks",
   "shoes",
   "hat",
   "gloves",

@@ -10,9 +10,10 @@ import { makeImage, makeTaggedItem } from "../test/factories"
 import { E2E_DATABASE_URL, E2E_PASSWORD } from "./constants"
 
 // Outfits and wear tracking against the production build: build and save an
-// outfit with the slot pickers, see it listed, log a wear from the list and
-// undo it, log one on the item page and see its count there, then delete the
-// outfit and check its items stay. The items are inserted straight into
+// outfit with the slot pickers (a hoodie as the mid layer over a tee, and
+// socks: D-253), see it listed, log a wear from the list and undo it, log one
+// on the item page and see its count there, then delete the outfit and check
+// its items stay. The items are inserted straight into
 // wardrobe_e2e, all named with the made-up word "Outspec" so the pickers'
 // search finds only them; photos point at a static icon the app serves
 // itself. Every row this spec creates is deleted again in afterAll. Wear
@@ -24,11 +25,14 @@ const OUTFIT_NAME = `${TOKEN} weekend`
 const pool = new Pool({ connectionString: E2E_DATABASE_URL, max: 2 })
 const db = drizzle({ client: pool, relations })
 const createdItemIds: string[] = []
-const ids = { sweater: "", jeans: "", boots: "" }
+const ids = { tee: "", hoodie: "", jeans: "", socks: "", boots: "" }
 
 const ITEMS: Record<keyof typeof ids, Partial<NewItem> & { name: string }> = {
-  sweater: { name: `${TOKEN} grey sweater`, category: "top", subcategory: "sweater", warmthLevel: 3 },
+  tee: { name: `${TOKEN} white tee`, category: "top", subcategory: "t-shirt", warmthLevel: 1 },
+  // A top too: it goes in the mid layer, over the tee.
+  hoodie: { name: `${TOKEN} navy hoodie`, category: "top", subcategory: "hoodie", warmthLevel: 3 },
   jeans: { name: `${TOKEN} dark jeans`, category: "bottom", subcategory: "jeans", warmthLevel: 2 },
+  socks: { name: `${TOKEN} wool socks`, category: "socks", subcategory: "crew socks", warmthLevel: 2 },
   boots: { name: `${TOKEN} brown boots`, category: "shoes", subcategory: "boots", warmthLevel: 3, waterproof: true },
 }
 
@@ -45,10 +49,10 @@ async function expectNoHorizontalScroll(page: Page): Promise<void> {
   expect(overflow).toBeLessThanOrEqual(0)
 }
 
-/** Opens a slot's picker, searches for the spec's items and picks one by name. */
-async function pick(page: Page, slotButton: string, itemName: string): Promise<void> {
+/** Opens a slot's picker (named `title`, when given), searches for the spec's items and picks one by name. */
+async function pick(page: Page, slotButton: string, itemName: string, title?: string): Promise<void> {
   await page.getByRole("button", { name: slotButton }).click()
-  const dialog = page.getByRole("dialog")
+  const dialog = title === undefined ? page.getByRole("dialog") : page.getByRole("dialog", { name: title })
   await expect(dialog).toBeVisible()
   await dialog.getByLabel("Search").fill(TOKEN)
   await dialog.getByRole("button", { name: new RegExp(itemName) }).click()
@@ -104,11 +108,29 @@ test("builds an outfit, logs and undoes wears, and deletes it while its items st
   await expect(page.getByRole("group", { name: "Top or dress" })).toContainText("Choose a top or a dress.")
   await expect(page.getByText("Give the outfit a name.")).toBeVisible()
 
-  await pick(page, "Choose top or dress", ITEMS.sweater.name)
+  await expect(page.getByRole("group", { name: "Mid layer", exact: true })).toContainText(
+    "Optional: a sweater, hoodie or cardigan over the top"
+  )
+  await pick(page, "Choose top or dress", ITEMS.tee.name)
+
+  // The mid layer takes tops too; the tee already in the top is shown as chosen, not offered again.
+  await page.getByRole("button", { name: "Choose mid layer" }).click()
+  const layers = page.getByRole("dialog", { name: "Choose a mid layer" })
+  await expect(layers).toBeVisible()
+  await layers.getByLabel("Search").fill(TOKEN)
+  const chosenTee = layers.getByRole("button", { name: new RegExp(ITEMS.tee.name) })
+  await expect(chosenTee).toHaveAttribute("aria-disabled", "true")
+  await expect(chosenTee).toContainText("Chosen")
+  await layers.getByRole("button", { name: new RegExp(ITEMS.hoodie.name) }).click()
+  await expect(layers).toBeHidden()
+
   await pick(page, "Choose bottom", ITEMS.jeans.name)
   await pick(page, "Choose shoes", ITEMS.boots.name)
-  await expect(page.getByRole("group", { name: "Top or dress" })).toContainText(ITEMS.sweater.name)
+  await pick(page, "Choose socks", ITEMS.socks.name, "Choose socks")
+  await expect(page.getByRole("group", { name: "Top or dress" })).toContainText(ITEMS.tee.name)
   await expect(page.getByRole("group", { name: "Top or dress" })).not.toContainText("Choose a top or a dress.")
+  await expect(page.getByRole("group", { name: "Mid layer", exact: true })).toContainText(ITEMS.hoodie.name)
+  await expect(page.getByRole("group", { name: "Socks", exact: true })).toContainText(ITEMS.socks.name)
   await page.getByLabel("Name").fill(OUTFIT_NAME)
   await page.getByLabel("Occasion").fill("Weekend walk")
   await page.getByLabel("Lowest °C").fill("4")
@@ -125,16 +147,21 @@ test("builds an outfit, logs and undoes wears, and deletes it while its items st
   await expect(card).toContainText("4 to 12.5 °C")
   await expect(card).toContainText("Fine in rain")
   await expect(card).toContainText("Never worn")
+  await expect(card).toContainText(ITEMS.hoodie.name)
+  await expect(card).toContainText(ITEMS.socks.name)
 
   // A wear from the list, then its Undo from the toast.
   await card.getByRole("button", { name: "Wore this today" }).click()
   await expect(page.getByText("Logged as worn")).toBeVisible()
   await expect(card).toContainText("Worn once")
-  expect(await wearCount(ids.sweater)).toBe(1)
+  expect(await wearCount(ids.tee)).toBe(1)
+  // The mid layer and the socks are worn with the outfit too.
+  expect(await wearCount(ids.hoodie)).toBe(1)
+  expect(await wearCount(ids.socks)).toBe(1)
   await page.getByRole("button", { name: "Undo" }).click()
   await expect(page.getByText("Wear undone")).toBeVisible()
   await expect(card).toContainText("Never worn")
-  expect(await wearCount(ids.sweater)).toBe(0)
+  expect(await wearCount(ids.tee)).toBe(0)
 
   // Logged again; a second press the same day counts once.
   await card.getByRole("button", { name: "Wore this today" }).click()
@@ -142,17 +169,17 @@ test("builds an outfit, logs and undoes wears, and deletes it while its items st
   await card.getByRole("button", { name: "Wore this today" }).click()
   // Exact: the toast's description says "is already logged" too.
   await expect(page.getByText("Already logged", { exact: true })).toBeVisible()
-  expect(await wearCount(ids.sweater)).toBe(1)
+  expect(await wearCount(ids.tee)).toBe(1)
 
   // The item page shows the count, and "+1 worn today" adds an item-only wear with Undo.
-  await page.goto(`/wardrobe/${ids.sweater}`)
-  await expect(page.getByRole("heading", { level: 1, name: ITEMS.sweater.name })).toBeVisible()
+  await page.goto(`/wardrobe/${ids.tee}`)
+  await expect(page.getByRole("heading", { level: 1, name: ITEMS.tee.name })).toBeVisible()
   await expect(wornValue(page)).toHaveText("Once")
   await page.getByRole("button", { name: "+1 worn today" }).click()
   await expect(wornValue(page)).toHaveText("2 times")
   await page.getByRole("button", { name: "Undo" }).click()
   await expect(wornValue(page)).toHaveText("Once")
-  expect(await wearCount(ids.sweater)).toBe(1)
+  expect(await wearCount(ids.tee)).toBe(1)
 
   // Delete the outfit from its page; the items and their wear counts stay.
   await page.goto("/outfits")
@@ -160,6 +187,10 @@ test("builds an outfit, logs and undoes wears, and deletes it while its items st
   await expect(page.getByRole("heading", { level: 1, name: OUTFIT_NAME })).toBeVisible()
   // The outfit's own line; each chosen item shows its count as well ("Worn once · last …").
   await expect(page.getByText(/^Worn once, last on /)).toBeVisible()
+  // The saved slots come back: the hoodie in the mid layer over the tee, and the socks.
+  await expect(page.getByRole("group", { name: "Top or dress" })).toContainText(ITEMS.tee.name)
+  await expect(page.getByRole("group", { name: "Mid layer", exact: true })).toContainText(ITEMS.hoodie.name)
+  await expect(page.getByRole("group", { name: "Socks", exact: true })).toContainText(ITEMS.socks.name)
   await page.getByRole("button", { name: "Delete outfit" }).click()
   const confirm = page.getByRole("alertdialog")
   await expect(confirm).toContainText(`Delete ${OUTFIT_NAME}?`)
@@ -167,8 +198,8 @@ test("builds an outfit, logs and undoes wears, and deletes it while its items st
   await expect(page).toHaveURL((url) => url.pathname === "/outfits")
   await expect(outfitCard(page)).toHaveCount(0)
   const left = await db.select({ id: items.id }).from(items).where(inArray(items.id, createdItemIds))
-  expect(left).toHaveLength(3)
-  expect(await wearCount(ids.sweater)).toBe(1)
+  expect(left).toHaveLength(Object.keys(ITEMS).length)
+  expect(await wearCount(ids.tee)).toBe(1)
 })
 
 test("the builder and its picker fit a phone screen", async ({ page }) => {
@@ -179,7 +210,7 @@ test("the builder and its picker fit a phone screen", async ({ page }) => {
   await page.getByRole("button", { name: "Choose top or dress" }).click()
   const dialog = page.getByRole("dialog")
   await dialog.getByLabel("Search").fill(TOKEN)
-  await expect(dialog.getByRole("button", { name: new RegExp(ITEMS.sweater.name) })).toBeVisible()
+  await expect(dialog.getByRole("button", { name: new RegExp(ITEMS.tee.name) })).toBeVisible()
   await expectNoHorizontalScroll(page)
   await page.keyboard.press("Escape")
   await expect(dialog).toBeHidden()

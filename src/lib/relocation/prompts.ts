@@ -16,14 +16,16 @@
 // worn in rotation, and marks items already at the run's own destination
 // (now:there) instead of assuming Hamburg (D-170, D-171). reloc-v4 gives the
 // chunk instruction's leave the system prompt's meaning for items marked
-// now:there or now:in_transit, "not needed there" (D-179).
+// now:there or now:in_transit, "not needed there" (D-179). reloc-v5 has the
+// same text; the socks category changes the wardrobe summary and the gap
+// category enum in the synthesis wire schema.
 // Pure: no `server-only`, env or Node APIs.
 
 import { MONTH_NAMES } from "@/lib/climate/range";
 import { normalizeConstraints, type RelocationDecision, type RelocationPriority } from "@/lib/relocation/contracts";
 import { RELOCATION_LIMITS } from "@/lib/relocation/schemas";
 
-export const RELOC_PROMPT_VERSION = "reloc-v4";
+export const RELOC_PROMPT_VERSION = "reloc-v5";
 
 export const RELOCATION_SYSTEM_PROMPT = `You are a frugal relocation stylist working inside a personal wardrobe app. The owner is moving to another city (usually from Bologna, Italy, to Hamburg, Germany) and wants to know, for every clothing item and accessory they own, whether to bring it, leave it behind, donate it or sell it, and what little they still need to buy for the new climate. The owner reads your answer in the app, checks it and can override any decision, so be concrete and honest rather than reassuring.
 
